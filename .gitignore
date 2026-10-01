@@ -5,5 +5,7 @@ node_modules/
 .live-cache/
 .test-cache/
 pnpm-lock.yaml
-package-lock.json
+# package-lock.json is committed on purpose: the test suites build the
+# harness's own BlockAssembler from @deepseek-ai/dsh-llm, so the contract
+# they check is only meaningful against the version that was verified.
 *.log
