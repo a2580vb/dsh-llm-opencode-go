@@ -1,0 +1,38 @@
+# dsh-opencode-go layer.
+#
+# Registers one LLM provider route backed by the OpenCode Go relay at
+# https://opencode.ai/zen/go/v1, speaking whichever of its three wire protocols
+# each model actually serves.
+#
+# Every key is optional except that a credential must resolve at request time.
+# The exhaustive field list with JSDoc lives in the plugin's Config, and
+# README.md explains each one; this file shows the shape.
+#
+#   provider           route name requests select (default: opencode-go)
+#   apiKeyEnv          credential REFERENCE resolved per request through the
+#                      harness credential seam (default: OPENCODE_GO_API_KEY).
+#                      The key value itself never belongs in this file.
+#   baseURL            API root (default: https://opencode.ai/zen/go/v1)
+#   userAgentProduct   product token leading the User-Agent
+#   attribution        optional extra product token, e.g. deepseek-harness/0.2.0
+#   timeoutMs / streamIdleTimeoutMs
+#   modelSource        'discover' | 'config'
+#   modelsCacheSeconds / modelsCachePath
+#   models             advisory catalog entries
+#   modelOverrides     reshape one catalog model
+#   protocolOverrides  { "<model id>": "<protocol>" }
+#   defaultProtocol    'chat-completions' by default
+#   defaultContextWindow / defaultMaxTokens
+#   reasoningEfforts   selectable thinking levels
+#   sessionHeader      'session-id' | 'uuid' | 'off'
+#   sendClientHeader   send x-opencode-client
+#   disableReasoningReplay  stop replaying prior reasoning
+#   healthCheck        'off' | 'startup'
+#   retryPolicy        { mode, maxRetries, ... }
+- insert:
+    - id: opencode-go
+      name: dsh-opencode-go
+      config:
+        provider: opencode-go
+        apiKeyEnv: OPENCODE_GO_API_KEY
+        baseURL: https://opencode.ai/zen/go/v1

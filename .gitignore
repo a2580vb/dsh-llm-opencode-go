@@ -1,0 +1,9 @@
+# Local install and build artifacts.
+node_modules/
+.npm-cache/
+.pnpm-store/
+.live-cache/
+.test-cache/
+pnpm-lock.yaml
+package-lock.json
+*.log

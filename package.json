@@ -1,0 +1,51 @@
+{
+  "name": "dsh-opencode-go",
+  "version": "0.1.0",
+  "description": "DeepSeek Harness LLM adapter for OpenCode Go (opencode.ai/zen): /models discovery with cache, three wire protocols (OpenAI Responses, OpenAI-compatible Chat Completions, Anthropic Messages), tool calling, reasoning mapping, streaming, and the required x-opencode-session affinity header.",
+  "type": "module",
+  "main": "lib/index.js",
+  "exports": {
+    ".": "./lib/index.js",
+    "./package.json": "./package.json"
+  },
+  "files": [
+    "lib",
+    "cordis.patch.yml",
+    "README.md",
+    "README.zh-CN.md"
+  ],
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "test": "node tests/run.mjs",
+    "test:cordis": "node tests/real-cordis.mjs",
+    "test:live": "node tests/live.mjs",
+    "check": "node --check lib/index.js",
+    "prepublishOnly": "node --check lib/index.js && node tests/run.mjs"
+  },
+  "keywords": [
+    "dsh",
+    "deepseek-harness",
+    "dsh-plugin",
+    "cordis",
+    "opencode",
+    "opencode-go",
+    "opencode-zen",
+    "llm-adapter",
+    "x-opencode-session",
+    "openai-responses",
+    "anthropic-messages",
+    "chat-completions"
+  ],
+  "license": "MIT",
+  "comment": "Zero runtime dependencies on purpose: the adapter implements the harness contract with its own error and brand helpers, so it installs into any DSH version. See lib/error/errors.js.",
+  "devDependencies": {
+    "@deepseek-ai/dsh-llm": "^0.2.0-rc.2"
+  },
+  "dsh": {
+    "bundle": {
+      "patch": "./cordis.patch.yml"
+    }
+  }
+}

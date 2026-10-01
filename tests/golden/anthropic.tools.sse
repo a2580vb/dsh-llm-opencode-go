@@ -1,0 +1,44 @@
+event: message_start
+data: {"type":"message_start","message":{"id":"070e067703d120bf43008230a36d17bf","type":"message","role":"assistant","stop_reason":null,"stop_sequence":null,"model":"minimax-m2.7","content":[],"usage":{"input_tokens":202,"output_tokens":0}}}
+
+event: ping
+data: {"type":"ping"}
+
+event: content_block_start
+data: {"type":"content_block_start","index":0,"content_block":{"type":"thinking","thinking":""}}
+
+event: content_block_delta
+data: {"type":"content_block_delta","index":0,"delta":{"type":"thinking_delta","thinking":"The user"}}
+
+event: content_block_delta
+data: {"type":"content_block_delta","index":0,"delta":{"type":"thinking_delta","thinking":" is asking about the weather in Paris and wants me to use a tool to get this information. I have a \"get_weather\" function available that takes a city parameter"}}
+
+event: content_block_delta
+data: {"type":"content_block_delta","index":0,"delta":{"type":"thinking_delta","thinking":". I'll call this function with \"Paris\" as the city."}}
+
+event: content_block_delta
+data: {"type":"content_block_delta","index":0,"delta":{"type":"signature_delta","signature":"2cf3125b99675728380b09f9a064ecd02bb267c195123dec1e48a2bac62fbc6a"}}
+
+event: content_block_stop
+data: {"type":"content_block_stop","index":0}
+
+event: content_block_start
+data: {"type":"content_block_start","index":1,"content_block":{"type":"tool_use","id":"call_function_628n0hme3g04_1","name":"get_weather","input":{}}}
+
+event: content_block_delta
+data: {"type":"content_block_delta","index":1,"delta":{"type":"input_json_delta","partial_json":"{\"city\": \"Paris"}}
+
+event: content_block_delta
+data: {"type":"content_block_delta","index":1,"delta":{"type":"input_json_delta","partial_json":"\"}"}}
+
+event: content_block_stop
+data: {"type":"content_block_stop","index":1}
+
+event: message_delta
+data: {"type":"message_delta","delta":{"stop_reason":"tool_use"},"usage":{"input_tokens":202,"output_tokens":77,"output_tokens_details":{"thinking_tokens":52}}}
+
+event: message_stop
+data: {"type":"message_stop"}
+
+
+

@@ -1,0 +1,53 @@
+event: message_start
+data: {"type":"message_start","message":{"id":"070e0672fc931bc7c01efdda5f221be0","type":"message","role":"assistant","stop_reason":null,"stop_sequence":null,"model":"minimax-m2.7","content":[],"usage":{"input_tokens":46,"output_tokens":0}}}
+
+event: ping
+data: {"type":"ping"}
+
+event: content_block_start
+data: {"type":"content_block_start","index":0,"content_block":{"type":"thinking","thinking":""}}
+
+event: content_block_delta
+data: {"type":"content_block_delta","index":0,"delta":{"type":"thinking_delta","thinking":"We have"}}
+
+event: content_block_delta
+data: {"type":"content_block_delta","index":0,"delta":{"type":"thinking_delta","thinking":" a conversation:\n\nSystem message: \"You are a helpful assistant.\"\n\nUser: \"Reply with exactly: OK\"\n\nThe user"}}
+
+event: content_block_delta
+data: {"type":"content_block_delta","index":0,"delta":{"type":"thinking_delta","thinking":" wants a reply that is exactly \"OK\". So we must respond with exactly \"OK\" and no extra whitespace or characters. Also"}}
+
+event: content_block_delta
+data: {"type":"content_block_delta","index":0,"delta":{"type":"thinking_delta","thinking":" need to consider policy: The user request is permissible. Just output \"OK\". Ensure no"}}
+
+event: content_block_delta
+data: {"type":"content_block_delta","index":0,"delta":{"type":"thinking_delta","thinking":" extra characters.\n\nPotential issues: The user might want exactly the string \"OK\". So we should output exactly:\n\nOK\n\nWe must not add punctuation"}}
+
+event: content_block_delta
+data: {"type":"content_block_delta","index":0,"delta":{"type":"thinking_delta","thinking":". Should be exactly the letters O and K. Possibly need to ensure no trailing newline?"}}
+
+event: content_block_delta
+data: {"type":"content_block_delta","index":0,"delta":{"type":"thinking_delta","thinking":" Usually it's fine.\n\nWe'll comply."}}
+
+event: content_block_delta
+data: {"type":"content_block_delta","index":0,"delta":{"type":"signature_delta","signature":"f9fc27f12fa06675d12751cefcdf901ab0ca1fb2cfeb286170f599b016e8f7b3"}}
+
+event: content_block_stop
+data: {"type":"content_block_stop","index":0}
+
+event: content_block_start
+data: {"type":"content_block_start","index":1,"content_block":{"type":"text","text":""}}
+
+event: content_block_delta
+data: {"type":"content_block_delta","index":1,"delta":{"type":"text_delta","text":"OK"}}
+
+event: content_block_stop
+data: {"type":"content_block_stop","index":1}
+
+event: message_delta
+data: {"type":"message_delta","delta":{"stop_reason":"end_turn"},"usage":{"input_tokens":46,"output_tokens":129,"output_tokens_details":{"thinking_tokens":127}}}
+
+event: message_stop
+data: {"type":"message_stop"}
+
+
+

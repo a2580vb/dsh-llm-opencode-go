@@ -1,0 +1,35 @@
+event: response.created
+data: {"type":"response.created","sequence_number":0,"response":{"id":"resp_2cfb90d5905GipOC5zW-sFa2oxNfDwPziZtbZ8N7aFyWMQus8LSN-zbvLuGxCfTaBbKm0hknOGkwcSyMiyz-RyE5NaWjLISP1vwKwH2yLout14SpKJ3f4A7UlSfw9pcwXBp7eTP9O5vzWQmg4WSGrcKda90o1pQmXd9IKOgFxUUDQYFwGvIMDPMv4cZYZ5E5Lif-rALRtlQ","object":"response","created_at":1790890864,"completed_at":null,"status":"in_progress","parallel_tool_calls":true,"temperature":1,"top_p":0.98,"max_output_tokens":null,"previous_response_id":null,"background":false,"truncation":"disabled","top_logprobs":0,"max_tool_calls":null,"prompt_cache_retention":"24h","model":"gpt-5.6-luna","error":null,"incomplete_details":null,"output":[],"usage":null,"instructions":null,"tool_choice":"auto","tools":[{"type":"function","name":"get_weather","description":"Get the current weather for a city.","strict":true,"parameters":{"type":"object","properties":{"city":{"type":"string"}},"required":["city"],"additionalProperties":false},"output_schema":null}],"reasoning":{"context":"all_turns","effort":"medium","mode":"standard","summary":null},"text":{"verbosity":"medium","format":{"type":"text"}},"moderation":null}}
+
+event: response.in_progress
+data: {"type":"response.in_progress","sequence_number":1,"response":{"id":"resp_2cfb90d5905GipOC5zW-sFa2oxNfDwPziZtbZ8N7aFyWMQus8LSN-zbvLuGxCfTaBbKm0hknOGkwcSyMiyz-RyE5NaWjLISP1vwKwH2yLout14SpKJ3f4A7UlSfw9pcwXBp7eTP9O5vzWQmg4WSGrcKda90o1pQmXd9IKOgFxUUDQYFwGvIMDPMv4cZYZ5E5Lif-rALRtlQ","object":"response","created_at":1790890864,"completed_at":null,"status":"in_progress","parallel_tool_calls":true,"temperature":1,"top_p":0.98,"max_output_tokens":null,"previous_response_id":null,"background":false,"truncation":"disabled","top_logprobs":0,"max_tool_calls":null,"prompt_cache_retention":"24h","model":"gpt-5.6-luna","error":null,"incomplete_details":null,"output":[],"usage":null,"instructions":null,"tool_choice":"auto","tools":[{"type":"function","name":"get_weather","description":"Get the current weather for a city.","strict":true,"parameters":{"type":"object","properties":{"city":{"type":"string"}},"required":["city"],"additionalProperties":false},"output_schema":null}],"reasoning":{"context":"all_turns","effort":"medium","mode":"standard","summary":null},"text":{"verbosity":"medium","format":{"type":"text"}},"moderation":null}}
+
+event: response.output_item.added
+data: {"type":"response.output_item.added","sequence_number":2,"output_index":0,"item":{"id":"fc_0945202208b326b2006abed370e00c81949cee9e6cee2c94fa","type":"function_call","status":"in_progress","name":"get_weather","call_id":"call_QQfpY6z8xmJv6aM5oIaCTege","arguments":""}}
+
+event: response.function_call_arguments.delta
+data: {"type":"response.function_call_arguments.delta","sequence_number":3,"output_index":0,"item_id":"fc_0945202208b326b2006abed370e00c81949cee9e6cee2c94fa","delta":"{\"","obfuscation":"v3l5oNhAAPivnv"}
+
+event: response.function_call_arguments.delta
+data: {"type":"response.function_call_arguments.delta","sequence_number":4,"output_index":0,"item_id":"fc_0945202208b326b2006abed370e00c81949cee9e6cee2c94fa","delta":"city","obfuscation":"3J8Uvl8jUywl"}
+
+event: response.function_call_arguments.delta
+data: {"type":"response.function_call_arguments.delta","sequence_number":5,"output_index":0,"item_id":"fc_0945202208b326b2006abed370e00c81949cee9e6cee2c94fa","delta":"\":\"","obfuscation":"yc0OoEHMHCpkc"}
+
+event: response.function_call_arguments.delta
+data: {"type":"response.function_call_arguments.delta","sequence_number":6,"output_index":0,"item_id":"fc_0945202208b326b2006abed370e00c81949cee9e6cee2c94fa","delta":"Paris","obfuscation":"hFYFQFmzeM0"}
+
+event: response.function_call_arguments.delta
+data: {"type":"response.function_call_arguments.delta","sequence_number":7,"output_index":0,"item_id":"fc_0945202208b326b2006abed370e00c81949cee9e6cee2c94fa","delta":"\"}","obfuscation":"izhsQ0cZPH72E3"}
+
+event: response.function_call_arguments.done
+data: {"type":"response.function_call_arguments.done","sequence_number":8,"output_index":0,"item_id":"fc_0945202208b326b2006abed370e00c81949cee9e6cee2c94fa","arguments":"{\"city\":\"Paris\"}"}
+
+event: response.output_item.done
+data: {"type":"response.output_item.done","sequence_number":9,"output_index":0,"item":{"id":"fc_0945202208b326b2006abed370e00c81949cee9e6cee2c94fa","type":"function_call","status":"completed","name":"get_weather","call_id":"call_QQfpY6z8xmJv6aM5oIaCTege","arguments":"{\"city\":\"Paris\"}"}}
+
+event: response.completed
+data: {"type":"response.completed","sequence_number":10,"response":{"id":"resp_2cfb90d5905GipOC5zW-sFa2oxNfDwPziZtbZ8N7aFyWMQus8LSN-zbvLuGxCfTaBbKm0hknOGkwcSyMiyz-RyE5NaWjLISP1vwKwH2yLout14SpKJ3f4A7UlSfw9pcwXBp7eTP9O5vzWQmg4WSGrcKda90o1pQmXd9IKOgFxUUDQYFwGvIMDPMv4cZYZ5E5Lif-rALRtlQ","object":"response","created_at":1790890864,"completed_at":1790890865,"status":"completed","parallel_tool_calls":true,"temperature":1,"top_p":0.98,"max_output_tokens":null,"previous_response_id":null,"background":false,"truncation":"disabled","top_logprobs":0,"max_tool_calls":null,"prompt_cache_retention":"24h","model":"gpt-5.6-luna","error":null,"incomplete_details":null,"output":[{"id":"fc_0945202208b326b2006abed370e00c81949cee9e6cee2c94fa","type":"function_call","status":"completed","name":"get_weather","call_id":"call_QQfpY6z8xmJv6aM5oIaCTege","arguments":"{\"city\":\"Paris\"}"}],"usage":{"input_tokens":55,"output_tokens":18,"total_tokens":73,"input_tokens_details":{"cached_tokens":0,"cache_write_tokens":0},"output_tokens_details":{"reasoning_tokens":0}},"instructions":null,"tool_choice":"auto","tools":[{"type":"function","name":"get_weather","description":"Get the current weather for a city.","strict":true,"parameters":{"type":"object","properties":{"city":{"type":"string"}},"required":["city"],"additionalProperties":false},"output_schema":null}],"reasoning":{"context":"all_turns","effort":"medium","mode":"standard","summary":null},"text":{"verbosity":"medium","format":{"type":"text"}},"moderation":null}}
+
+
+

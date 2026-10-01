@@ -1,0 +1,26 @@
+data: {"id":"router-fd24edc3b6ef3f0700a131cd95ea9526","object":"chat.completion.chunk","created":1790890860,"model":"deepseek-v4-flash","choices":[{"index":0,"finish_reason":null,"logprobs":null,"delta":{"role":"assistant","content":"","reasoning_content":null}}]}
+
+data: {"id":"router-fd24edc3b6ef3f0700a131cd95ea9526","object":"chat.completion.chunk","created":1790890860,"model":"deepseek-v4-flash","choices":[{"index":0,"finish_reason":null,"logprobs":null,"delta":{"reasoning_content":"The"}}],"usage":{"prompt_tokens":369,"completion_tokens":1,"total_tokens":370,"prompt_tokens_details":{"cached_tokens":256}}}
+
+data: {"id":"router-fd24edc3b6ef3f0700a131cd95ea9526","object":"chat.completion.chunk","created":1790890860,"model":"deepseek-v4-flash","choices":[{"index":0,"finish_reason":null,"logprobs":null,"delta":{"reasoning_content":" user wants the weather in Paris"}}],"usage":{"prompt_tokens":369,"completion_tokens":7,"total_tokens":376,"prompt_tokens_details":{"cached_tokens":256}}}
+
+data: {"id":"router-fd24edc3b6ef3f0700a131cd95ea9526","object":"chat.completion.chunk","created":1790890860,"model":"deepseek-v4-flash","choices":[{"index":0,"finish_reason":null,"logprobs":null,"delta":{"reasoning_content":". I'll"}}],"usage":{"prompt_tokens":369,"completion_tokens":10,"total_tokens":379,"prompt_tokens_details":{"cached_tokens":256}}}
+
+data: {"id":"router-fd24edc3b6ef3f0700a131cd95ea9526","object":"chat.completion.chunk","created":1790890860,"model":"deepseek-v4-flash","choices":[{"index":0,"finish_reason":null,"logprobs":null,"delta":{"reasoning_content":" use"}}],"usage":{"prompt_tokens":369,"completion_tokens":11,"total_tokens":380,"prompt_tokens_details":{"cached_tokens":256}}}
+
+data: {"id":"router-fd24edc3b6ef3f0700a131cd95ea9526","object":"chat.completion.chunk","created":1790890860,"model":"deepseek-v4-flash","choices":[{"index":0,"finish_reason":null,"logprobs":null,"delta":{"reasoning_content":" the get_weather tool."}}],"usage":{"prompt_tokens":369,"completion_tokens":17,"total_tokens":386,"prompt_tokens_details":{"cached_tokens":256}}}
+
+data: {"id":"router-fd24edc3b6ef3f0700a131cd95ea9526","object":"chat.completion.chunk","created":1790890860,"model":"deepseek-v4-flash","choices":[{"index":0,"finish_reason":null,"logprobs":null,"delta":{"role":null,"content":null,"reasoning_content":null,"tool_calls":[{"index":0,"id":"call_ed5b2fc3fcfe4697a4bd275d","type":"function","function":{"name":"get_weather","arguments":""}}]}}],"usage":{"prompt_tokens":369,"completion_tokens":35,"total_tokens":404,"prompt_tokens_details":{"cached_tokens":256}}}
+
+data: {"id":"router-fd24edc3b6ef3f0700a131cd95ea9526","object":"chat.completion.chunk","created":1790890860,"model":"deepseek-v4-flash","choices":[{"index":0,"finish_reason":null,"logprobs":null,"delta":{"role":null,"content":null,"reasoning_content":null,"tool_calls":[{"index":0,"id":null,"type":"function","function":{"name":null,"arguments":"{"}}]}}],"usage":{"prompt_tokens":369,"completion_tokens":47,"total_tokens":416,"prompt_tokens_details":{"cached_tokens":256}}}
+
+data: {"id":"router-fd24edc3b6ef3f0700a131cd95ea9526","object":"chat.completion.chunk","created":1790890860,"model":"deepseek-v4-flash","choices":[{"index":0,"finish_reason":null,"logprobs":null,"delta":{"role":null,"content":null,"reasoning_content":null,"tool_calls":[{"index":0,"id":null,"type":"function","function":{"name":null,"arguments":"\"city\": \"Paris\"}"}}]}}],"usage":{"prompt_tokens":369,"completion_tokens":59,"total_tokens":428,"prompt_tokens_details":{"cached_tokens":256}}}
+
+data: {"id":"router-fd24edc3b6ef3f0700a131cd95ea9526","object":"chat.completion.chunk","created":1790890861,"model":"deepseek-v4-flash","choices":[{"index":0,"finish_reason":"tool_calls","logprobs":null,"delta":{"reasoning_content":null}}]}
+
+data: {"id":"router-fd24edc3b6ef3f0700a131cd95ea9526","object":"chat.completion.chunk","created":1790890861,"model":"deepseek-v4-flash","choices":[],"usage":{"prompt_tokens":369,"completion_tokens":63,"total_tokens":432,"prompt_tokens_details":{"cached_tokens":256}}}
+
+data: [DONE]
+
+
+
