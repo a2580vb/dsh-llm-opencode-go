@@ -36,6 +36,7 @@ page reaches the next call with no restart.
 | **Reasoning** | Per-protocol effort mapping, including Anthropic thinking budgets |
 | **Streaming** | SSE → `StreamChunk`, with usage, finish reason, and an idle watchdog |
 | **Failures** | Stable provider-neutral codes (`AUTH`, `RATE_LIMIT`, `QUOTA`, `CONTEXT_WINDOW_EXCEEDED`, …) |
+| **Configuration UI** | A page in the web client's Plugins list: API key, credential reference, model catalog |
 | **Runtime dependencies** | none |
 
 ## Install
@@ -59,6 +60,15 @@ Either export `OPENCODE_GO_API_KEY` in the environment that launches DSH, or
 store it through the credentials seam — the web Models page writes it. The
 plugin resolves the reference per request, so both work and neither requires a
 restart.
+
+### Or use the plugin's own page
+
+The sidebar's **Plugins** page lists the `dsh-opencode-go` bundle, and its
+`opencode-go` row has a **Configure** control that opens the plugin's own page:
+the API key, the credential reference it is stored under, and the current model
+catalog. The key is written to the credential store, never to
+`cordis.patch.yml`, and the page is offered only by a deployment that serves the
+web client. See [Configuration](docs/configuration.md#graphical-configuration).
 
 If you would rather the plugin read a differently-named variable, point
 `apiKeyEnv` at it:

@@ -7,8 +7,8 @@
 ## 如何验证
 
 ```sh
-npm test          # 137 项离线检查：配置、SSE 分帧、目录、三种协议、适配器、插件本体
-npm run test:cordis # 20 项检查，把插件挂到 Harness 自己的 cordis 上
+npm test          # 179 项离线检查：配置、SSE 分帧、目录、三种协议、适配器、插件本体、配置桥接与客户端 bundle
+npm run test:cordis # 29 项检查，把插件挂到 Harness 自己的 cordis 上
 npm run test:live # 20 项检查，打到真实服务；需要 OC_KEY
 ```
 
@@ -17,6 +17,12 @@ npm run test:live # 20 项检查，打到真实服务；需要 OC_KEY
 每个用例都用 Harness 自己的 block assembler 组装分片——agent loop 跑的正是同一份代码。其中一个
 用例会把容量快照与这台机器缓存的 OpenCode 目录做比对，所以过期的 `lib/model/limits.js` 会被报
 出来，而不是悄悄漂移。
+
+覆盖配置页的两个套件同样离线运行。桥接套件用假的 request/response 驱动真实的 HTTP handler，所以
+路由、请求栅栏、校验以及每一条拒绝路径都能在没有 socket 的情况下被检查。客户端套件把
+`lib/client.js` 放进 `node:vm` 沙箱编译——沙箱里的 `window` 就是模块加载器外壳——然后检查那些
+只有用户真正打开页面时浏览器才会暴露的事实：工厂 id、从 `cordis.patch.yml` 读出的
+`<包名>#<行 id>` slot key、两种内置语言都完整的词典，以及它调用的 endpoint 恰好是桥接提供的那些。
 
 `npm run test:live` 会消耗真实配额。它针对线上中继证明：模型发现与缓存、三种协议各自的往返、
 每种协议的完整工具调用往返、协议回退恢复、重复 session id 上的缓存复用、历史中存在「被记录但
@@ -31,7 +37,8 @@ OC_KEY=oc_sk_... npm run test:live
 
 `npm run test:cordis` 是那个能抓到 loader 级错误的套件。它从 `app.asar` 里读出 Harness 自己的
 包，把插件挂到安装版**真实的** cordis 上，并检查：激活不产生告警、路由注册到真实的 LLM runtime
-上、模型与思考等级能通过它解析、一次流式调用端到端完成、以及卸载时释放路由。如果安装位置在别处，
+上、模型与思考等级能通过它解析、一次流式调用端到端完成、卸载时释放路由，以及配置页的路由确实经由
+真实的 `ctx.inject(['webServer'], …)` 路径被认领、并通过 socket 应答。如果安装位置在别处，
 设置 `DSH_ASAR`；找不到安装时该套件会干净地跳过。
 
 这个套件之所以存在，是因为插件导出的 `Config` 不是自由形式的：cordis 在启动插件前会调用
@@ -59,6 +66,7 @@ node scripts/snapshot-models.mjs [--write]                      # 容量快照�
 ```
 lib/
 ├── index.js                  adapter 类、注册、健康检查
+├── client.js                 浏览器半侧：插件自己的配置页
 ├── config.js                 schema、默认值、校验
 ├── error/
 │   ├── errors.js             本插件自有的失败类型与 brand 辅助
@@ -76,10 +84,13 @@ lib/
 │   └── anthropic-messages.js
 ├── session/headers.js        x-opencode-session 与请求身份
 ├── stream/sse.js             字节级 SSE 分帧
-└── transform/
-    ├── messages.js           content block → 各协议的 messages
-    ├── tools.js              tool schema → 各协议的声明
-    └── reasoning.js          Harness 思考等级 → 各协议的拼写
+├── transform/
+│   ├── messages.js           content block → 各协议的 messages
+│   ├── tools.js              tool schema → 各协议的声明
+│   └── reasoning.js          Harness 思考等级 → 各协议的拼写
+└── ui/
+    ├── http.js               node:http 辅助与请求栅栏
+    └── bridge.js             配置页的 Host 半侧
 
 scripts/
 ├── snapshot-models.mjs       从目录刷新 lib/model/limits.js
@@ -88,3 +99,5 @@ scripts/
 ```
 
 增加第四种协议意味着在 `protocol/` 下加一个新文件、在 transport map 里加一个条目——而不是重写。
+配置页也是同样的切法：`ui/bridge.js` 拥有 Host 事实与写入路径，`client.js` 拥有渲染，两者在
+`ui/bridge.js` 里的 endpoint 与 `<包名>#<行 id>` slot key 上达成一致——这两点都由离线套件检查。

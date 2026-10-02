@@ -16,7 +16,9 @@ import { equal, is, ok } from '../helpers.mjs'
  * A Cordis context stub recording what the plugin registered.
  *
  * `ctx.effect` mirrors the real one: a callback returning a disposer, which is
- * what ties a registration to the fiber.
+ * what ties a registration to the fiber. `ctx.inject` mirrors the real gate —
+ * the child body runs only once every named service is provided, and it sees
+ * those services as properties.
  */
 function fakeContext() {
   const state = {
@@ -24,6 +26,8 @@ function fakeContext() {
     disposers: [],
     logs: [],
     services: new Map(),
+    pendingInjects: [],
+    routes: [],
   }
   const logger = {
     info: (...args) => state.logs.push({ level: 'info', args }),
@@ -39,6 +43,16 @@ function fakeContext() {
       if (typeof disposer === 'function') state.disposers.push(disposer)
       return () => disposer?.()
     },
+    inject: (deps, callback) => {
+      const names = Array.isArray(deps) ? deps : Object.keys(deps ?? {})
+      if (names.some((name) => !state.services.has(name))) {
+        state.pendingInjects.push({ names, callback })
+        return undefined
+      }
+      const child = Object.create(ctx)
+      for (const name of names) child[name] = state.services.get(name)
+      return callback(child)
+    },
     llm: {
       registerAdapter: (providers, adapter) => {
         state.registered.push({ providers, adapter })
@@ -49,6 +63,18 @@ function fakeContext() {
     },
   }
   return { ctx, state }
+}
+
+/** A web-server stand-in recording the routes a plugin claims. */
+function fakeWebServer(state) {
+  return {
+    register: (route) => {
+      state.routes.push(route)
+      return () => {
+        state.routes = state.routes.filter((entry) => entry !== route)
+      }
+    },
+  }
 }
 
 const CHAT_BODY = [
@@ -211,6 +237,53 @@ export default {
         }
         ok(error !== undefined, 'activation failed')
         ok(String(error.message).includes('sessionHeader'), 'the field is named')
+      },
+    },
+    {
+      name: 'the configuration page route is claimed on a deployment with a web server',
+      run() {
+        const { ctx, state } = fakeContext()
+        state.services.set('webServer', fakeWebServer(state))
+        apply(ctx, {})
+        is(state.routes.length, 1, 'one route')
+        is(state.routes[0].kind, 'prefix')
+        is(state.routes[0].path, '/opencode-go')
+        is(typeof state.routes[0].handler, 'function')
+        ok(
+          state.logs.some((entry) => entry.level === 'info'
+            && entry.args.map(String).join(' ').includes('/opencode-go')),
+          'the readiness of the page is logged',
+        )
+      },
+    },
+    {
+      name: 'the page route waits for a late web server instead of failing activation',
+      run() {
+        const { ctx, state } = fakeContext()
+        apply(ctx, {})
+        is(state.routes.length, 0, 'nothing claimed yet')
+        is(state.pendingInjects.length, 1, 'the injection is pending')
+        // The route is claimed the moment the server appears, exactly as the
+        // real injected child context does.
+        state.services.set('webServer', fakeWebServer(state))
+        for (const pending of state.pendingInjects.splice(0)) {
+          const child = Object.create(ctx)
+          for (const name of pending.names) child[name] = state.services.get(name)
+          pending.callback(child)
+        }
+        is(state.routes.length, 1)
+        is(state.routes[0].path, '/opencode-go')
+      },
+    },
+    {
+      name: 'unloading the plugin releases the page route',
+      run() {
+        const { ctx, state } = fakeContext()
+        state.services.set('webServer', fakeWebServer(state))
+        apply(ctx, {})
+        is(state.routes.length, 1)
+        for (const dispose of state.disposers) dispose()
+        is(state.routes.length, 0, 'the route was released')
       },
     },
     {

@@ -32,6 +32,40 @@ view, or read `Config` from the plugin for the authoritative list.
 | `healthCheck` | `off` | `startup` logs a credential + catalog report |
 | `retryPolicy` | normal, 5 retries | Provider-owned policy the retry executor applies |
 
+## Graphical configuration
+
+The plugin ships a page in the Harness web client. Open the sidebar's
+**Plugins** page, open the `dsh-opencode-go` bundle, and press **Configure** on
+the `opencode-go` row. The page covers the facts that are per-deployment and
+change often:
+
+| | |
+|---|---|
+| **API key** | Stored write-only through the credential seam under `apiKeyEnv`. The page reports whether it is configured, where it comes from, and whether it can be replaced — never the value. |
+| **Credential reference** | Which `apiKeyEnv` the key is stored under. |
+| **Model catalog** | How many models the route currently lists, and where the list came from. |
+
+Everything else — protocol shaping, timeouts, retry policy, cache paths — stays
+in `cordis.patch.yml`, where a machine-readable value lives next to the comment
+that explains it.
+
+Two properties are worth stating because they decide what a deployment can
+expect:
+
+- **The page is optional in both directions.** It is served only when the
+  deployment mounts a web server *and* registers a client half for this bundle.
+  A headless deployment has no route and no page, and the plugin behaves
+  identically without them.
+- **The route is not a second authentication path.** `/opencode-go/*` is
+  answered only for requests the connection service admits — the same Host and
+  `Origin` fence plus browser-session check the rest of the GUI uses. Without a
+  connection service only a loopback authority is answered.
+
+A credential reference is a *name*, so it can be edited freely; the key behind it
+lives in the credential store. A key the launching environment supplies cannot be
+overwritten from the page, which reports it as read-only — clear the variable in
+the launching shell first.
+
 ## Shaping the catalog
 
 `models` entries **replace** the catalog record for the ids they name in

@@ -340,6 +340,116 @@ const pluginModule = await import(url(join(PLUGIN, 'lib/index.js')))
   )
 }
 
+// ---------------------------------------------------------------------------
+// 7. The settings-page route, over a real socket, on the real cordis.
+// ---------------------------------------------------------------------------
+{
+  const http = await import('node:http')
+  const routes = []
+  const pathnameOf = (url) => new URL(url ?? '/', 'http://localhost').pathname
+  const matches = (pathname, route) => pathname === route.path
+    || (route.kind === 'prefix' && pathname.startsWith(`${route.path}/`))
+  const server = http.createServer((request, response) => {
+    const route = routes.find((entry) => matches(pathnameOf(request.url), entry))
+    if (route === undefined) {
+      response.statusCode = 404
+      response.end()
+      return
+    }
+    Promise.resolve(route.handler(request, response)).catch(() => {
+      if (!response.headersSent) response.statusCode = 500
+      response.end()
+    })
+  })
+  await new Promise((resolve) => server.listen(0, '127.0.0.1', resolve))
+  const { port } = server.address()
+
+  // The web server is composed by the application, so the suite provides the
+  // same service shape the harness's own server has: a route registry with a
+  // disposer per registration, backed here by a real node:http listener.
+  const webServer = {
+    host: '127.0.0.1',
+    port,
+    register(route) {
+      routes.push(route)
+      return () => {
+        const index = routes.indexOf(route)
+        if (index >= 0) routes.splice(index, 1)
+      }
+    },
+  }
+
+  const { ctx, logs } = makeContext()
+  ctx.plugin(LlmRuntime)
+  ctx.plugin({
+    name: 'suite-webserver',
+    apply(child) {
+      child.provide('webServer', webServer)
+    },
+  })
+  await new Promise((resolve) => setTimeout(resolve, 50))
+
+  // A pre-populated discovery cache keeps this section off the network: the
+  // catalog read the page triggers must not depend on a live service.
+  const modelsPath = cachePath()
+  mkdirSync(dirname(modelsPath), { recursive: true })
+  writeFileSync(modelsPath, JSON.stringify({
+    version: 1,
+    baseURL: 'https://opencode.ai/zen/go/v1',
+    fetchedAt: Date.now(),
+    ids: [{ id: 'glm-5.3' }],
+  }))
+
+  const fiber = ctx.plugin(pluginModule, {
+    provider: 'opencode-go',
+    apiKeyEnv: 'OC_TEST_KEY',
+    modelsCachePath: modelsPath,
+  })
+  await new Promise((resolve) => setTimeout(resolve, 300))
+
+  check(
+    'the settings-page route was claimed on the injected web server',
+    routes.length === 1 && routes[0].path === '/opencode-go' && routes[0].kind === 'prefix',
+    routes.map((route) => `${route.kind}:${route.path}`).join(','),
+  )
+  check(
+    'the settings page is announced at startup',
+    logs.some((entry) => entry.text.includes('/opencode-go')),
+  )
+
+  try {
+    const response = await fetch(`http://127.0.0.1:${port}/opencode-go/state`)
+    const payload = await response.json()
+    check('the page state is served over a real socket', response.status === 200 && payload.ok === true, JSON.stringify(payload).slice(0, 140))
+    check(
+      'the page state names the route, the endpoint, and the credential reference',
+      payload.route?.provider === 'opencode-go'
+        && payload.route?.apiKeyEnv === 'OC_TEST_KEY'
+        && payload.route?.baseURL === 'https://opencode.ai/zen/go/v1',
+      JSON.stringify(payload.route),
+    )
+    check(
+      'a deployment without a credential store reports it instead of failing',
+      payload.credential === null && payload.environment?.variable === 'OC_TEST_KEY',
+      JSON.stringify(payload.credential),
+    )
+    check(
+      'the page state carries the catalog the adapter lists',
+      payload.catalog?.count >= 1,
+      JSON.stringify(payload.catalog),
+    )
+
+    const wrongMethod = await fetch(`http://127.0.0.1:${port}/opencode-go/config`)
+    check('a method the endpoint does not serve is refused', wrongMethod.status === 405, String(wrongMethod.status))
+    const unknown = await fetch(`http://127.0.0.1:${port}/opencode-go/absent`)
+    check('an unknown path under the prefix is not answered as a page', unknown.status === 404, String(unknown.status))
+  } finally {
+    await fiber.dispose()
+    await new Promise((resolve) => server.close(resolve))
+  }
+  check('unloading releases the settings-page route', routes.length === 0, `routes=${routes.length}`)
+}
+
 const failed = results.filter((result) => !result.ok)
 console.log(`\n${results.length - failed.length}/${results.length} real-cordis checks passed`)
 if (failed.length > 0) process.exitCode = 1
