@@ -52,8 +52,19 @@ const USAGE = {
   retention: ['2026-01-15'],
 }
 
-/** A Host that answers from one table of endpoints, recording every request. */
-function host(overrides = {}) {
+/** The subscription's own quota, as the service meters it. */
+const SUBSCRIPTION = {
+  ok: true,
+  cached: true,
+  fetchedAt: 1768516800000,
+  windows: [
+    { name: 'rolling', status: 'ok', percent: 8, resetsAt: '2026-01-16T00:00:00.000Z' },
+    { name: 'weekly', status: 'ok', percent: 42, resetsAt: '2026-01-19T00:00:00.000Z' },
+    { name: 'monthly', status: 'ok', percent: 91, resetsAt: '2026-02-01T00:00:00.000Z' },
+  ],
+}
+
+/** A Host that answers from one table of endpoints, recording every request. */function host(overrides = {}) {
   return async (path) => {
     const [name, query] = String(path).split('?')
     if (name === 'opencode-go/state') return { body: STATE, ...overrides.state }
@@ -65,6 +76,7 @@ function host(overrides = {}) {
     if (name === 'opencode-go/config') return { body: { ok: true, config: { override: {} } }, ...overrides.config }
     if (name === 'opencode-go/credential') return { body: { ok: true }, ...overrides.credential }
     if (name === 'opencode-go/refresh') return { body: { ok: true, discovered: 3, added: [], removed: [], catalog: CATALOG }, ...overrides.refresh }
+    if (name === 'opencode-go/subscription') return { body: { ...SUBSCRIPTION, cached: query === 'refresh=1' ? false : true }, ...overrides.subscription }
     throw new Error(`the page called an endpoint the Host does not serve: ${name}`)
   }
 }
@@ -84,7 +96,7 @@ export default {
   name: 'client page',
   cases: [
     {
-      name: 'opening the page reads the three endpoints it needs, usage included',
+      name: 'opening the page reads every endpoint it needs, the subscription included',
       async run() {
         const page = await renderPage({ fetch: host() })
         await page.open()
@@ -92,10 +104,15 @@ export default {
           'opencode-go/state',
           'opencode-go/models',
           'opencode-go/usage',
+          // The provider's own quota is read once on open. It is not forced,
+          // so opening the page does not spend a request inside the cache
+          // window the Host keeps for it.
+          'opencode-go/subscription',
         ])
         // The window is explicit and is the default one, so the page never
         // depends on the Host guessing what it meant.
         equal(windowsAsked(page.calls), [7])
+        is(page.calls.some((call) => call.path.includes('refresh=1')), false)
       },
     },
     {
@@ -106,9 +123,11 @@ export default {
         const section = find(tree, (node) => node.type === 'section' && text(node).includes('Usage'))
         ok(section !== undefined, 'the usage section rendered')
 
-        // Three tables, in the order the page introduces them: totals, then the
-        // per-model breakdown, then the per-day series.
-        const [totalsTable, modelTable, dayTable] = tables(section)
+        // Four tables, in the order the page introduces them: the provider's
+        // own quota, then totals, then the per-model breakdown, then the
+        // per-day series.
+        const [quotaTable, totalsTable, modelTable, dayTable] = tables(section)
+        equal(rows(quotaTable)[0], ['Window', 'Used', 'Resets'], 'the quota table comes first')
         const totals = rows(totalsTable)
         equal(totals[0], ['Total', 'Calls', 'Failed', 'Input tokens', 'Output tokens', 'Total tokens', 'Cache read'])
         equal(totals[1], ['Total', '4', '1', '400', '100', '500', '0'], totals[1].join(','))
@@ -125,6 +144,50 @@ export default {
         const seven = button(tree, '7 days')
         is(seven.props.style.background, 'var(--dsw-alias-brand-primary)')
         ok(thirty.props.style.background !== 'var(--dsw-alias-brand-primary)')
+      },
+    },
+    {
+      name: 'the quota panel shows the service\'s own three windows, and a refresh forces a read',
+      async run() {
+        const page = await renderPage({ fetch: host() })
+        const tree = await page.open()
+        const section = find(tree, (node) => node.type === 'section' && text(node).includes('Usage'))
+        const [quotaTable] = tables(section)
+        const quota = rows(quotaTable)
+        equal(quota[1][0], 'Rolling')
+        equal(quota[1][1], '8%')
+        equal(quota[2][1], '42%')
+        equal(quota[3][1], '91%')
+        // The window a reader is closest to losing is the one worth noticing,
+        // so it carries the warning colour rather than the ordinary one.
+        const monthly = nodes(quotaTable).find(({ node }) => node.type === 'span' && text(node) === '91%')
+        is(monthly?.node.props.style.color, 'var(--dsw-alias-state-warn-primary)')
+
+        // A refresh is the only thing that spends a request on the provider,
+        // and it says so in the query rather than relying on the Host.
+        await page.click((node) => node.type === 'button' && text(node).trim() === 'Re-read quota')
+        const subscriptions = page.calls.filter((call) => call.path.startsWith('opencode-go/subscription'))
+        is(subscriptions.length, 2)
+        is(subscriptions[1].path.includes('refresh=1'), true, subscriptions[1].path)
+      },
+    },
+    {
+      name: 'a gateway without the quota endpoint says so without losing the local counters',
+      async run() {
+        const page = await renderPage({
+          fetch: host({ subscription: { body: { ok: false, reason: 'unsupported' } } }),
+        })
+        const tree = await page.open()
+        const section = find(tree, (node) => node.type === 'section' && text(node).includes('Usage'))
+        ok(
+          text(section).includes('this service or gateway does not serve it'),
+          text(section).slice(0, 400),
+        )
+        // The counters the plugin kept itself are still the answer to what this
+        // route spent, so they stay on screen.
+        ok(text(section).includes('2026-01-15'), 'the per-day table is still rendered')
+        const [, totalsTable] = tables(section)
+        equal(rows(totalsTable)[1][1], '4')
       },
     },
     {
@@ -289,6 +352,112 @@ export default {
       },
     },
     {
+      name: 'a variant name left blank takes the default the placeholder showed',
+      async run() {
+        // The default is named after the thinking level the variant sets, which
+        // is the thing that tells two presets of one model apart.
+        const page = await renderPage({ fetch: host({ models: { body: { ...CATALOG, variants: [] } } }) })
+        await page.open()
+        const nameBox = () => nodes(page.tree())
+          .find(({ node }) => node.type === 'input' && node.props['aria-label'] === 'Variant name')?.node
+        await page.change((node) => node.type === 'select' && node.props['aria-label'] === 'Model', 'glm-5.3')
+        await page.change((node) => node.type === 'select' && node.props['aria-label'] === 'Default thinking level', 'high')
+        is(nameBox().props.placeholder, 'high', 'the placeholder names the default before it is used')
+        // The page also spells out the id the default will produce.
+        ok(text(page.tree()).includes('glm-5.3@high'), 'the full default id is on screen')
+
+        await page.click((node) => node.type === 'button' && text(node).trim() === 'Add variant')
+        const added = nodes(page.tree()).find(({ node }) => node.type === 'span' && text(node) === 'glm-5.3@high')
+        ok(added !== undefined, 'the entry took the default name')
+        await page.click((node) => node.type === 'button' && text(node).trim() === 'Save variants')
+        const written = page.calls.find((call) => call.path === 'opencode-go/config')
+        equal(JSON.parse(written.init.body), {
+          set: { modelVariants: [{ model: 'glm-5.3', name: 'high', effort: 'high' }] },
+        })
+      },
+    },
+    {
+      name: 'a variant that names no level falls back to the protocol, then to a plain word',
+      async run() {
+        const page = await renderPage({ fetch: host({ models: { body: { ...CATALOG, variants: [] } } }) })
+        await page.open()
+        const nameBox = () => nodes(page.tree())
+          .find(({ node }) => node.type === 'input' && node.props['aria-label'] === 'Variant name')?.node
+        // No model chosen yet: nothing distinguishes the variant, and the page
+        // says so rather than showing a half-built id.
+        ok(text(page.tree()).includes('<model>@<thinking level>'), 'the generic form is named')
+        await page.change((node) => node.type === 'select' && node.props['aria-label'] === 'Model', 'glm-5.3')
+        is(nameBox().props.placeholder, 'default', 'a variant that restates nothing is called "default"')
+        await page.change((node) => node.type === 'select' && node.props['aria-label'] === 'Protocol first', 'anthropic-messages')
+        is(nameBox().props.placeholder, 'anthropic-messages', 'a protocol the variant sets names it instead')
+        // A typed name always wins over the default.
+        await page.change((node) => node.type === 'input' && node.props['aria-label'] === 'Variant name', 'chatty')
+        is(nameBox().props.value, 'chatty')
+      },
+    },
+    {
+      name: 'the variant list can be added to and removed from, by name',
+      async run() {
+        const page = await renderPage({ fetch: host() })
+        const tree = await page.open()
+        // Scoped to the variants section: the visibility list above it also
+        // renders model ids, and one of them is this variant's id.
+        const section = find(tree, (node) => node.type === 'section' && text(node).includes('Model variants'))
+        ok(section !== undefined, 'the variants section rendered')
+        const ids = () => nodes(find(page.tree(), (node) => node.type === 'section' && text(node).includes('Model variants')))
+          .filter(({ node }) => node.type === 'span' && node.props.style?.color === 'var(--dsw-alias-label-secondary)')
+          .map(({ node }) => text(node))
+          .filter((value) => /@/.test(value) && !value.includes('<model>'))
+        // The saved variant is listed, with its count stated.
+        equal(ids(), ['glm-5.3@fast'], 'the declared variant is in the list')
+        ok(text(page.tree()).includes('Variant list (1)'), 'the list says how many it holds')
+
+        // Adding one from the form appends it and updates the count.
+        await page.change((node) => node.type === 'select' && node.props['aria-label'] === 'Model', 'glm-5.3')
+        await page.change((node) => node.type === 'input' && node.props['aria-label'] === 'Variant name', 'slow')
+        await page.click((node) => node.type === 'button' && text(node).trim() === 'Add variant')
+        equal(ids(), ['glm-5.3@fast', 'glm-5.3@slow'])
+        ok(text(page.tree()).includes('Variant list (2)'))
+
+        // Removing one takes it back out, and the save writes what is left.
+        await page.click((node) => node.type === 'button' && node.props['aria-label'] === 'Remove variant glm-5.3@fast')
+        equal(ids(), ['glm-5.3@slow'])
+        await page.click((node) => node.type === 'button' && text(node).trim() === 'Save variants')
+        const written = page.calls.find((call) => call.path === 'opencode-go/config')
+        equal(JSON.parse(written.init.body), { set: { modelVariants: [{ model: 'glm-5.3', name: 'slow' }] } })
+      },
+    },
+    {
+      name: 'a name edited in the list is written, and one that collides is refused before saving',
+      async run() {
+        const page = await renderPage({ fetch: host({ models: { body: { ...CATALOG, variants: [] } } }) })
+        await page.open()
+        const add = async (name) => {
+          await page.change((node) => node.type === 'select' && node.props['aria-label'] === 'Model', 'glm-5.3')
+          await page.change((node) => node.type === 'input' && node.props['aria-label'] === 'Variant name', name)
+          await page.click((node) => node.type === 'button' && text(node).trim() === 'Add variant')
+        }
+        await add('one')
+        await add('two')
+        // Rename the second one onto the first: the id would stop being unique.
+        await page.change((node) => node.type === 'input' && node.props['aria-label'] === 'glm-5.3@two Variant name', 'one')
+        const save = () => nodes(page.tree())
+          .find(({ node }) => node.type === 'button' && text(node).trim() === 'Save variants')?.node
+        is(save().props.disabled, true, 'Save is inert while a name collides')
+        ok(text(page.tree()).includes('glm-5.3@one'), 'the collision is named by the id it would create')
+
+        // A rename that does not collide is written under the new name.
+        await page.change((node) => node.type === 'input' && node.props['aria-label'] === 'glm-5.3@one Variant name', 'three')
+        is(save().props.disabled, false)
+        await page.click((node) => node.type === 'button' && text(node).trim() === 'Save variants')
+        const written = page.calls.find((call) => call.path === 'opencode-go/config')
+        equal(JSON.parse(written.init.body).set.modelVariants, [
+          { model: 'glm-5.3', name: 'three' },
+          { model: 'glm-5.3', name: 'one' },
+        ])
+      },
+    },
+    {
       name: 'adding a variant that already exists is refused, not written twice',
       async run() {
         const page = await renderPage({ fetch: host() })
@@ -331,6 +500,135 @@ export default {
         const cleared = find(page.tree(), field)
         is(cleared.props.value, '', 'the field is emptied, so the key is not left in the page')
         ok(text(page.tree()).includes('Saved; the next request uses the new key.'), 'the reader is told it worked')
+      },
+    },
+    {
+      name: 'a key the launching environment supplies explains itself and offers no clear button',
+      async run() {
+        // The case the report is about: `OPENCODE_GO_API_KEY` is exported in the
+        // shell DSH was started from. The credential seam refuses to replace or
+        // remove it, so a Clear button that looked pressable would be a lie.
+        const page = await renderPage({
+          fetch: host({
+            state: {
+              body: {
+                ...STATE,
+                credential: {
+                  configured: true,
+                  source: 'env',
+                  writable: false,
+                  removable: false,
+                  blockedBy: 'launching-environment',
+                  reference: 'OPENCODE_GO_API_KEY',
+                  environment: { variable: 'OPENCODE_GO_API_KEY', present: true, source: 'process', path: null },
+                },
+                environment: { variable: 'OPENCODE_GO_API_KEY', present: true, source: 'process', path: null },
+              },
+            },
+          }),
+        })
+        const tree = await page.open()
+        const section = find(tree, (node) => node.type === 'section' && text(node).includes('API key'))
+        const shown = text(section)
+        ok(shown.includes('from the launching environment'), shown.slice(0, 300))
+        ok(shown.includes('OPENCODE_GO_API_KEY'), 'the message names the variable holding the value')
+        ok(shown.includes('point the credential reference below at another name'), 'and the way out of it')
+
+        // Clear is present but inert: the browser will not fire it, and neither
+        // does the harness.
+        const clear = nodes(section).find(({ node }) => node.type === 'button' && text(node).trim() === 'Clear key')
+        is(clear.node.props.disabled, true, 'Clear key is disabled while clearing would do nothing')
+        // Storing is refused too, and for the same reason: a stored value under
+        // a name the launching environment already supplies would be shadowed
+        // and would never be read. The reference editor below is the way out,
+        // and the page says so rather than offering a button that cannot work.
+        const field = nodes(section).find(({ node }) => node.type === 'input' && node.props.type === 'password')
+        is(field.node.props.disabled, true, 'the key field is inert while a store would be shadowed')
+        is(
+          nodes(section).find(({ node }) => node.type === 'button' && text(node).trim() === 'Save').node.props.disabled,
+          true,
+        )
+      },
+    },
+    {
+      name: 'the credential reference can be pointed at another name, which is the way out',
+      async run() {
+        const page = await renderPage({
+          fetch: host({
+            state: {
+              body: {
+                ...STATE,
+                route: { ...STATE.route, apiKeyEnv: 'OPENCODE_GO_API_KEY' },
+                credential: {
+                  configured: true,
+                  source: 'env',
+                  writable: false,
+                  removable: false,
+                  blockedBy: 'launching-environment',
+                  reference: 'OPENCODE_GO_API_KEY',
+                  environment: { variable: 'OPENCODE_GO_API_KEY', present: true, source: 'process', path: null },
+                },
+              },
+            },
+          }),
+        })
+        const tree = await page.open()
+        const box = nodes(tree).find(({ node }) => node.type === 'input' && node.props['aria-label'] === 'Credential reference')
+        ok(box !== undefined, 'the credential reference is an editable field')
+        is(box.node.props.value, 'OPENCODE_GO_API_KEY', 'the reference starts at the name in use')
+        // The save button is inert until the name actually differs, so it can
+        // never write back the value it read.
+        const save = () => nodes(page.tree())
+          .find(({ node }) => node.type === 'button' && text(node).trim() === 'Save reference')?.node
+        is(save().props.disabled, true)
+        await page.change((node) => node.type === 'input' && node.props['aria-label'] === 'Credential reference', 'OPENCODE_GO_HOME_KEY')
+        is(save().props.disabled, false)
+        await page.click((node) => node.type === 'button' && text(node).trim() === 'Save reference')
+        const written = page.calls.find((call) => call.path === 'opencode-go/config')
+        equal(JSON.parse(written.init.body), { set: { apiKeyEnv: 'OPENCODE_GO_HOME_KEY' } })
+      },
+    },
+    {
+      name: 'a gateway that rejects the key says so without a Save button that would work',
+      async run() {
+        const page = await renderPage({ fetch: host() })
+        await page.open()
+        await page.change((node) => node.props.type === 'password', 'sk-wrong')
+        await page.click((node) => node.type === 'button' && text(node).trim() === 'Save')
+        ok(text(page.tree()).includes('Saved; the next request uses the new key.'))
+
+        // And a refusal is reported in the reader's own words, not as a status.
+        const refused = await renderPage({
+          fetch: host({ credential: { body: { ok: false, message: 'the credential store refused it' } } }),
+        })
+        await refused.open()
+        await refused.change((node) => node.props.type === 'password', 'sk-wrong')
+        await refused.click((node) => node.type === 'button' && text(node).trim() === 'Save')
+        ok(text(refused.tree()).includes('the credential store refused it'), text(refused.tree()).slice(0, 300))
+      },
+    },
+    {
+      name: 'a deployment the page cannot write into says which part is missing, in words',
+      async run() {
+        // The report was "configuration is read-only: no profile entry for this
+        // plugin was found", which names the symptom rather than what to do.
+        // A composition with no editor at all is a different reason from one
+        // whose editor cannot address this row, and both must read as English.
+        const noEditor = await renderPage({
+          fetch: host({ state: { body: { ...STATE, config: { editable: false, reason: 'no-config-editor' } } } }),
+        })
+        const noEditorText = text(await noEditor.open())
+        ok(noEditorText.includes('this deployment has no profile configuration editor'), noEditorText.slice(-220))
+        ok(noEditorText.includes('still readable and usage is still recorded'), 'what still works is named')
+        // The page is still usable for the parts that cannot write.
+        ok(noEditorText.includes('Model visibility'), 'the sections still render')
+
+        const noRow = await renderPage({
+          fetch: host({ state: { body: { ...STATE, config: { editable: false, reason: 'entry-not-found' } } } }),
+        })
+        const noRowText = text(await noRow.open())
+        ok(noRowText.includes('no profile entry for this plugin was found'), noRowText.slice(-220))
+        is(noRowText.includes('no-config-editor'), false, 'the wrong reason is not shown')
       },
     },
     {

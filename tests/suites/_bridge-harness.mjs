@@ -69,10 +69,30 @@ export function fakeCredentials(initial) {
   }
 }
 
-/** A config-editor stand-in: one entry with an inherited and a profile layer. */
+/**
+ * A config-editor stand-in over the real Loader entry shape.
+ *
+ * A Loader entry carries its row fields under `options` and its live fiber on
+ * `fiber`, and `configEditor.edit` refuses anything else:
+ *
+ *   if (!this.entries().includes(entry) || entry.fiber === void 0) throw …
+ *   if (fiber.state !== 2) throw "Configuration plugin is no longer active"
+ *   change(entry.options.config, inherited)
+ *
+ * The stand-in reproduces all three checks, because a stand-in that accepted a
+ * flatter shape would keep passing while the real deployment answered
+ * "no profile entry for dsh-opencode-go" — which is exactly what happened.
+ */
 export function fakeEditor({ id = 'opencode-go', name = 'dsh-opencode-go', inherited = {}, override = {} } = {}) {
-  const entry = { id, name }
+  const fiber = { state: 2 }
+  const entry = { options: { id, name, config: { ...inherited, ...override } }, fiber, parent: null }
   const state = { inherited: { ...inherited }, override: { ...override } }
+  const assertAddressable = (target) => {
+    if (![entry].includes(target) || target.fiber === undefined) {
+      throw new Error('Configuration entry is no longer available')
+    }
+    if (target.fiber.state !== 2) throw new Error('Configuration plugin is no longer active')
+  }
   return {
     entry,
     state,
@@ -80,9 +100,11 @@ export function fakeEditor({ id = 'opencode-go', name = 'dsh-opencode-go', inher
     entries: () => [entry],
     configuration: () => [{ entry, inherited: { ...state.inherited }, override: { ...state.override } }],
     async edit(target, change) {
+      assertAddressable(target)
       const next = change({ ...state.inherited, ...state.override }, { ...state.inherited })
       this.writes.push(next)
       state.override = { ...next }
+      entry.options.config = { ...state.inherited, ...next }
     },
   }
 }
@@ -202,7 +224,22 @@ export function bridgeUnderTest(overrides = {}) {
       retentionDays: 30,
       retention: ['2026-01-15'],
     })),
+    subscription: 'subscription' in overrides ? overrides.subscription : (async () => ({
+      ok: true,
+      cached: false,
+      fetchedAt: 1_700_000_000_000,
+      windows: [
+        { name: 'rolling', status: 'ok', percent: 8, resetsAt: '2026-01-16T00:00:00.000Z' },
+        { name: 'weekly', status: 'ok', percent: 8, resetsAt: '2026-01-19T00:00:00.000Z' },
+        { name: 'monthly', status: 'ok', percent: 13, resetsAt: '2026-02-01T00:00:00.000Z' },
+      ],
+    })),
     logger: { info: (...args) => logs.push(args.join(' ')), warn: (...args) => logs.push(args.join(' ')) },
+    // Optional collaborators the page reads when a deployment has them. Absent
+    // means "this composition does not mount one", which is a shape the page
+    // has to survive, so they are only passed when a case names them.
+    ...('launchEnvironment' in overrides ? { launchEnvironment: overrides.launchEnvironment } : {}),
+    ...('entry' in overrides ? { entry: overrides.entry } : {}),
   })
   return { instance, config, credentials, configEditor, logs }
 }

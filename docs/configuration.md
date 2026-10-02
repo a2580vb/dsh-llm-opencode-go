@@ -18,6 +18,7 @@ view, or read `Config` from the plugin for the authoritative list.
 | `modelsCacheSeconds` | `21600` | Discovered-catalog lifetime |
 | `modelsCachePath` | `~/.dsh/cache/opencode-go-models.json` | Cache file; an unwritable path only warns |
 | `usagePath` | `~/.dsh/cache/opencode-go-usage.json` | Where the usage counters live; an unwritable path only warns |
+| `subscriptionCacheSeconds` | `60` | How long the page reuses a subscription-quota answer before asking the service again |
 | `models` | `[]` | Advisory catalog entries; the whole catalog when `modelSource: config` |
 | `modelOverrides` | `{}` | Reshape one catalog model without restating the rest |
 | `protocolOverrides` | `{}` | `{"<model id>": "<protocol>"}` shorthand |
@@ -45,17 +46,34 @@ change often:
 | | |
 |---|---|
 | **API key** | Stored write-only through the credential seam under `apiKeyEnv`. The page reports whether it is configured, where it comes from, and whether it can be replaced — never the value. |
-| **Credential reference** | Which `apiKeyEnv` the key is stored under. |
+| **Credential reference** | Which `apiKeyEnv` the key is stored under. Editable, because it is the way out of a key the launching environment supplies. |
 | **Model visibility** | One switch per catalog model, written to `hiddenModels`. The page shows the whole catalog — including models this deployment already hides — because a listing that showed only what is listed could not offer a way back. |
-| **Model variants** | Named presets of one model, written to `modelVariants`. |
-| **Fetch the model list** | Re-reads `GET /models` on demand and reports what appeared and what went away. The only control on the page that reaches the provider. |
-| **Usage** | Calls and tokens this plugin counted itself, per model and per day. |
+| **Model variants** | Named presets of one model, written to `modelVariants`, in an editable list: add a model, name it, then change or delete any row. |
+| **Fetch the model list** | Re-reads `GET /models` on demand and reports what appeared and what went away. |
+| **Usage** | Two things side by side: the service's own metered quota for the subscription, and the calls and tokens this plugin counted itself, per model and per day. |
 
 Writing an ordinary config field reloads that plugin row — the Loader reconciles
 it through the profile patch — so the page re-reads what the Host reports a beat
 later rather than assuming its own draft survived, and says so when the read
 back fails. The key is the exception: it goes to the credential store and applies
 to the next request.
+
+### Where the API key comes from, and why "Clear" is sometimes inert
+
+The credential seam layers a reference, most trusted first:
+
+| Layer | What a write there does | What the page shows |
+|---|---|---|
+| the launching environment | nothing — a process cannot change its own inherited environment | **Clear key** is disabled, and the message names the variable and points at the reference field |
+| the managed store (`~/.dsh/.credentials.yaml`) | this is the value the route reads | **Clear key** removes it |
+| a `.env` file (project first, then home) | stores, and is immediately shadowed back by the file | **Clear key** is disabled, and the message names the file |
+
+The page can only remove the middle one, so it reports which layer it found
+rather than offering a button that would do nothing. When a value is supplied
+from outside, the way out is the **Credential reference** field: point the route
+at a name nothing shadows (`OPENCODE_GO_HOME_KEY`, say), press **Save reference**,
+and store the key under that name. It is an ordinary config field, so the Loader
+applies it on reload — no restart and no editing of your shell profile.
 
 ### The page's own endpoints
 
@@ -71,6 +89,7 @@ while the client is open:
 | `/opencode-go/credential` | `POST` | stores the API key; `DELETE` clears it |
 | `/opencode-go/refresh` | `POST` | re-reads `GET /models` and reports what changed |
 | `/opencode-go/usage` | `GET` | the usage table for `?days=1`, `7`, or `30` |
+| `/opencode-go/subscription` | `GET` | the subscription's own quota, read from the service; `?refresh=1` bypasses the cache |
 
 Three properties are deliberate:
 
@@ -135,9 +154,25 @@ same listing decision.
 
 ## Usage
 
-The plugin counts what goes through this route, because nothing else can: the
-harness reports tokens to whoever made the call, and only the adapter knows which
-model a token went to and which deployment paid for it. The page shows the
+The usage section answers two different questions, and the page keeps them apart
+because they come from different places:
+
+| | |
+|---|---|
+| **Subscription quota** | The service's own metering, read from `GET {baseURL}/usage`: a percentage for the rolling, weekly, and monthly windows, with when each resets. This is the figure that answers "how much of the plan is left". |
+| **This route's counters** | What the plugin counted itself, below: totals, per model, per day. |
+
+The quota endpoint is not part of the published API — it is what the console
+calls — so the *shape* may move without notice. Every way it can be missing is
+a sentence rather than a failure: a gateway that mirrors only the model surface
+answers `404`, a key the service rejects answers `401`, and an unreachable host
+answers nothing at all. In all three cases the local counters stay on screen and
+the quota panel says which one happened. Opening the page reuses an answer for
+`subscriptionCacheSeconds`; only **Re-read quota** forces a fresh call.
+
+The counters below are the plugin's own, because nothing else can produce them:
+the harness reports tokens to whoever made the call, and only the adapter knows
+which model a token went to and which deployment paid for it. The page shows the
 result as totals, a per-model table, and a per-day series.
 
 ```
@@ -194,7 +229,7 @@ config:
 | Key | Meaning |
 |---|---|
 | `model` | The model this varies. Must be a catalog id, and may not contain `@`. |
-| `name` | The variant's own name; `model@name` is the id it is offered under. |
+| `name` | The variant's own name; `model@name` is the id it is offered under. The page leaves it optional: a name left blank becomes the thinking level the variant sets (then the protocol it leads with, then `default`), because that is what tells two presets of one model apart. |
 | `label` | Optional display name. |
 | `protocol` | Optional. The protocol a call through this variant opens with; the model's other protocols stay behind it as fallbacks. |
 | `effort` | Optional. The thinking level calls through this variant open with. The model must support reasoning, and must offer this level. |

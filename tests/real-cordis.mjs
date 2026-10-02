@@ -459,7 +459,18 @@ const USAGE_PATH = join(CACHE, 'usage', 'shared.json')
     )
     check(
       'a deployment without a credential store reports it instead of failing',
-      payload.credential === null && payload.environment?.variable === 'OC_TEST_KEY',
+      // The harness's own `dsh-credentials` is mounted in this composition, so
+      // the report is a real one rather than a null the page has to interpret.
+      // What matters is that it never carries a value, that it says nothing is
+      // configured while the reference resolves to nothing, and that its shape
+      // is exactly the one the page's own fields name.
+      payload.credential?.configured !== true
+        && payload.credential?.writable !== true
+        && payload.environment?.variable === 'OC_TEST_KEY'
+        && Object.keys(payload.credential ?? {}).every(
+          (key) => ['reference', 'configured', 'source', 'writable', 'removable', 'blockedBy', 'environment', 'error'].includes(key),
+        )
+        && !JSON.stringify(payload.credential).includes('oc_sk_'),
       JSON.stringify(payload.credential),
     )
     check(
@@ -494,6 +505,41 @@ const USAGE_PATH = join(CACHE, 'usage', 'shared.json')
     )
     const refreshWrongMethod = await fetch(`http://127.0.0.1:${port}/opencode-go/refresh`)
     check('the refresh endpoint answers only POST', refreshWrongMethod.status === 405, String(refreshWrongMethod.status))
+
+    // The row this page writes into. `configEditor.edit` refuses anything but
+    // the exact object its own `entries()` returned, and it reads that row's
+    // fields from `entry.options` — so the shape the page assumes is a fact
+    // about this cordis version rather than about the plugin. The entry is
+    // built here by the harness's own `Loader`, which is the only way to get
+    // one: a bare `ctx.plugin()` has no Loader row at all.
+    const { findEntry: locateRow } = await import(url(join(PLUGIN, 'lib/ui/bridge.js')))
+    const { Loader } = await import(url(join(BUNDLE, '@deepseek-ai/cordis-plugin-loader/lib/index.js')))
+    const loaderCtx = makeContext().ctx
+    loaderCtx.plugin(Loader, { filename: join(CACHE, 'loader.yml') })
+    await new Promise((resolve) => setTimeout(resolve, 50))
+    const loader = loaderCtx.get('loader')
+    await loader.create({ id: 'opencode-go', name: 'dsh-opencode-go', config: { provider: 'opencode-go' } })
+    await new Promise((resolve) => setTimeout(resolve, 100))
+    // `loader.entries()` is a generator; the editor's own `entries()` spreads it
+    // into an array before filtering, which is the shape the bridge receives.
+    const rows = [...loader.entries()]
+    const loaded = rows.find((entry) => entry.options.id === 'opencode-go')
+    check(
+      'a real Loader row keeps its id and module name under `options`',
+      loaded?.options?.id === 'opencode-go' && loaded?.options?.name === 'dsh-opencode-go',
+      JSON.stringify({ id: loaded?.options?.id, name: loaded?.options?.name, top: Object.keys(loaded ?? {}).slice(0, 6) }),
+    )
+    check(
+      'that row is found by its id, and by its module name when the id is not the route',
+      locateRow(rows, 'opencode-go', loaded) === loaded
+        && locateRow([loaded], 'some-other-id') === loaded
+        && locateRow([{ options: { id: 'x', name: '@acme/other' } }], 'opencode-go') === undefined,
+      `byId=${locateRow(rows, 'opencode-go', loaded) === loaded} byName=${locateRow([loaded], 'other') === loaded}`,
+    )
+    check(
+      'a flat entry — the shape no Loader produces — is not mistaken for one',
+      locateRow([{ id: 'opencode-go', name: 'dsh-opencode-go' }], 'opencode-go') === undefined,
+    )
 
     // Usage is the one table only this plugin can produce: the harness reports
     // tokens to the caller, and nothing above the adapter knows which model a

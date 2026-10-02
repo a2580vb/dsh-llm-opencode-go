@@ -286,9 +286,84 @@ export default {
       async run() {
         const { instance } = bridgeUnderTest({ credentials: undefined, configEditor: undefined })
         const res = await call(instance, local())
-        is(res.json.credential, null)
+        // A deployment with no credential store still gets an environment
+        // report: without one the page can still name where a key would come
+        // from, which is what its "clear" message has to say.
+        is(res.json.credential.configured, false)
+        is(res.json.credential.removable, false)
+        is(res.json.credential.blockedBy, 'no-store')
         is(res.json.config.editable, false)
         is(res.json.config.reason, 'no-config-editor')
+      },
+    },
+    {
+      name: 'a key the launching environment supplies is reported as unremovable, with its variable',
+      async run() {
+        // The three layers need three answers, and the page's whole message is
+        // about which one the value came from. A read-only source must never
+        // render a Clear button that would do nothing.
+        const { instance } = bridgeUnderTest({
+          credentials: fakeCredentials({ OPENCODE_GO_API_KEY: 'oc_sk_x' }),
+          launchEnvironment: () => ({ get: () => ({ value: 'oc_sk_x', source: 'process' }) }),
+        })
+        const res = await call(instance, local())
+        is(res.json.credential.configured, true)
+        is(res.json.credential.removable, false)
+        is(res.json.credential.blockedBy, 'launching-environment')
+        is(res.json.environment.present, true)
+        is(res.json.environment.source, 'process')
+        is(res.json.environment.variable, 'OPENCODE_GO_API_KEY')
+        ok(!JSON.stringify(res.json).includes('oc_sk_x'), 'the value itself never travels')
+      },
+    },
+    {
+      name: 'a .env file is reported as its own layer, with the path it came from',
+      async run() {
+        // Nothing in the managed store, so the `.env` value is what resolves.
+        // Clearing the store below would only bring this one back, which is a
+        // different situation from a launching environment and needs a
+        // different action.
+        const { instance } = bridgeUnderTest({
+          credentials: fakeCredentials(),
+          launchEnvironment: () => ({
+            get: () => ({ value: 'oc_sk_x', source: 'user-env', path: 'C:/Users/x/.dsh/.env' }),
+          }),
+        })
+        const res = await call(instance, local())
+        is(res.json.credential.blockedBy, 'env-file')
+        is(res.json.credential.removable, false)
+        is(res.json.environment.present, true)
+        is(res.json.environment.path, 'C:/Users/x/.dsh/.env')
+      },
+    },
+    {
+      name: 'a stored key outranks a .env file, so clearing it is offered',
+      async run() {
+        // The layer order is process > store > .env, so a stored value is the
+        // one that resolves and the one this page may remove.
+        const { instance } = bridgeUnderTest({
+          credentials: fakeCredentials({ OPENCODE_GO_API_KEY: 'oc_sk_stored' }),
+          launchEnvironment: () => ({ get: () => ({ value: 'oc_sk_lower', source: 'user-env', path: '/x/.env' }) }),
+        })
+        const res = await call(instance, local())
+        is(res.json.credential.removable, true)
+        is(res.json.credential.blockedBy, null)
+        is(res.json.credential.writable, true)
+      },
+    },
+    {
+      name: 'an unreadable launch environment is not a reason to fail the page',
+      async run() {
+        const { instance } = bridgeUnderTest({
+          launchEnvironment: () => ({
+            get: () => {
+              throw new Error('the snapshot is not usable')
+            },
+          }),
+        })
+        const res = await call(instance, local())
+        is(res.captured.statusCode, 200)
+        is(res.json.environment.present, false)
       },
     },
     {
@@ -686,7 +761,7 @@ export default {
       name: 'a refused editor write is reported with its own reason',
       async run() {
         const editor = {
-          entries: () => [{ id: 'opencode-go', name: 'dsh-opencode-go' }],
+          entries: () => [{ options: { id: 'opencode-go', name: 'dsh-opencode-go', config: {} }, fiber: { state: 2 } }],
           async edit() {
             throw new Error('settings/conflict')
           },
@@ -819,6 +894,56 @@ export default {
       },
     },
     {
+      name: 'GET subscription answers the service\'s own quota, and only forces when asked',
+      async run() {
+        const asked = []
+        const { instance } = bridgeUnderTest({
+          subscription: async (input) => {
+            asked.push(input)
+            return {
+              ok: true,
+              cached: input.force !== true,
+              fetchedAt: 1_700_000_000_000,
+              windows: [{ name: 'rolling', status: 'ok', percent: 8, resetsAt: '2026-01-16T00:00:00.000Z' }],
+            }
+          },
+        })
+        const plain = await call(instance, local({ url: UI_ROUTES.subscription }))
+        is(plain.captured.statusCode, 200)
+        equal(plain.json.windows, [{ name: 'rolling', status: 'ok', percent: 8, resetsAt: '2026-01-16T00:00:00.000Z' }])
+        is(plain.json.cached, true)
+        equal(asked, [{ force: false }], 'opening the page never forces a read')
+
+        const forced = await call(instance, local({ url: `${UI_ROUTES.subscription}?refresh=1` }))
+        is(forced.json.cached, false)
+        equal(asked, [{ force: false }, { force: true }])
+      },
+    },
+    {
+      name: 'a quota the service cannot answer is a 200 with a reason, never a 5xx',
+      async run() {
+        // A gateway that mirrors only the model surface is a working
+        // deployment. A quota readout is an extra, so losing it must not look
+        // like the page itself failed.
+        for (const reason of ['unsupported', 'unauthorized', 'unreachable', 'no-credential']) {
+          const { instance } = bridgeUnderTest({ subscription: async () => ({ ok: false, reason }) })
+          const res = await call(instance, local({ url: UI_ROUTES.subscription }))
+          is(res.captured.statusCode, 200, reason)
+          is(res.json.ok, false, reason)
+          is(res.json.reason, reason)
+        }
+        // Even a throw becomes a reason rather than a 500.
+        const { instance } = bridgeUnderTest({
+          subscription: async () => {
+            throw new Error('the reader fell over')
+          },
+        })
+        const res = await call(instance, local({ url: UI_ROUTES.subscription }))
+        is(res.captured.statusCode, 200)
+        is(res.json.error, 'unsupported')
+      },
+    },
+    {
       name: 'each endpoint answers only its own methods',
       async run() {
         const { instance } = bridgeUnderTest()
@@ -831,6 +956,9 @@ export default {
         const onCredential = await call(instance, local({ method: 'PUT', url: UI_ROUTES.credential }))
         is(onCredential.captured.statusCode, 405)
         is(onCredential.captured.headers.allow, 'POST, DELETE')
+        const onSubscription = await call(instance, local({ method: 'POST', url: UI_ROUTES.subscription }))
+        is(onSubscription.captured.statusCode, 405)
+        is(onSubscription.captured.headers.allow, 'GET')
       },
     },
     {
@@ -882,13 +1010,25 @@ export default {
       },
     },
     {
-      name: 'the entry is found by row id, then by module name',
+      name: 'the entry is found by row id, then by module name, and by identity',
       run() {
-        const rows = [{ id: 'ui-settings', name: '@deepseek-ai/dsh-client-ui-settings' }]
+        // Loader entries nest the row fields under `options`; reading them flat
+        // is the bug that made the real deployment answer "no profile entry".
+        const row = (id, name) => ({ options: { id, name, config: {} }, fiber: { state: 2 } })
+        const rows = [row('ui-settings', '@deepseek-ai/dsh-client-ui-settings')]
         is(findEntry(rows, 'opencode-go'), undefined)
-        is(findEntry([...rows, { id: 'custom-row', name: 'dsh-opencode-go' }], 'opencode-go')?.id, 'custom-row')
-        is(findEntry([{ id: 'scoped', name: '@acme/dsh-opencode-go' }], 'opencode-go')?.id, 'scoped')
-        is(findEntry([{ id: 'opencode-go', name: 'anything' }, { id: 'other', name: 'dsh-opencode-go' }], 'opencode-go')?.id, 'opencode-go')
+        is(findEntry([...rows, row('custom-row', 'dsh-opencode-go')], 'opencode-go')?.options.id, 'custom-row')
+        is(findEntry([row('scoped', '@acme/dsh-opencode-go')], 'opencode-go')?.options.id, 'scoped')
+        is(
+          findEntry([row('opencode-go', 'anything'), row('other', 'dsh-opencode-go')], 'opencode-go')?.options.id,
+          'opencode-go',
+        )
+        // The editor's `edit` demands the object its own `entries()` returned,
+        // so the plugin's entry wins by identity even when an id would match.
+        const own = row('weird-id', 'weird-name')
+        equal(findEntry([row('opencode-go', 'dsh-opencode-go'), own], 'opencode-go', own), own)
+        // A flat entry — the shape no Loader produces — is not mistaken for one.
+        is(findEntry([{ id: 'opencode-go', name: 'dsh-opencode-go' }], 'opencode-go'), undefined)
       },
     },
   ],
