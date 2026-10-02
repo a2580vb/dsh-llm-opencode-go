@@ -156,6 +156,36 @@ export default {
       },
     },
     {
+      name: 'no dictionary key is written but never read',
+      run() {
+        // A key nothing looks up is a small lie: it reads as a feature that
+        // exists. The locales agree on their keys, so a key both of them carry
+        // and no code names would otherwise pass every check here.
+        const { factory } = loadBundle()
+        const { ctx, state } = fakeClientContext()
+        factory(fakeRequire()).apply(ctx)
+        const { dicts } = state.dictionaries[0]
+        // Everything outside the two dictionary literals is what could read a
+        // key, so the literals themselves are cut out before the search.
+        const zhStart = clientSource.indexOf('zh: {')
+        const enStart = clientSource.indexOf('\n      en: {')
+        const dictEnd = clientSource.indexOf('\n    }', enStart)
+        const code = clientSource.slice(0, zhStart) + clientSource.slice(dictEnd)
+        const dead = Object.keys(dicts.en).filter((key) => !new RegExp(`t\\('${key}'`).test(code))
+        // Keys the page reaches through a computed name: the reason string is
+        // built from a `reason`, and the two helpers below return key names.
+        const computed = ['subscriptionReason', 'subscriptionWindow', 'saveField']
+        const unexplained = dead.filter((key) => {
+          const helper = key.replace(/^(subscriptionReason|subscriptionWindow).*$/, '$1')
+          return !computed.includes(helper)
+            // A key passed to `report`/`saveField` by name is read by t() there.
+            && !new RegExp(`'${key}'`).test(code)
+        })
+        equal(unexplained, [], unexplained.join(', '))
+        ok(Object.keys(dicts.en).length > 100, 'the dictionary is the real one')
+      },
+    },
+    {
       name: 'every endpoint the page calls is served by the bridge',
       run() {
         // The two halves agree on the paths by construction: the page's own

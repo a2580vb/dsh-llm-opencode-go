@@ -632,6 +632,112 @@ export default {
       },
     },
     {
+      name: 'no control is ever sized along the wrong axis',
+      async run() {
+        // The class of bug this guard exists for: `flex: '0 0 200px'` means a
+        // *width* in a row container and a *height* in a column one. A box that
+        // carried that shorthand into the labelled column around it was 200px
+        // tall and clipped its own placeholder text. Every behavioural assertion
+        // passes anyway -- the control still holds the right value and still
+        // fires the right handler -- so it has to be checked structurally.
+        const page = await renderPage({ fetch: host() })
+        const tree = await page.open()
+        const problems = []
+        let checked = 0
+        for (const { node, path } of nodes(tree)) {
+          if (node.type !== 'input' && node.type !== 'select' && node.type !== 'textarea') continue
+          const style = node.props.style ?? {}
+          const named = node.props['aria-label'] ?? node.props.type ?? node.type
+          // A checkbox is not a text control: the platform draws it and it has
+          // no 30px box to keep in step with the buttons beside it.
+          const toggle = node.type === 'input' && ['checkbox', 'radio', 'range', 'file'].includes(node.props.type)
+          if (toggle) continue
+          checked += 1
+          // A column ancestor is what turns a basis into a height.
+          const column = path.some((ancestor) => ancestor.props?.style?.flexDirection === 'column')
+          const basis = typeof style.flex === 'string'
+            ? style.flex.split(/\s+/).find((part) => /[\d.]/.test(part))
+            : undefined
+          if (column && basis !== undefined) {
+            problems.push(`${named}: flex "${style.flex}" inside a column container`)
+          }
+          // Whatever the container, a text control is 30px tall: that is what
+          // every button beside it is, and the line box is pinned to match so
+          // the host's own input rules cannot inflate it.
+          if (style.height !== '30px') problems.push(`${named}: height ${String(style.height)}`)
+          if (style.boxSizing !== 'border-box') problems.push(`${named}: box-sizing ${String(style.boxSizing)}`)
+        }
+        equal(problems, [], problems.join(' · '))
+        ok(checked > 6, `the page actually rendered the controls this checks (${String(checked)})`)
+      },
+    },
+    {
+      name: 'the variant form lays its labelled fields out in one band',
+      async run() {
+        // The reader-visible symptom of the bug above: the name and display-name
+        // columns towered over the model select beside them, so the row read
+        // bottom-aligned and out of the order the code declares. Every labelled
+        // field in that band is the same height now, which is what makes the
+        // labels line up.
+        const page = await renderPage({ fetch: host({ models: { body: { ...CATALOG, variants: [] } } }) })
+        const tree = await page.open()
+        const section = find(tree, (node) => node.type === 'section' && text(node).includes('Model variants'))
+        ok(section !== undefined, 'the variants section rendered')
+        const band = nodes(section)
+          .filter(({ node }) => node.type === 'div' && node.props.style?.display === 'flex')
+          .map(({ node }) => node.children ?? [])
+          .find((children) => children.some((child) => text(child).includes('Pick a model')))
+        ok(band !== undefined, 'the add-a-variant row rendered')
+
+        // Model, Variant name, Display name -- the order the code declares, and
+        // each column holds exactly one control. The label is the child span,
+        // so the column's own text starts with it.
+        const labelOf = (child) => text((child.children ?? [])[0]).trim()
+        equal(band.map(labelOf), ['Model', 'Variant name', 'Display name'])
+        for (const child of band) {
+          const controls = nodes(child).filter(({ node }) => node.type === 'input' || node.type === 'select')
+          equal(controls.length, 1, `${text(child).trim().slice(0, 18)} holds one control`)
+          equal(controls[0].node.props.style.height, '30px')
+          equal(controls[0].node.props.style.flex, 'none', 'no basis, so no height from the wrong axis')
+        }
+      },
+    },
+    {
+      name: 'no placeholder is longer than the box it is shown in',
+      async run() {
+        // A placeholder that does not fit is not a hint, it is a cut-off
+        // sentence: the reader sees "例如 fast（字母、数字、点、横线、下划" and learns
+        // nothing about where the rest went. The boxes are a known width, so a
+        // rough width estimate is enough to catch a placeholder that outgrew
+        // its control -- which is how the rules ended up in the hint text
+        // under the field instead.
+        const page = await renderPage({ fetch: host() })
+        const tree = await page.open()
+        const problems = []
+        let checked = 0
+        for (const { node, path } of nodes(tree)) {
+          if (node.type !== 'input' || typeof node.props.placeholder !== 'string') continue
+          if (node.props.placeholder === '') continue
+          checked += 1
+          // The column that holds it gives the control its width.
+          const column = [...path].reverse().find((ancestor) => ancestor.props?.style?.flexDirection === 'column')
+          const declared = /\s0\s(\d+)px/.exec(column?.props?.style?.flex ?? '')?.[1]
+          const width = declared === undefined ? 240 : Number(declared)
+          // 12px text: ~7px for a wide glyph (CJK, capitals), ~6px otherwise,
+          // less the control's own padding.
+          const placeholder = node.props.placeholder
+          const wide = [...placeholder].filter((char) => /[\u3000-\u9fff\uFF00-\uFFEF]/.test(char)).length
+          const estimate = (placeholder.length - wide) * 6 + wide * 12
+          const room = width - 24
+          if (estimate > room) {
+            problems.push(`"${placeholder}" needs ~${String(estimate)}px of ${String(room)}px`)
+          }
+        }
+        equal(problems, [], problems.join(' · '))
+        ok(checked >= 4, `the page rendered placeholders to check (${String(checked)})`)
+      },
+    },
+    {
       name: 'the summary view asks the Host for nothing at all',
       async run() {
         const page = await renderPage({ fetch: host() })

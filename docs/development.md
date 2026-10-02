@@ -9,7 +9,7 @@ the code is laid out. Users who only configure the plugin can stop at
 ## Verification
 
 ```sh
-npm test          # 301 offline checks: config, SSE framing, catalog, all three protocols, adapter, plugin body, the settings bridge and the client bundle
+npm test          # 305 offline checks: config, SSE framing, catalog, all three protocols, adapter, plugin body, the settings bridge and the client bundle
 npm run test:cordis # 43 checks mounting the plugin on the harness's own cordis
 npm run test:live # 20 checks against the real service; needs OC_KEY
 ```
@@ -39,6 +39,22 @@ read what a person would see. That is how the page's claims about itself are
 checked: that a save writes the config shape rather than the snapshot it read,
 that a window switch reads the window the reader chose, that a disabled control
 is inert, and that a failure is reported in the reader's own words.
+
+Two checks in that suite are structural rather than behavioural, and both exist
+because a real defect was invisible to every behavioural assertion. A stylesheet
+here is a plain object, not CSS, so a mistake is easy to write and hard to see:
+
+- **A `flex` basis is a width in a row container and a height in a column one.**
+  A text control carrying `flex: '0 0 200px'` into the labelled column around it
+  became 200px *tall* and clipped its own text. The suite now walks the rendered
+  tree, finds every control inside a column ancestor, and refuses any that
+  carries a basis. The rule for new code: size the label (the flex item of the
+  row) and let the control fill it with `styles.fieldInput`, which sets
+  `flex: 'none'` on purpose.
+- **A placeholder that does not fit is a cut-off sentence.** The suite estimates
+  each placeholder against the width its column declares, so a long hint is
+  caught here instead of by a reader. Rules about accepted input belong in the
+  hint text under the field, where they can wrap and be read.
 
 `npm run test:live` spends real quota. It proves, against the live relay: model
 discovery and caching, a round trip over each of the three protocols, a full
