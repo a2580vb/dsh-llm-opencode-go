@@ -46,6 +46,58 @@ function protocolUnsupported(model) {
   }
 }
 
+/**
+ * The relay's training-consent refusal, as the current service answers it.
+ *
+ * The gate is an account-level policy check, so it is answered as a data-policy
+ * failure rather than as a request the model could not read. The URL in the
+ * message is the one the service itself points at.
+ */
+function trainingConsentRefusal() {
+  return {
+    status: 403,
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({
+      type: 'error',
+      error: {
+        type: 'DataPolicyError',
+        message: 'This model collects data used to improve its quality and requires explicit opt in:'
+          + ' https://opencode.ai/workspace/ws_test/go',
+      },
+    }),
+  }
+}
+
+/**
+ * The same refusal as deployments that surface it from the upstream service
+ * answer: `400`, an `Account.TrainingNotAllowed` code, and the sentence form.
+ */
+function trainingConsentRefusalAsUpstreamError() {
+  return {
+    status: 400,
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({
+      error: {
+        code: 'Account.TrainingNotAllowed',
+        message: 'Upstream request failed: This Go model trains on request data. Allow paid endpoints'
+          + " that train on request data in your workspace's Privacy settings to use it.",
+      },
+    }),
+  }
+}
+
+/** A logger that keeps its lines, so a case can assert what a deployment sees. */
+function recordingLogger() {
+  const lines = []
+  return {
+    lines,
+    info: (...args) => lines.push(args.map((arg) => String(arg)).join(' ')),
+    warn: (...args) => lines.push(args.map((arg) => String(arg)).join(' ')),
+    debug() {},
+    error: (...args) => lines.push(args.map((arg) => String(arg)).join(' ')),
+  }
+}
+
 /** A per-adapter cache path, so one case's discovery never reaches another. */
 let cacheCounter = 0
 
@@ -67,9 +119,10 @@ function adapterWith(script, overrides = {}) {
   })
   process.env.TEST_KEY = 'sk-test-value'
   const fetch = fakeFetch(script)
+  const logger = overrides.logger ?? silentLogger()
   const cache = new ModelCache(config, {
     authHeaders: async () => ({ authorization: 'Bearer sk-test-value' }),
-    logger: silentLogger(),
+    logger,
   })
   const adapter = new OpenCodeGoAdapter({
     options: () => config,
@@ -77,7 +130,7 @@ function adapterWith(script, overrides = {}) {
     cache,
     attachments: () => overrides.attachments,
     discover: (provider) => adapter.listModels(provider),
-    logger: silentLogger(),
+    logger,
     fetch,
   })
   return { adapter, config, fetch }
@@ -271,6 +324,108 @@ export default {
           error = thrown
         }
         is(error?.code, 'CONTEXT_WINDOW_EXCEEDED')
+      },
+    },
+    {
+      name: 'a training-consent refusal is named as such, explained, and never retried elsewhere',
+      async run() {
+        // deepseek-v4-flash serves all three protocols, so mistaking this refusal
+        // for a protocol one would spend three requests on one account policy.
+        const { adapter, fetch } = adapterWith([trainingConsentRefusal()])
+        let error
+        try {
+          await collect(adapter, {
+            provider: 'opencode-go',
+            model: 'deepseek-v4-flash',
+            messages: [userMessage('hi')],
+          })
+        } catch (thrown) {
+          error = thrown
+        }
+        is(error?.code, 'TRAINING_CONSENT_REQUIRED')
+        is(error?.failure?.status, 403)
+        is(fetch.requests.length, 1, 'no other protocol was tried')
+        const message = String(error?.message)
+        ok(message.includes('Allow models that train on request data'), 'the missing setting is named')
+        ok(message.includes('https://opencode.ai/workspace'), 'the console is named')
+        ok(message.includes('cannot grant that consent'), 'it says the plugin cannot grant it')
+      },
+    },
+    {
+      name: 'the 400 spelling with an Account.TrainingNotAllowed code is the same failure',
+      async run() {
+        const { adapter } = adapterWith([trainingConsentRefusalAsUpstreamError()])
+        let error
+        try {
+          await collect(adapter, {
+            provider: 'opencode-go',
+            model: 'muse-spark-1.3-contributor',
+            messages: [userMessage('hi')],
+          })
+        } catch (thrown) {
+          error = thrown
+        }
+        is(error?.code, 'TRAINING_CONSENT_REQUIRED')
+        is(error?.failure?.status, 400)
+        // The provider's own words survive, so the remedy is added to them rather
+        // than replacing what the service said.
+        ok(String(error?.message).includes('trains on request data'), 'the provider detail is kept')
+      },
+    },
+    {
+      name: 'a gated model states the setting it needs, in the listing and in its metadata',
+      async run() {
+        const { adapter } = adapterWith([])
+        const models = await adapter.listModels('opencode-go')
+        const gated = models.find((model) => model.id === 'muse-spark-1.3-contributor')
+        ok(gated !== undefined, 'the gated model is listed, because enabling the setting makes it usable')
+        ok(
+          String(gated.description).includes('Allow models that train on request data'),
+          `the listing names the setting: ${gated.description}`,
+        )
+        const info = await adapter.resolveModel('opencode-go', 'muse-spark-1.3-contributor', undefined)
+        ok(
+          String(info.description).includes('trains on request data'),
+          `the resolved metadata names the constraint: ${info.description}`,
+        )
+        // An ordinary model carries no such note, so the note still means something.
+        const plain = models.find((model) => model.id === 'glm-5.3')
+        is(plain.description, undefined)
+      },
+    },
+    {
+      name: 'hideTrainingModels drops the gated models from the listing but not from the route',
+      async run() {
+        const { adapter } = adapterWith([], { config: { hideTrainingModels: true } })
+        const models = await adapter.listModels('opencode-go')
+        ok(
+          !models.some((model) => model.id === 'muse-spark-1.3-contributor'),
+          'the gated model is not offered',
+        )
+        ok(models.some((model) => model.id === 'glm-5.3'), 'the rest of the catalog is offered')
+        // Hiding is a listing decision: a session already on the model, or a
+        // deployment that enabled the setting after this listing, still resolves.
+        const info = await adapter.resolveModel('opencode-go', 'muse-spark-1.3-contributor', undefined)
+        is(info.id, 'muse-spark-1.3-contributor')
+      },
+    },
+    {
+      name: 'catalog assembly says once which models need the workspace setting',
+      async run() {
+        const logger = recordingLogger()
+        const { adapter } = adapterWith([], { logger })
+        await adapter.listModels('opencode-go')
+        const line = logger.lines.find((text) => text.includes('train on request data'))
+        ok(line !== undefined, `a line names the constraint: ${logger.lines.join(' | ')}`)
+        ok(line.includes('muse-spark-1.3-contributor'), 'the model is named')
+        ok(line.includes('Allow models that train on request data'), 'the setting is named')
+
+        const hidden = recordingLogger()
+        const hiddenAdapter = adapterWith([], { logger: hidden, config: { hideTrainingModels: true } })
+        await hiddenAdapter.adapter.listModels('opencode-go')
+        const hiddenLine = hidden.lines.find((text) => text.includes('train on request data'))
+        ok(hiddenLine !== undefined, 'the hidden models are still named')
+        ok(hiddenLine.includes('hidden'), `the line says they are hidden: ${hiddenLine}`)
       },
     },
     {

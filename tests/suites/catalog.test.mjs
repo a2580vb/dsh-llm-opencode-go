@@ -1,8 +1,8 @@
 /** Model catalog: protocol mapping, override merging, and capability resolution. */
 
 import { PROTOCOLS, normalizeProtocol, resolveConfig } from '../../lib/config.js'
-import { catalogModelInfo, resolvedInputModalities, resolvedModelInfo, supportsImages } from '../../lib/model/capabilities.js'
-import { FALLBACK_MODELS, buildCatalog, displayName, preferredProtocol } from '../../lib/model/catalog.js'
+import { catalogModelInfo, resolvedInputModalities, resolvedModelInfo, supportsImages, trainingConsentNote } from '../../lib/model/capabilities.js'
+import { FALLBACK_MODELS, buildCatalog, displayName, preferredProtocol, requiresTrainingConsent } from '../../lib/model/catalog.js'
 import { parseModelList } from '../../lib/model/cache.js'
 import { CAPABILITY_SOURCE, capabilityFor, isMeasured, measuredIds } from '../../lib/model/limits.js'
 import { orderAttempts } from '../../lib/index.js'
@@ -375,6 +375,92 @@ export default {
         // because the selector offers what the route can actually send.
         const withRoute = catalogModelInfo('opencode-go', records.get('x'), { imageRoute: true, imageMode: 'auto' })
         equal(withRoute.inputModalities, ['text', 'image'])
+      },
+    },
+    {
+      name: 'the Go contributor ids carry the workspace training-consent flag',
+      run() {
+        const records = buildCatalog(resolveConfig({}), [])
+        for (const id of ['muse-spark-1.3-contributor', 'muse-spark-1.2-contributor']) {
+          is(records.get(id).trainingConsent, true, id)
+          equal([...records.get(id).protocols], ['responses'], `${id} is Responses-only`)
+          is(requiresTrainingConsent(id), true, id)
+        }
+        // The flag follows the service's own id list, so every other model — including
+        // one the measured table knows nothing about — stays ungated.
+        is(records.get('glm-5.3').trainingConsent, false, 'an ordinary model is not gated')
+        is(requiresTrainingConsent('muse-spark-1.3'), false, 'the non-contributor sibling is a different model')
+      },
+    },
+    {
+      name: 'a config entry states or clears the consent requirement, and a merge keeps it',
+      run() {
+        const declared = buildCatalog(resolveConfig({
+          modelSource: 'config',
+          models: [{ id: 'gated', trainingConsent: true }, { id: 'open' }],
+        }), [])
+        is(declared.get('gated').trainingConsent, true, 'an entry can declare it')
+        is(declared.get('open').trainingConsent, false, 'an unlisted id defaults to ungated')
+
+        // A gateway that does not implement the gate can say so, and a plain
+        // override of another field must not silently drop the measured one.
+        const cleared = buildCatalog(resolveConfig({
+          modelOverrides: { 'muse-spark-1.3-contributor': { trainingConsent: false } },
+        }), [])
+        is(cleared.get('muse-spark-1.3-contributor').trainingConsent, false, 'an override can clear it')
+
+        const merged = buildCatalog(resolveConfig({
+          modelOverrides: { 'muse-spark-1.3-contributor': { contextWindow: 4096 } },
+        }), [])
+        is(merged.get('muse-spark-1.3-contributor').trainingConsent, true, 'a merge keeps the derived flag')
+
+        const overridden = buildCatalog(resolveConfig({
+          protocolOverrides: { 'muse-spark-1.3-contributor': 'anthropic' },
+        }), [])
+        is(overridden.get('muse-spark-1.3-contributor').trainingConsent, true, 'a protocol override keeps it')
+        // The override is preferred, not exclusive: the rest of the list follows.
+        equal([...overridden.get('muse-spark-1.3-contributor').protocols], ['anthropic', 'responses'])
+      },
+    },
+    {
+      name: 'a trainingConsent that is not a boolean is refused by name',
+      run() {
+        const config = resolveConfig({
+          modelSource: 'config',
+          models: [{ id: 'bad', trainingConsent: 'yes' }],
+        })
+        let error
+        try {
+          buildCatalog(config, [])
+        } catch (thrown) {
+          error = thrown
+        }
+        ok(error instanceof TypeError, 'a TypeError is thrown')
+        ok(String(error.message).includes('trainingConsent'), `the message names the field: ${error.message}`)
+      },
+    },
+    {
+      name: 'the consent note is stated for a gated model and absent otherwise',
+      run() {
+        const records = buildCatalog(resolveConfig({}), [])
+        const gated = records.get('muse-spark-1.3-contributor')
+        const note = trainingConsentNote(gated)
+        ok(
+          String(note).includes('Allow models that train on request data'),
+          `the note names the workspace setting: ${note}`,
+        )
+        is(trainingConsentNote(records.get('glm-5.3')), undefined, 'an ungated model carries no note')
+        // The note reaches both surfaces a caller reads, and neither drops the
+        // other note: this model takes video, which no protocol here can send.
+        ok(
+          String(catalogModelInfo('opencode-go', gated).description).includes('train on request data'),
+          'the listing carries it',
+        )
+        ok(
+          String(resolvedModelInfo('opencode-go', gated).description).includes('train on request data'),
+          'the resolved metadata carries it',
+        )
+        is(catalogModelInfo('opencode-go', records.get('glm-5.3')).description, undefined, 'an ungated listing has none')
       },
     },
     {

@@ -27,6 +27,7 @@
 #   sessionHeader      'session-id' | 'uuid' | 'off'
 #   sendClientHeader   send x-opencode-client
 #   disableReasoningReplay  stop replaying prior reasoning
+#   hideTrainingModels      keep models that train on request data out of the list
 #   healthCheck        'off' | 'startup'
 #   retryPolicy        { mode, maxRetries, ... }
 - insert:

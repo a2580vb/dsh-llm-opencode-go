@@ -92,7 +92,7 @@ model by model:
 | `minimax-m2.7` | anthropic |
 | `minimax-m2.5`, `minimax-m3`, `kimi-k3`, `qwen3.6-plus`, `qwen3.7-max`, `qwen3.8-max`, `qwen3.8-flash`, `qwen3.7-plus`, `space-bunny-free` | chat-completions, anthropic |
 | `glm-5.3`, `glm-5.3-flash`, `glm-5.2`, `glm-5.1`, `kimi-k2.7-code`, `kimi-k2.6`, `mimo-v2.6-pro`, `mimo-v2.6-flash`, `mimo-v2.5-pro`, `mimo-v2.5`, `longcat-*`, `hy3`, `hy4-preview`, `omen-alpha` | chat-completions |
-| `muse-spark-1.*-contributor` | listed, but refused for a non-contributor account |
+| `muse-spark-1.3-contributor`, `muse-spark-1.2-contributor` | responses, and only while the workspace allows providers that train on request data (see [below](#models-that-train-on-request-data)) |
 
 Every id `GET /models` returns has a row in that table, so no served model has to
 discover its own protocol by failing first. Re-measure after a service change
@@ -114,6 +114,55 @@ lacks. An id that appears **nowhere** — new enough that even `GET /models` has
 not caught up, or reached through a gateway with no discovery — is the one case
 where the protocol is genuinely unknown, so it tries every protocol in order.
 You never have to wait for a plugin release to use a new model.
+
+## Models that train on request data
+
+Two Go models — `muse-spark-1.3-contributor` and `muse-spark-1.2-contributor` —
+are cheap under a data policy rather than a price: their provider uses prompts and
+completions to train future models. The relay therefore gates them on a
+**workspace** setting and refuses the call before the model is reached:
+
+```json
+{"type":"error","error":{"type":"DataPolicyError","message":"This model collects data used to improve its quality and requires explicit opt in: https://opencode.ai/workspace/<workspace>/go"}}
+```
+
+Deployments that surface the refusal from the upstream service answer the same
+thing as `400` with an `Account.TrainingNotAllowed` code and the sentence "This Go
+model trains on request data…"; both spellings are recognized. Until an admin
+enables **Allow models that train on request data**, every call to those ids fails
+— here and in OpenCode itself. The switch lives on the workspace's Go page
+(`https://opencode.ai/workspace` → the workspace → Go → Providers); on console
+builds that hide it from the sidebar, `…/settings/privacy` still reaches it.
+
+Three consequences shape what this adapter does, and none of them is "ask the
+service again":
+
+- **The refusal is named, not generalized.** It is reported as
+  `TRAINING_CONSENT_REQUIRED`, carrying the setting to enable and where to enable
+  it, instead of as `INVALID_REQUEST` (nothing about the request is wrong) or
+  `AUTH` (the credential is fine). No other protocol is tried: the gate is an
+  account policy, so a second request cannot answer differently.
+- **The model states what it needs while it is still being chosen.** A gated model
+  carries the note in its listing and in its resolved metadata, so a selector can
+  show the requirement before the first call rather than after a refused one.
+- **This plugin never grants the consent itself.** Whether prompts may train a
+  third party's model is the workspace owner's decision, so no header, body field,
+  or config switch here flips it; the adapter only reports it. It does log the
+  gated models once, when the catalog is assembled — earlier than the first
+  refusal.
+
+A deployment that cannot enable the setting — a workspace in a region the model is
+not offered in, or one route shared by several accounts — can keep those ids out
+of the model list:
+
+```yaml
+config:
+  hideTrainingModels: true
+```
+
+Hiding is a listing decision, not a routing one: the ids still resolve and still
+stream, so a session already using one keeps working and enabling the setting
+later needs no plugin change.
 
 ## Capacity and modalities
 
@@ -213,6 +262,7 @@ view, or read `Config` from the plugin for the authoritative list.
 | `sendClientHeader` | `true` | Send `x-opencode-client` |
 | `sendImages` | `auto` | `auto` \| `always` \| `off` — whether image bytes are attempted (see [Modalities](#modalities-what-the-model-takes-versus-what-a-route-can-send)) |
 | `disableReasoningReplay` | `false` | Stop sending prior reasoning back (see [Reasoning](#reasoning)) |
+| `hideTrainingModels` | `false` | Keep models whose provider trains on request data out of the listing (see [Models that train on request data](#models-that-train-on-request-data)) |
 | `healthCheck` | `off` | `startup` logs a credential + catalog report |
 | `retryPolicy` | normal, 5 retries | Provider-owned policy the retry executor applies |
 
@@ -360,11 +410,16 @@ Stable codes, so consumers route on the code and never on message text:
 `AUTH` · `QUOTA` · `RATE_LIMIT` · `CONTEXT_WINDOW_EXCEEDED` · `INVALID_REQUEST`
 · `SERVER` · `TRANSPORT` · `ABORTED` · `TIMEOUT` · `MALFORMED_RESPONSE` ·
 `STREAM_CLOSED` · `EMPTY_RESPONSE` · `UNSUPPORTED_CONTENT` · `UNSUPPORTED_OPTION`
-· `PROTOCOL_UNSUPPORTED` · `MISSING_CREDENTIAL` · `INVALID_CREDENTIAL`
+· `PROTOCOL_UNSUPPORTED` · `TRAINING_CONSENT_REQUIRED` · `MISSING_CREDENTIAL` ·
+`INVALID_CREDENTIAL`
 
 A credential that does not resolve fails before any network I/O with
 `MISSING_CREDENTIAL`, and one that cannot ride in an HTTP header fails with
-`INVALID_CREDENTIAL`; neither message contains any part of the secret.
+`INVALID_CREDENTIAL`; neither message contains any part of the secret. A refusal
+this account cannot retry its way out of — the workspace has not allowed models
+that train on request data — is `TRAINING_CONSENT_REQUIRED`, whose message names
+the setting that removes it; see [Models that train on request
+data](#models-that-train-on-request-data).
 
 An adapter failure is reported by the **shape** the harness reads — an `Error`
 with own `code` and `failure` data properties — not by class identity. That is
@@ -375,9 +430,9 @@ package: a cross-package copy of the harness class would never be recognized by
 ## Verify it
 
 ```sh
-npm test          # 127 offline checks: config, SSE framing, catalog, all three protocols, adapter, plugin body
+npm test          # 137 offline checks: config, SSE framing, catalog, all three protocols, adapter, plugin body
 npm run test:cordis # 20 checks mounting the plugin on the harness's own cordis
-npm run test:live # 19 checks against the real service; needs OC_KEY
+npm run test:live # 20 checks against the real service; needs OC_KEY
 ```
 
 `npm test` runs offline and needs no credential. The protocol suites replay
@@ -393,7 +448,8 @@ discovery and caching, a round trip over each of the three protocols, a full
 tool-calling round trip per protocol, protocol fallback recovery, cache reuse on
 a repeated session id, a history holding a tool call that was never dispatched,
 that every model reports its own measured context window, cap, and modalities,
-and that every advertised reasoning effort is accepted.
+that every advertised reasoning effort is accepted, and that a workspace-gated
+model either answers or is refused as needing that workspace's consent.
 
 ```sh
 OC_KEY=oc_sk_... npm run test:live
@@ -457,6 +513,14 @@ was taken — `new`, `changed`, `gone` — and rewrites the two tables with `--w
   falling back to the model's value), while Chat Completions and Responses omit
   theirs when the call states none, so the decision there belongs to the relay
   rather than to this plugin.
+- **Two models are gated by a workspace policy, not by this plugin.** The relay
+  serves the `…-contributor` ids only while the workspace allows providers that
+  train on request data, and it refuses them with its own error before the model
+  is reached. The adapter classifies that refusal (`TRAINING_CONSENT_REQUIRED`),
+  states the setting and where it lives, notes the models in their metadata, and
+  offers `hideTrainingModels` for a deployment that cannot enable it — but it
+  never enables it, because that consent is not a client's to give. See [Models
+  that train on request data](#models-that-train-on-request-data).
 - **Reasoning is not replayed to the Responses API.** A reasoning item is
   validated against upstream state the harness does not retain, and a mismatch
   is an opaque `400`, so prior thinking is dropped from that protocol's requests

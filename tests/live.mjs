@@ -455,6 +455,34 @@ for (const testCase of [
   }
 }
 
+// ---------------------------------------------------------------------------
+// 10. A workspace-gated model is either usable or named as gated
+// ---------------------------------------------------------------------------
+{
+  const { adapter, config } = buildAdapter({ modelsCachePath: CACHE_PATH })
+  const GATED = 'muse-spark-1.3-contributor'
+  const label = 'a workspace-gated model answers, or is refused as needing consent'
+  try {
+    const out = await run(adapter, {
+      provider: config.provider,
+      model: GATED,
+      messages: [userTurn('Reply with exactly the two letters OK.')],
+      maxTokens: 2048,
+      sessionId: 'live-consent-session',
+    })
+    report(label, out.finish.kind === 'stop', `this workspace allows training providers, so ${GATED} answered`)
+  } catch (error) {
+    // Without the workspace setting the relay refuses. The refusal must be the
+    // named one: `INVALID_REQUEST` or `AUTH` would send the reader after a
+    // request shape or a key, and neither is the missing piece.
+    report(
+      label,
+      error.code === 'TRAINING_CONSENT_REQUIRED',
+      `${error.code ?? 'ERROR'}: ${String(error.message).slice(0, 200)}`,
+    )
+  }
+}
+
 const failed = results.filter((result) => !result.ok)
 console.log(`\n${results.length - failed.length}/${results.length} live checks passed`)
 if (failed.length > 0) process.exitCode = 1

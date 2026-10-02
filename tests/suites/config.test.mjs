@@ -3,6 +3,7 @@
 import { readFile } from 'node:fs/promises'
 
 import {
+  Config,
   DEFAULT_BASE_URL,
   PLUGIN_VERSION,
   PROTOCOLS,
@@ -26,8 +27,24 @@ export default {
         is(config.defaultProtocol, PROTOCOLS.CHAT)
         is(config.sessionHeader, 'session-id')
         is(config.sendClientHeader, true)
+        is(config.hideTrainingModels, false)
         is(config.healthCheck, 'off')
         ok(Object.isFrozen(config))
+      },
+    },
+    {
+      name: 'hideTrainingModels is a declared boolean, or refused by name',
+      run: async () => {
+        is(resolveConfig({ hideTrainingModels: true }).hideTrainingModels, true)
+        await rejectsWith(
+          Promise.resolve().then(() => resolveConfig({ hideTrainingModels: 'yes' })),
+          'hideTrainingModels',
+        )
+        // The schema the loader calls first must object too, so activation fails
+        // with the field rather than at the first listing.
+        const issues = Config['~standard'].validate({ hideTrainingModels: 'yes' }).issues
+        ok(Array.isArray(issues) && issues.length > 0, 'the schema reported the field')
+        ok(issues.some((issue) => String(issue.message).includes('hideTrainingModels')), 'by name')
       },
     },
     {

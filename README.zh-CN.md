@@ -82,7 +82,7 @@ OpenCode Go 提供三种线格式协议，并且对**哪个模型能走哪个协
 | `minimax-m2.7` | anthropic |
 | `minimax-m2.5`、`minimax-m3`、`kimi-k3`、`qwen3.6-plus`、`qwen3.7-max`、`qwen3.8-max`、`qwen3.8-flash`、`qwen3.7-plus`、`space-bunny-free` | chat-completions、anthropic |
 | `glm-5.3`、`glm-5.3-flash`、`glm-5.2`、`glm-5.1`、`kimi-k2.7-code`、`kimi-k2.6`、`mimo-v2.6-pro`、`mimo-v2.6-flash`、`mimo-v2.5-pro`、`mimo-v2.5`、`longcat-*`、`hy3`、`hy4-preview`、`omen-alpha` | chat-completions |
-| `muse-spark-1.*-contributor` | 会列出，但对非 contributor 账号会被拒绝 |
+| `muse-spark-1.3-contributor`、`muse-spark-1.2-contributor` | responses，且仅在 workspace 允许「用请求数据训练的 provider」时可用（见[下文](#会训练请求数据的模型)） |
 
 `GET /models` 返回的每一个 id 在这张表里都有对应行，所以没有任何一个在服务的模型需要先失败一次
 才能确定自己的协议。服务变更后用[如何验证](#如何验证)里描述的探针重新实测即可。
@@ -99,6 +99,44 @@ config:
 id，只会带上默认协议——「服务列出了它」本身就是插件掌握的一条事实。而**哪里都找不到**的
 id——新到 `GET /models` 都还没收录，或者走的是没有发现能力的网关——才是协议真正未知的那一种，
 它会依次尝试每一个协议。你永远不需要等插件发新版本才能用上新模型。
+
+## 会训练请求数据的模型
+
+Go 上有两个模型——`muse-spark-1.3-contributor` 与 `muse-spark-1.2-contributor`——便宜的原因不是价格
+而是数据政策：它们的 provider 会用你的 prompt 与补全训练后续模型。因此中继把它们的准入绑在
+**workspace** 设置上，并且在请求到达模型之前就拒掉：
+
+```json
+{"type":"error","error":{"type":"DataPolicyError","message":"This model collects data used to improve its quality and requires explicit opt in: https://opencode.ai/workspace/<workspace>/go"}}
+```
+
+有些部署会把上游服务的同一条拒绝透传成 `400`，带上 `Account.TrainingNotAllowed` 错误码和
+「This Go model trains on request data…」这句话；两种写法本插件都认得。在管理员开启
+**Allow models that train on request data** 之前，对这些 id 的每一次调用都会失败——在 OpenCode 里
+也一样。开关在 workspace 的 Go 页面（`https://opencode.ai/workspace` → 该 workspace → Go →
+Providers）；侧边栏里找不到它的 console 版本，用 `…/settings/privacy` 也能直达。
+
+由此得出三条本适配器的行为准则，其中没有一条是「再问一次服务」：
+
+- **这条拒绝被单独命名，而不是被泛化。** 它以 `TRAINING_CONSENT_REQUIRED` 上报，消息里带上要开启
+  的设置项和开启的位置，而不是报成 `INVALID_REQUEST`（请求本身没有任何问题）或 `AUTH`（凭据是好的）。
+  它也不会去试别的协议：这是账号级策略，换一个协议不可能得到不同答案。
+- **模型在「被选中」的阶段就说明自己的前提。** 被门控的模型在列表和解析出的元数据里都带一条说明，
+  选择器可以在第一次调用之前就显示这个前提，而不是在调用被拒之后。
+- **插件永远不会替你给出这份同意。** 你的 prompt 是否可以用于训练第三方的模型，是 workspace 所有者的
+  决定，所以这里没有任何 header、body 字段或配置开关去翻它；适配器只负责报告。它会在目录组装时把被
+  门控的模型记一行日志——比第一次被拒更早。
+
+开不了这个设置的部署——例如该模型在所在地区不提供，或一条路由被多个账号共用——可以把这些 id 从模型
+列表里摘掉：
+
+```yaml
+config:
+  hideTrainingModels: true
+```
+
+「隐藏」只影响列表，不影响路由：这些 id 依然能被解析、依然能发起流式调用，所以已经在用它的会话不会
+中断，而之后开启 workspace 设置也不需要改插件。
 
 ## 容量与多模态
 
@@ -190,6 +228,7 @@ base64 `source`。这是对线上实测的结论，不是假设——见[如何�
 | `sendClientHeader` | `true` | 是否发送 `x-opencode-client` |
 | `sendImages` | `auto` | `auto` \| `always` \| `off`——是否尝试发送图片字节（见[多模态](#多模态模型能接受什么与一条路由能发什么)） |
 | `disableReasoningReplay` | `false` | 不再回传此前的 reasoning（见[推理](#推理)） |
+| `hideTrainingModels` | `false` | 把 provider 会用请求数据训练的模型从列表中摘掉（见[会训练请求数据的模型](#会训练请求数据的模型)） |
 | `healthCheck` | `off` | `startup` 会记录一份凭据 + 目录报告 |
 | `retryPolicy` | normal，5 次重试 | 由重试执行器采用的 provider 自有策略 |
 
@@ -316,10 +355,13 @@ Responses API 对没有结果的调用回 `400 No tool output found for tool cal
 `AUTH` · `QUOTA` · `RATE_LIMIT` · `CONTEXT_WINDOW_EXCEEDED` · `INVALID_REQUEST`
 · `SERVER` · `TRANSPORT` · `ABORTED` · `TIMEOUT` · `MALFORMED_RESPONSE` ·
 `STREAM_CLOSED` · `EMPTY_RESPONSE` · `UNSUPPORTED_CONTENT` · `UNSUPPORTED_OPTION`
-· `PROTOCOL_UNSUPPORTED` · `MISSING_CREDENTIAL` · `INVALID_CREDENTIAL`
+· `PROTOCOL_UNSUPPORTED` · `TRAINING_CONSENT_REQUIRED` · `MISSING_CREDENTIAL` ·
+`INVALID_CREDENTIAL`
 
 凭据解析不出来时，会在任何网络 I/O 之前以 `MISSING_CREDENTIAL` 失败；凭据中含有 HTTP 请求头
-无法承载的字符时以 `INVALID_CREDENTIAL` 失败。这两条消息都不包含密钥的任何部分。
+无法承载的字符时以 `INVALID_CREDENTIAL` 失败。这两条消息都不包含密钥的任何部分。而重试无法绕过的
+那种拒绝——workspace 尚未允许会训练请求数据的模型——是 `TRAINING_CONSENT_REQUIRED`，它的消息直接
+点名要开启的设置项；见[会训练请求数据的模型](#会训练请求数据的模型)。
 
 适配器失败是按 Harness 读取的**形状**上报的——一个带有自有 `code` 和 `failure` 数据属性的
 `Error`——而不是按类身份。这就是本插件可以定义自己的失败类型、且不依赖任何 Harness 包的原因：
@@ -328,9 +370,9 @@ Harness 类的跨包副本在 Harness 里本来也永远不会被 `instanceof` �
 ## 如何验证
 
 ```sh
-npm test          # 127 项离线检查：配置、SSE 分帧、目录、三种协议、适配器、插件本体
+npm test          # 137 项离线检查：配置、SSE 分帧、目录、三种协议、适配器、插件本体
 npm run test:cordis # 20 项检查，把插件挂到 Harness 自己的 cordis 上
-npm run test:live # 19 项检查，打到真实服务；需要 OC_KEY
+npm run test:live # 20 项检查，打到真实服务；需要 OC_KEY
 ```
 
 `npm test` 离线运行，不需要凭据。协议套件回放的是**从线上服务抓取**的响应体
@@ -341,8 +383,9 @@ npm run test:live # 19 项检查，打到真实服务；需要 OC_KEY
 
 `npm run test:live` 会消耗真实配额。它针对线上中继证明：模型发现与缓存、三种协议各自的往返、
 每种协议的完整工具调用往返、协议回退恢复、重复 session id 上的缓存复用、历史中存在「被记录但
-从未派发」的工具调用时请求仍被接受、每个模型都报告自己的实测上下文窗口与模态，以及每一个对外
-公布的思考等级都被接受。
+从未派发」的工具调用时请求仍被接受、每个模型都报告自己的实测上下文窗口与模态、每一个对外
+公布的思考等级都被接受，以及被 workspace 门控的模型要么正常作答、要么被明确报成「需要该
+workspace 的同意」。
 
 ```sh
 OC_KEY=oc_sk_... npm run test:live
@@ -392,6 +435,11 @@ node scripts/snapshot-models.mjs [--write]                      # 容量快照�
   上限到达线上的方式不同：Messages 总会发送一个（`max_tokens`，缺省时回退到模型的值），而
   Chat Completions 与 Responses 在调用没有声明上限时就省略该字段，所以这个决定权在中继而不是
   本插件。
+- **有两个模型被 workspace 策略门控，而不是被本插件门控。** 中继只在 workspace 允许「用请求数据
+  训练的 provider」时才会服务 `…-contributor` 这两个 id，并且在请求到达模型之前就用自己的错误拒掉。
+  适配器做的是：把这条拒绝单独归类（`TRAINING_CONSENT_REQUIRED`）、在消息里写清要开启的设置项及
+  其位置、在模型元数据里给出说明，并为开不了该设置的部署提供 `hideTrainingModels`——但它永远不会
+  替你去开启，因为这份同意不是客户端可以给出的。见[会训练请求数据的模型](#会训练请求数据的模型)。
 - **推理不会回放到 Responses API。** reasoning item 会针对 Harness 并未保留的上游状态做校验，
   不匹配就是一个含义不明的 `400`，所以该协议的请求里直接丢弃此前的思考，而不是发出去然后随机被
   拒。Messages 协议确实会回放 thinking block，并使用 provider 签发的签名。
