@@ -237,24 +237,38 @@ export default {
     {
       name: 'a variant is built in the form and saved as it was filled in',
       async run() {
-        // Nothing declared yet, so this case is about adding one.
+        // Nothing declared yet, so this case is about adding one. A variant
+        // combines all four settings the feature exists for -- protocol,
+        // thinking level, context window, output cap -- so the case sets all
+        // four and checks all four arrive.
         const page = await renderPage({ fetch: host({ models: { body: { ...CATALOG, variants: [] } } }) })
         await page.open()
         const byLabel = (label) => (node) => node.props['aria-label'] === label
         await page.change(byLabel('Model'), 'glm-5.3')
         await page.change(byLabel('Variant name'), 'fast')
+        await page.change(byLabel('Protocol first'), 'chat-completions')
         await page.change(byLabel('Default thinking level'), 'low')
         const draft = await page.click((node) => node.type === 'button' && text(node).trim() === 'Add variant')
         ok(text(draft).includes('glm-5.3@fast'), 'the draft entry names the id it will be offered under')
-        // Figures belong to the entry, so they are edited on the row the form
-        // just added rather than in the form.
+        // The figures belong to the entry, so they are edited on the row the
+        // form just added rather than in the form.
         await page.change(byLabel('glm-5.3@fast Context window'), '200000')
+        await page.change(byLabel('glm-5.3@fast Output cap'), '32768')
         await page.click((node) => node.type === 'button' && text(node).trim() === 'Save variants')
         const written = page.calls.find((call) => call.path === 'opencode-go/config')
         // The form holds strings; the config holds what the schema declares,
         // and a name is part of an id a person types.
         equal(JSON.parse(written.init.body), {
-          set: { modelVariants: [{ model: 'glm-5.3', name: 'fast', effort: 'low', contextWindow: 200_000 }] },
+          set: {
+            modelVariants: [{
+              model: 'glm-5.3',
+              name: 'fast',
+              protocol: 'chat-completions',
+              effort: 'low',
+              contextWindow: 200_000,
+              maxTokens: 32_768,
+            }],
+          },
         })
       },
     },
