@@ -87,6 +87,50 @@ export function fakeEditor({ id = 'opencode-go', name = 'dsh-opencode-go', inher
   }
 }
 
+/** A catalog snapshot stand-in: one listed model and one hidden one. */
+export function fakeSnapshot(overrides = {}) {
+  const models = overrides.models ?? [
+    {
+      id: 'glm-5.3',
+      name: 'GLM 5.3',
+      hidden: false,
+      hiddenReason: null,
+      trainingGated: false,
+      protocols: ['chat-completions'],
+      contextWindow: 200_000,
+      maxTokens: 131_072,
+      reasoning: true,
+      inputModalities: ['text'],
+    },
+    {
+      id: 'space-bunny-free',
+      name: 'Space Bunny Free',
+      hidden: true,
+      hiddenReason: 'configured',
+      trainingGated: false,
+      protocols: ['chat-completions'],
+      contextWindow: 131_072,
+      maxTokens: 32_768,
+      reasoning: false,
+      inputModalities: ['text'],
+    },
+  ]
+  const hidden = overrides.hidden ?? models.filter((model) => model.hiddenReason === 'configured').map((model) => model.id)
+  return {
+    source: 'discover',
+    fetchedAt: 1_700_000_000_000,
+    counts: {
+      total: models.length,
+      listed: models.filter((model) => !model.hidden).length,
+      hidden: hidden.length,
+      hiddenByTraining: models.filter((model) => model.hiddenReason === 'training').length,
+    },
+    models,
+    hidden,
+    ...overrides,
+  }
+}
+
 /**
  * The bridge under test, with every optional collaborator controllable.
  *
@@ -105,7 +149,7 @@ export function bridgeUnderTest(overrides = {}) {
     credentials: () => credentials,
     configEditor: () => configEditor,
     connection: () => connection,
-    catalog: overrides.catalog ?? (async () => ({ source: config.modelSource, count: 41 })),
+    snapshot: overrides.snapshot ?? (async () => fakeSnapshot()),
     logger: { info: (...args) => logs.push(args.join(' ')), warn: (...args) => logs.push(args.join(' ')) },
   })
   return { instance, config, credentials, configEditor, logs }

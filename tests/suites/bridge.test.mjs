@@ -15,9 +15,17 @@ import {
   findEntry,
   nextOverride,
   validateApiKey,
+  validateFieldValue,
 } from '../../lib/ui/bridge.js'
 import { fenceRejection, isLoopbackHostname } from '../../lib/ui/http.js'
-import { bridgeUnderTest, call, fakeCredentials, fakeEditor, local } from './_bridge-harness.mjs'
+import {
+  bridgeUnderTest,
+  call,
+  fakeCredentials,
+  fakeEditor,
+  fakeSnapshot,
+  local,
+} from './_bridge-harness.mjs'
 import { equal, includes, is, ok } from '../helpers.mjs'
 
 export default {
@@ -28,16 +36,22 @@ export default {
       run() {
         is(UI_ROUTE_PREFIX, '/opencode-go')
         is(UI_ROUTES.state, '/opencode-go/state')
+        is(UI_ROUTES.models, '/opencode-go/models')
         is(UI_ROUTES.config, '/opencode-go/config')
         is(UI_ROUTES.credential, '/opencode-go/credential')
-        equal([...MANAGED_CONFIG_FIELDS], ['apiKeyEnv'])
+        equal([...MANAGED_CONFIG_FIELDS], ['apiKeyEnv', 'hiddenModels'])
       },
     },
     {
       name: 'GET state reports the route, the credential, and the catalog',
       async run() {
         const { instance } = bridgeUnderTest({
-          config: { provider: 'opencode-go', apiKeyEnv: 'OC_KEY', baseURL: 'https://relay.test/v1' },
+          config: {
+            provider: 'opencode-go',
+            apiKeyEnv: 'OC_KEY',
+            baseURL: 'https://relay.test/v1',
+            hiddenModels: ['space-bunny-free'],
+          },
           credentials: fakeCredentials({ OC_KEY: 'sk-stored' }),
         })
         const res = await call(instance, local())
@@ -50,11 +64,57 @@ export default {
         is(res.json.route.baseURL, 'https://relay.test/v1')
         is(res.json.credential.configured, true)
         is(res.json.credential.writable, true)
-        is(res.json.catalog.count, 41)
+        is(res.json.catalog.counts.total, 2)
+        is(res.json.catalog.counts.listed, 1)
         is(res.json.config.editable, true)
         is(res.json.config.entry.id, 'opencode-go')
-        equal(res.json.config.fields, ['apiKeyEnv'])
+        equal(res.json.config.fields, ['apiKeyEnv', 'hiddenModels'])
         is(res.json.config.values.apiKeyEnv, 'OC_KEY')
+        equal(res.json.config.values.hiddenModels, ['space-bunny-free'])
+      },
+    },
+    {
+      name: 'GET models reports every model with the reason it is hidden',
+      async run() {
+        const { instance } = bridgeUnderTest()
+        const res = await call(instance, local({ url: UI_ROUTES.models }))
+        is(res.captured.statusCode, 200)
+        is(res.json.ok, true)
+        is(res.json.models.length, 2)
+        equal(res.json.hidden, ['space-bunny-free'])
+        const hidden = res.json.models.find((model) => model.id === 'space-bunny-free')
+        is(hidden.hidden, true)
+        is(hidden.hiddenReason, 'configured')
+        const listed = res.json.models.find((model) => model.id === 'glm-5.3')
+        is(listed.hidden, false)
+        is(listed.hiddenReason, null)
+        is(listed.reasoning, true)
+      },
+    },
+    {
+      name: 'GET models reports a catalog it cannot read instead of failing',
+      async run() {
+        const { instance } = bridgeUnderTest({
+          snapshot: async () => {
+            throw new Error('catalog offline')
+          },
+        })
+        const res = await call(instance, local({ url: UI_ROUTES.models }))
+        is(res.captured.statusCode, 503)
+        is(res.json.ok, false)
+        is(res.json.error, 'catalog-unavailable')
+        includes(res.json.message, 'catalog offline')
+      },
+    },
+    {
+      name: 'the state catalog summary is a summary, not the model list',
+      async run() {
+        const { instance } = bridgeUnderTest()
+        const res = await call(instance, local())
+        is(res.json.catalog.models, undefined)
+        equal(res.json.catalog.counts, { total: 2, listed: 1, hidden: 1, hiddenByTraining: 0 })
+        is(res.json.catalog.source, 'discover')
+        is(res.json.catalog.fetchedAt, 1_700_000_000_000)
       },
     },
     {
@@ -90,7 +150,7 @@ export default {
       name: 'state survives a catalog that cannot be read',
       async run() {
         const { instance } = bridgeUnderTest({
-          catalog: async () => {
+          snapshot: async () => {
             throw new Error('catalog blew up')
           },
         })
@@ -171,7 +231,85 @@ export default {
         is(res.captured.statusCode, 200)
         equal(editor.writes, [{ apiKeyEnv: 'OC_OTHER_KEY' }])
         equal(res.json.config.override, { apiKeyEnv: 'OC_OTHER_KEY' })
-        equal(res.json.config.values, { apiKeyEnv: 'OPENCODE_GO_API_KEY' })
+        is(res.json.config.values.apiKeyEnv, 'OPENCODE_GO_API_KEY')
+      },
+    },
+    {
+      name: 'POST config writes the hidden set as one array',
+      async run() {
+        const editor = fakeEditor({ inherited: { provider: 'opencode-go' } })
+        const { instance } = bridgeUnderTest({ configEditor: editor })
+        const res = await call(instance, local({
+          method: 'POST',
+          url: UI_ROUTES.config,
+          headers: { host: '127.0.0.1:1' },
+          body: { set: { hiddenModels: ['glm-5.3', 'space-bunny-free'] } },
+        }))
+        is(res.captured.statusCode, 200)
+        equal(editor.writes, [{ hiddenModels: ['glm-5.3', 'space-bunny-free'] }])
+        equal(res.json.config.override.hiddenModels, ['glm-5.3', 'space-bunny-free'])
+      },
+    },
+    {
+      name: 'an empty hidden set is written, not dropped',
+      async run() {
+        const editor = fakeEditor({ override: { hiddenModels: ['glm-5.3'] } })
+        const { instance } = bridgeUnderTest({ configEditor: editor })
+        await call(instance, local({
+          method: 'POST',
+          url: UI_ROUTES.config,
+          headers: { host: '127.0.0.1:1' },
+          body: { set: { hiddenModels: [] } },
+        }))
+        // Showing every model again is a decision, so the override says so
+        // instead of falling back to the bundle layer's value.
+        equal(editor.writes, [{ hiddenModels: [] }])
+      },
+    },
+    {
+      name: 'a malformed hidden set is refused by field, before the editor',
+      async run() {
+        const editor = fakeEditor()
+        const { instance } = bridgeUnderTest({ configEditor: editor })
+        for (const value of ['glm-5.3', ['glm-5.3', ''], [42], null]) {
+          const res = await call(instance, local({
+            method: 'POST',
+            url: UI_ROUTES.config,
+            headers: { host: '127.0.0.1:1' },
+            body: { set: { hiddenModels: value } },
+          }))
+          is(res.captured.statusCode, 400, `${JSON.stringify(value)} must be refused`)
+          is(res.json.error, 'invalid-field-value')
+          includes(res.json.message, 'hiddenModels')
+        }
+        equal(editor.writes, [])
+      },
+    },
+    {
+      name: 'a credential reference that is not a name is refused early',
+      async run() {
+        const { instance } = bridgeUnderTest()
+        const res = await call(instance, local({
+          method: 'POST',
+          url: UI_ROUTES.config,
+          headers: { host: '127.0.0.1:1' },
+          body: { set: { apiKeyEnv: 'not a name' } },
+        }))
+        is(res.captured.statusCode, 400)
+        is(res.json.error, 'invalid-field-value')
+        includes(res.json.message, 'apiKeyEnv')
+      },
+    },
+    {
+      name: 'the field validator names each shape it accepts',
+      run() {
+        is(validateFieldValue('apiKeyEnv', 'OC_KEY'), undefined)
+        is(validateFieldValue('apiKeyEnv', 'OC-KEY'), 'apiKeyEnv must be a credential reference such as OPENCODE_GO_API_KEY')
+        is(validateFieldValue('hiddenModels', []), undefined)
+        is(validateFieldValue('hiddenModels', ['a']), undefined)
+        is(validateFieldValue('hiddenModels', 'a'), 'hiddenModels must be an array of model ids')
+        is(validateFieldValue('hiddenModels', ['']), 'every hiddenModels entry must be a non-empty model id')
+        is(validateFieldValue('somethingElse', 'anything'), undefined)
       },
     },
     {

@@ -99,6 +99,34 @@ export default {
       },
     },
     {
+      name: 'hiddenModels defaults to nothing and normalizes what it is given',
+      run() {
+        equal([...resolveConfig({}).hiddenModels], [])
+        equal(
+          [...resolveConfig({ hiddenModels: [' glm-5.3 ', 'glm-5.3', 'kimi-k3'] }).hiddenModels],
+          ['glm-5.3', 'kimi-k3'],
+        )
+        // An id the catalog does not list is kept: the service adds models
+        // without asking this plugin, and hiding one early should just work.
+        equal([...resolveConfig({ hiddenModels: ['not-yet-served'] }).hiddenModels], ['not-yet-served'])
+        ok(Object.isFrozen(resolveConfig({ hiddenModels: ['a'] }).hiddenModels))
+      },
+    },
+    {
+      name: 'a malformed hiddenModels list is refused by name, in both validators',
+      run: async () => {
+        for (const value of ['glm-5.3', ['glm-5.3', ''], [null], [{ id: 'glm-5.3' }]]) {
+          await rejectsWith(
+            Promise.resolve().then(() => resolveConfig({ hiddenModels: value })),
+            'hiddenModels',
+          )
+        }
+        const issues = Config['~standard'].validate({ hiddenModels: ['glm-5.3', 7] }).issues
+        ok(Array.isArray(issues) && issues.length > 0, 'the schema objected too')
+        ok(issues.some((issue) => String(issue.message).includes('hiddenModels')), 'by name')
+      },
+    },
+    {
       name: 'the User-Agent leads with the plugin identity',
       run() {
         const config = resolveConfig({})

@@ -404,6 +404,7 @@ const pluginModule = await import(url(join(PLUGIN, 'lib/index.js')))
     provider: 'opencode-go',
     apiKeyEnv: 'OC_TEST_KEY',
     modelsCachePath: modelsPath,
+    hiddenModels: ['glm-5.3'],
   })
   await new Promise((resolve) => setTimeout(resolve, 300))
 
@@ -434,8 +435,8 @@ const pluginModule = await import(url(join(PLUGIN, 'lib/index.js')))
       JSON.stringify(payload.credential),
     )
     check(
-      'the page state carries the catalog the adapter lists',
-      payload.catalog?.count >= 1,
+      'the page state carries the catalog counts the adapter reports',
+      payload.catalog?.counts?.listed >= 1,
       JSON.stringify(payload.catalog),
     )
 
@@ -443,6 +444,32 @@ const pluginModule = await import(url(join(PLUGIN, 'lib/index.js')))
     check('a method the endpoint does not serve is refused', wrongMethod.status === 405, String(wrongMethod.status))
     const unknown = await fetch(`http://127.0.0.1:${port}/opencode-go/absent`)
     check('an unknown path under the prefix is not answered as a page', unknown.status === 404, String(unknown.status))
+
+    const catalog = await (await fetch(`http://127.0.0.1:${port}/opencode-go/models`)).json()
+    check(
+      'the catalog endpoint reports every model with its hidden reason',
+      catalog.ok === true
+        && catalog.hidden.includes('glm-5.3')
+        && catalog.models.find((model) => model.id === 'glm-5.3')?.hiddenReason === 'configured'
+        && catalog.models.find((model) => model.id === 'gpt-5.6-luna')?.hiddenReason === null,
+      `hidden=[${catalog.hidden?.join(',')}] total=${catalog.counts?.total}`,
+    )
+    check(
+      'the catalog endpoint counts what the runtime actually lists',
+      catalog.counts.listed === catalog.models.filter((model) => !model.hidden).length
+        && catalog.counts.total === catalog.models.length,
+      JSON.stringify(catalog.counts),
+    )
+    // The page's promise and the runtime's behaviour are the same decision:
+    // a model the page reports as hidden is one the harness does not offer,
+    // and it stays callable.
+    const listedThroughRuntime = await ctx.llm.listModels('opencode-go')
+    check(
+      'a hidden model is absent from the harness listing but still resolvable',
+      !listedThroughRuntime.some((model) => model.id === 'glm-5.3')
+        && (await ctx.llm.resolveModelInfo('opencode-go', 'glm-5.3'))?.id === 'glm-5.3',
+      `listed=${listedThroughRuntime.length}`,
+    )
   } finally {
     await fiber.dispose()
     await new Promise((resolve) => server.close(resolve))

@@ -410,6 +410,89 @@ export default {
       },
     },
     {
+      name: 'hiddenModels drops the named models from the listing but not from the route',
+      async run() {
+        const { adapter } = adapterWith([], { config: { hiddenModels: ['glm-5.3', 'kimi-k3'] } })
+        const models = await adapter.listModels('opencode-go')
+        ok(!models.some((model) => model.id === 'glm-5.3'), 'the named model is not offered')
+        ok(!models.some((model) => model.id === 'kimi-k3'), 'the second named model is not offered')
+        ok(models.some((model) => model.id === 'gpt-5.6-luna'), 'the rest of the catalog is offered')
+        // Hiding is a listing decision: a session already pinned to the model
+        // still resolves and still calls it.
+        const info = await adapter.resolveModel('opencode-go', 'glm-5.3', undefined)
+        is(info.id, 'glm-5.3')
+        // And it comes back the moment the configuration stops naming it.
+        const reopened = adapterWith([], { config: { hiddenModels: [] } })
+        const listed = await reopened.adapter.listModels('opencode-go')
+        ok(listed.some((model) => model.id === 'glm-5.3'), 'an empty list hides nothing')
+      },
+    },
+    {
+      name: 'catalogSnapshot reports every model with the reason it is hidden',
+      async run() {
+        const { adapter } = adapterWith([], {
+          config: { hiddenModels: ['glm-5.3'], hideTrainingModels: true },
+        })
+        const snapshot = await adapter.catalogSnapshot()
+        is(snapshot.source, 'discover')
+        const total = snapshot.models.length
+        is(snapshot.counts.total, total)
+        const glm = snapshot.models.find((model) => model.id === 'glm-5.3')
+        is(glm.hidden, true)
+        is(glm.hiddenReason, 'configured')
+        const gated = snapshot.models.find((model) => model.id === 'muse-spark-1.3-contributor')
+        is(gated.hidden, true)
+        is(gated.hiddenReason, 'training')
+        is(gated.trainingGated, true)
+        const plain = snapshot.models.find((model) => model.id === 'gpt-5.6-luna')
+        is(plain.hidden, false)
+        is(plain.hiddenReason, null)
+        equal(snapshot.hidden, ['glm-5.3'])
+        is(snapshot.counts.hidden, 1)
+        is(snapshot.counts.hiddenByTraining, snapshot.models.filter((model) => model.trainingGated).length)
+        is(snapshot.counts.listed, total - snapshot.counts.hidden - snapshot.counts.hiddenByTraining)
+        // The listing the harness reads and the snapshot the page renders agree,
+        // which is what keeps the page from claiming a model is offered when the
+        // runtime drops it.
+        const listed = await adapter.listModels('opencode-go')
+        equal(
+          listed.map((model) => model.id).sort(),
+          snapshot.models.filter((model) => !model.hidden).map((model) => model.id).sort(),
+        )
+      },
+    },
+    {
+      name: 'catalogSnapshot carries the facts a picker row shows',
+      async run() {
+        const { adapter } = adapterWith([])
+        const snapshot = await adapter.catalogSnapshot()
+        const luna = snapshot.models.find((model) => model.id === 'gpt-5.6-luna')
+        equal(luna.protocols, ['responses'])
+        is(luna.contextWindow, 1_050_000)
+        ok(luna.maxTokens > 0)
+        is(luna.reasoning, true)
+        equal(luna.inputModalities, ['text'])
+        // Sorted by id, so the page's list does not reshuffle between reads, and
+        // the count of hidden models matches the list it also returns.
+        equal(snapshot.models.map((model) => model.id), [...snapshot.models.map((model) => model.id)].sort())
+        is(snapshot.hidden.length, snapshot.counts.hidden)
+      },
+    },
+    {
+      name: 'catalog assembly names the models this deployment hides',
+      async run() {
+        const logger = recordingLogger()
+        const { adapter } = adapterWith([], { logger, config: { hiddenModels: ['glm-5.3', 'no-such-model'] } })
+        await adapter.listModels('opencode-go')
+        const line = logger.lines.find((text) => text.includes('hiddenModels keeps'))
+        ok(line !== undefined, `a line names the field: ${logger.lines.join(' | ')}`)
+        ok(line.includes('glm-5.3'), 'the hidden model is named')
+        const unknown = logger.lines.find((text) => text.includes('does not list'))
+        ok(unknown !== undefined, 'an unknown id is reported on its own')
+        ok(unknown.includes('no-such-model'), 'the unknown id is named')
+      },
+    },
+    {
       name: 'catalog assembly says once which models need the workspace setting',
       async run() {
         const logger = recordingLogger()

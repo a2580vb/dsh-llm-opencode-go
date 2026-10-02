@@ -29,6 +29,7 @@ view, or read `Config` from the plugin for the authoritative list.
 | `sendImages` | `auto` | `auto` \| `always` \| `off` — whether image bytes are attempted (see [Models](models.md#modalities-what-the-model-takes-versus-what-a-route-can-send)) |
 | `disableReasoningReplay` | `false` | Stop sending prior reasoning back (see [Wire protocol](wire-protocol.md#reasoning)) |
 | `hideTrainingModels` | `false` | Keep models whose provider trains on request data out of the listing (see [Models](models.md#models-that-train-on-request-data)) |
+| `hiddenModels` | `[]` | Model ids this deployment keeps out of the listing; hiding never makes a model unusable |
 | `healthCheck` | `off` | `startup` logs a credential + catalog report |
 | `retryPolicy` | normal, 5 retries | Provider-owned policy the retry executor applies |
 
@@ -43,7 +44,29 @@ change often:
 |---|---|
 | **API key** | Stored write-only through the credential seam under `apiKeyEnv`. The page reports whether it is configured, where it comes from, and whether it can be replaced — never the value. |
 | **Credential reference** | Which `apiKeyEnv` the key is stored under. |
-| **Model catalog** | How many models the route currently lists, and where the list came from. |
+| **Model visibility** | One switch per catalog model, written to `hiddenModels`. The page shows the whole catalog — including models this deployment already hides — because a listing that showed only what is listed could not offer a way back. |
+
+## Hiding models from the listing
+
+`hiddenModels` is this deployment's own menu choice: the named ids disappear from
+the model picker while staying resolvable and callable, so a session already
+pinned to one keeps working. It is the per-model counterpart of
+`hideTrainingModels`, which is a data-policy stance rather than a preference —
+that field keeps every model whose provider trains on request data out of the
+listing, whatever the individual switches say.
+
+```yaml
+config:
+  hiddenModels:
+    - space-bunny-free
+    - glm-5.2
+```
+
+An id the catalog does not list is kept rather than dropped, so hiding a model
+OpenCode has not published yet starts working the moment it appears; a startup
+warning names ids nothing in the catalog matches, which is usually a typo. The
+configuration page writes this field, and the two agree because both read the
+same listing decision.
 
 Everything else — protocol shaping, timeouts, retry policy, cache paths — stays
 in `cordis.patch.yml`, where a machine-readable value lives next to the comment
