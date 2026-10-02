@@ -51,6 +51,12 @@ change often:
 | **Fetch the model list** | Re-reads `GET /models` on demand and reports what appeared and what went away. The only control on the page that reaches the provider. |
 | **Usage** | Calls and tokens this plugin counted itself, per model and per day. |
 
+Writing an ordinary config field reloads that plugin row — the Loader reconciles
+it through the profile patch — so the page re-reads what the Host reports a beat
+later rather than assuming its own draft survived, and says so when the read
+back fails. The key is the exception: it goes to the credential store and applies
+to the next request.
+
 ## Fetching the model list
 
 A deployment in `modelSource: discover` reads `GET /models` once and keeps the

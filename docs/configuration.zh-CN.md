@@ -50,6 +50,10 @@
 | **获取模型列表** | 按需重新读取 `GET /models`，并报告新增与消失的模型。这是页面上唯一会打到 provider 的控件。 |
 | **用量** | 本插件自己记录的调用与 token，按模型、按天。 |
 
+写一个普通配置字段会重载该插件行——Loader 会通过 profile patch 完成一次 reconcile——所以页面会在
+一拍之后重新读取 Host 报告的现状，而不是假定自己刚写的草稿已经生效；读不回来时它会直说。密钥是
+例外：它写进凭据存储，下一次请求就生效。
+
 ## 获取模型列表
 
 `modelSource: discover` 的部署会读取一次 `GET /models`，并在 `modelsCacheSeconds` 内一直使用这份
