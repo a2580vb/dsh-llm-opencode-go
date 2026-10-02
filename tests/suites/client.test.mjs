@@ -21,7 +21,7 @@ import { fileURLToPath } from 'node:url'
 import vm from 'node:vm'
 
 import { MANAGED_CONFIG_FIELDS, UI_ROUTES } from '../../lib/ui/bridge.js'
-import { equal, is, ok } from '../helpers.mjs'
+import { equal, includes, is, ok } from '../helpers.mjs'
 
 const ROOT = join(dirname(dirname(dirname(fileURLToPath(import.meta.url)))))
 const clientSource = await readFile(join(ROOT, 'lib', 'client.js'), 'utf8')
@@ -206,6 +206,18 @@ export default {
           globalThis.fetch = originalFetch
         }
         is(calls.length, 0)
+      },
+    },
+    {
+      name: 'the page reads usage through the endpoint the Host serves',
+      run() {
+        includes(clientSource, 'usage: \'opencode-go/usage\'')
+        // The window travels as a query parameter and is built from the
+        // component's own state, so the page can only ever ask for a window it
+        // offers. Which endpoints exist is checked above, where the bundle's
+        // table is compared with the bridge's.
+        includes(clientSource, '`${ROUTES.usage}?days=${String(days)}`')
+        ok(!clientSource.includes('days=365'), 'no unbounded window is ever requested')
       },
     },
     {

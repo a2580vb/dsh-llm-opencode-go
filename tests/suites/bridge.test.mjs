@@ -12,6 +12,7 @@ import {
   MANAGED_CONFIG_FIELDS,
   UI_ROUTES,
   UI_ROUTE_PREFIX,
+  VARIANT_FIELDS,
   findEntry,
   nextOverride,
   validateApiKey,
@@ -514,6 +515,11 @@ export default {
           'an unknown protocol': [{ model: 'glm-5.3', name: 'fast', protocol: 'grpc' }],
           'a zero cap': [{ model: 'glm-5.3', name: 'fast', maxTokens: 0 }],
           'a duplicated id': [{ model: 'glm-5.3', name: 'fast' }, { model: 'glm-5.3', name: 'fast' }],
+          // The value is written into the profile patch verbatim, so an unknown
+          // key would be persisted rather than reported: a snapshot the page
+          // echoed back, or a hand-written typo.
+          'a key the config does not declare': [{ model: 'glm-5.3', name: 'fast', id: 'glm-5.3@fast' }],
+          'a camel-cased typo': [{ model: 'glm-5.3', name: 'fast', context_window: 1 }],
         }
         for (const [label, value] of Object.entries(rejected)) {
           const res = await call(instance, local({
@@ -527,6 +533,25 @@ export default {
           includes(res.json.message, 'modelVariants')
         }
         equal(editor.writes, [])
+      },
+    },
+    {
+      name: 'a variant entry may carry exactly the keys the config declares',
+      run() {
+        // The page sends what it read plus its own edits, and what it read
+        // carries an `id`; both halves agree on the same set, so a field added
+        // to one without the other fails here.
+        equal([...VARIANT_FIELDS], ['model', 'name', 'label', 'protocol', 'effort', 'contextWindow', 'maxTokens'])
+        const message = validateFieldValue('modelVariants', [{ model: 'glm-5.3', name: 'fast', id: 'glm-5.3@fast' }])
+        includes(message, 'id')
+        includes(message, 'model, name, label, protocol, effort, contextWindow, maxTokens')
+        for (const field of VARIANT_FIELDS) {
+          const value = { model: 'glm-5.3', name: 'fast' }
+          if (field !== 'model' && field !== 'name') value[field] = field === 'label' ? 'a label' : 'chat-completions'
+          if (field === 'contextWindow' || field === 'maxTokens') value[field] = 1_024
+          if (field === 'effort') value[field] = 'low'
+          is(validateFieldValue('modelVariants', [value]), undefined, `${field} is declared`)
+        }
       },
     },
     {

@@ -9,7 +9,7 @@ the code is laid out. Users who only configure the plugin can stop at
 ## Verification
 
 ```sh
-npm test          # 252 offline checks: config, SSE framing, catalog, all three protocols, adapter, plugin body, the settings bridge and the client bundle
+npm test          # 270 offline checks: config, SSE framing, catalog, all three protocols, adapter, plugin body, the settings bridge and the client bundle
 npm run test:cordis # 40 checks mounting the plugin on the harness's own cordis
 npm run test:live # 20 checks against the real service; needs OC_KEY
 ```
@@ -31,6 +31,14 @@ otherwise only reveal when a user opens the page: the factory id, the
 `<package>#<row>` slot key (read from `cordis.patch.yml`), a complete dictionary
 for both shipped locales, and that the endpoints it calls are exactly the ones
 the bridge serves.
+
+A third page suite goes further and renders the page.
+`tests/suites/_client-harness.mjs` is a small React stand-in with working hooks,
+so the suite can open the page, type into its fields, press its controls, and
+read what a person would see. That is how the page's claims about itself are
+checked: that a save writes the config shape rather than the snapshot it read,
+that a window switch reads the window the reader chose, that a disabled control
+is inert, and that a failure is reported in the reader's own words.
 
 `npm run test:live` spends real quota. It proves, against the live relay: model
 discovery and caching, a round trip over each of the three protocols, a full

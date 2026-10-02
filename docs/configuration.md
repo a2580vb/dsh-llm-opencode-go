@@ -176,6 +176,10 @@ Rules worth knowing before writing one:
 - **Two contradictions are refused at startup** rather than absorbed, each by
   name: an effort on a model that does not support reasoning, and an effort the
   model does not offer.
+- **An entry may carry only the keys above.** The page writes what it read plus
+  your edits, and a key the config does not declare — a typo, or a field the
+  snapshot happened to carry — is refused by name rather than written into
+  `cordis.patch.yml`.
 
 Everything else — protocol shaping, timeouts, retry policy, cache paths — stays
 in `cordis.patch.yml`, where a machine-readable value lives next to the comment
