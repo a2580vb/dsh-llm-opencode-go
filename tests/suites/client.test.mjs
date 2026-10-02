@@ -21,7 +21,7 @@ import { fileURLToPath } from 'node:url'
 import vm from 'node:vm'
 
 import { MANAGED_CONFIG_FIELDS, UI_ROUTES } from '../../lib/ui/bridge.js'
-import { is, ok } from '../helpers.mjs'
+import { equal, is, ok } from '../helpers.mjs'
 
 const ROOT = join(dirname(dirname(dirname(fileURLToPath(import.meta.url)))))
 const clientSource = await readFile(join(ROOT, 'lib', 'client.js'), 'utf8')
@@ -157,13 +157,16 @@ export default {
     {
       name: 'every endpoint the page calls is served by the bridge',
       run() {
-        const served = Object.values(UI_ROUTES).map((path) => path.slice(1))
-        for (const route of served) {
-          ok(clientSource.includes(`'${route}'`), `the page calls ${route}`)
-        }
-        // The page reaches the bridge through the one `call()` helper, whose
-        // path argument is always a `ROUTES` value: a literal URL here would
-        // mean a second, unversioned entry point.
+        // The two halves agree on the paths by construction: the page's own
+        // table must name exactly the bridge's routes, under the same keys.
+        const block = /const ROUTES = \{([\s\S]*?)\n\s*\}/.exec(clientSource)?.[1]
+        ok(block !== undefined, 'the page declares its ROUTES table')
+        const declared = {}
+        for (const match of block.matchAll(/(\w+):\s*'([^']+)'/g)) declared[match[1]] = `/${match[2]}`
+        equal(
+          Object.entries(declared).sort(),
+          Object.entries(UI_ROUTES).map(([key, path]) => [key, path]).sort(),
+        )
         ok(!/\bfetch\(\s*['"`]/.test(clientSource), 'fetch is never called with a literal target')
         ok(!clientSource.includes('/api'), 'the page does not reach another host surface')
       },

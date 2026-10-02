@@ -171,6 +171,14 @@ export function bridgeUnderTest(overrides = {}) {
     configEditor: () => configEditor,
     connection: () => connection,
     snapshot: overrides.snapshot ?? (async () => fakeSnapshot()),
+    refresh: 'refresh' in overrides ? overrides.refresh : (async () => ({
+      ok: true,
+      fetchedAt: 1_700_000_100_000,
+      discovered: 3,
+      added: ['new-model'],
+      removed: ['gone-model'],
+      catalog: fakeSnapshot(),
+    })),
     logger: { info: (...args) => logs.push(args.join(' ')), warn: (...args) => logs.push(args.join(' ')) },
   })
   return { instance, config, credentials, configEditor, logs }

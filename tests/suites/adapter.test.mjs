@@ -37,6 +37,35 @@ function sse(frames) {
     .join('\n\n') + '\n\n'
 }
 
+/**
+ * A `fetch` that answers `GET /models` from one script and everything else from
+ * another.
+ *
+ * Discovery and generation share one seam — the plugin reads both through the
+ * same implementation — so a case has to say which answer belongs to which
+ * request. The completion script keeps the plain `requests` array, because
+ * those are the requests most cases assert on.
+ */
+function routedFetch(modelsScript, chatScript) {
+  const discovery = fakeFetch(modelsScript)
+  const chat = fakeFetch(chatScript)
+  const implementation = async (url, init) => {
+    const target = String(url).endsWith('/models') ? discovery : chat
+    return target(url, init)
+  }
+  implementation.requests = chat.requests
+  implementation.modelsRequests = discovery.requests
+  return implementation
+}
+
+/** A `GET /models` reply, in the shape the relay documents. */
+function modelsReply(ids) {
+  return JSON.stringify({
+    object: 'list',
+    data: ids.map((id) => ({ id, object: 'model', created: 0, owned_by: 'opencode' })),
+  })
+}
+
 /** Not-an-error response the relay sends for an unsupported protocol. */
 function protocolUnsupported(model) {
   return {
@@ -98,31 +127,43 @@ function recordingLogger() {
   }
 }
 
-/** A per-adapter cache path, so one case's discovery never reaches another. */
+/**
+ * A per-adapter cache path, so one case's discovery never reaches another.
+ *
+ * The run's process id is part of the name: a leftover file from an earlier
+ * run would otherwise be a warm cache, and a case that measures what discovery
+ * fetched would silently measure nothing.
+ */
 let cacheCounter = 0
+const cacheFile = () => {
+  cacheCounter += 1
+  return `L:\\e2\\dsh-plugin\\opencodego-transfrom\\.test-cache\\${process.pid}-${cacheCounter}.json`
+}
 
 /**
  * Build an adapter over scripted responses.
  *
- * The catalog is the measured fallback unless a case opts into an explicit
- * `models` list, because discovery is what a real deployment gets: the case
- * that exercises `GET /models` opts out by leaving `modelSource` alone.
+ * `script` answers everything the adapter generates; discovery gets its own
+ * script, which by default lists nothing, so the catalog a case starts from is
+ * exactly the measured fallback. A case that wants models to come from
+ * discovery passes `discovery: [{ body: modelsReply([...]) }, ...]`.
  */
 function adapterWith(script, overrides = {}) {
-  cacheCounter += 1
   const config = resolveConfig({
     baseURL: 'https://relay.test/v1',
     apiKeyEnv: 'TEST_KEY',
-    modelsCachePath: overrides.cachePath
-      ?? `L:\\e2\\dsh-plugin\\opencodego-transfrom\\.test-cache\\${cacheCounter}.json`,
+    modelsCachePath: overrides.cachePath ?? cacheFile(),
     ...overrides.config,
   })
   process.env.TEST_KEY = 'sk-test-value'
-  const fetch = fakeFetch(script)
+  const fetch = routedFetch(overrides.discovery ?? [{ body: modelsReply([]) }], script)
   const logger = overrides.logger ?? silentLogger()
   const cache = new ModelCache(config, {
     authHeaders: async () => ({ authorization: 'Bearer sk-test-value' }),
     logger,
+    // Discovery reads through the same scripted implementation as generation,
+    // so a case can answer `GET /models` and a completion from one script.
+    fetch,
   })
   const adapter = new OpenCodeGoAdapter({
     options: () => config,
@@ -407,6 +448,108 @@ export default {
         // deployment that enabled the setting after this listing, still resolves.
         const info = await adapter.resolveModel('opencode-go', 'muse-spark-1.3-contributor', undefined)
         is(info.id, 'muse-spark-1.3-contributor')
+      },
+    },
+    {
+      name: 'refreshing the catalog reports what the service added and dropped',
+      async run() {
+        const { adapter, fetch } = adapterWith([], {
+          discovery: [
+            { body: modelsReply(['alpha-model', 'doomed-model']) },
+            { body: modelsReply(['alpha-model', 'beta-model']) },
+          ],
+        })
+        const before = await adapter.listModels('opencode-go')
+        ok(before.some((model) => model.id === 'doomed-model'), 'the first answer is the catalog')
+
+        const result = await adapter.refreshCatalog()
+        is(fetch.modelsRequests.length, 2, 'the forced read is a real request, not a cache hit')
+        is(fetch.modelsRequests[1].url, 'https://relay.test/v1/models')
+        is(result.ok, true)
+        equal(result.added, ['beta-model'])
+        equal(result.removed, ['doomed-model'])
+        is(result.discovered, 2)
+        ok(result.fetchedAt > 0, 'the answer is dated')
+        // The refresh answers with the new catalog, so the page renders one
+        // round trip and never shows a list that disagrees with its own diff.
+        ok(result.catalog.models.some((model) => model.id === 'beta-model'))
+        ok(!result.catalog.models.some((model) => model.id === 'doomed-model'))
+      },
+    },
+    {
+      name: 'a model the service drops but the built-in catalog knows stays offered',
+      async run() {
+        const { adapter } = adapterWith([], {
+          discovery: [
+            { body: modelsReply(['glm-5.3', 'alpha-model']) },
+            { body: modelsReply(['alpha-model']) },
+          ],
+        })
+        await adapter.listModels('opencode-go')
+        const result = await adapter.refreshCatalog()
+        is(result.ok, true)
+        // The diff is measured over the catalog, not over the raw answer: the
+        // listing did not change for this model, so neither does the report.
+        equal(result.removed, [])
+        ok(result.catalog.models.some((model) => model.id === 'glm-5.3'), 'still offered')
+      },
+    },
+    {
+      name: 'a refresh that fails keeps the catalog it had',
+      async run() {
+        const { adapter } = adapterWith([], {
+          discovery: [
+            { body: modelsReply(['alpha-model']) },
+            { status: 502, body: 'upstream is unwell' },
+          ],
+        })
+        const before = await adapter.listModels('opencode-go')
+        const result = await adapter.refreshCatalog()
+        is(result.ok, false)
+        is(result.reason, 'discovery-failed')
+        ok(String(result.message).includes('502'), result.message)
+        // A page asking for fresher facts must not be how a working deployment
+        // loses its models.
+        const after = await adapter.listModels('opencode-go')
+        equal(after.map((model) => model.id), before.map((model) => model.id))
+        ok(result.catalog.models.some((model) => model.id === 'alpha-model'))
+      },
+    },
+    {
+      name: 'a catalog built from configuration has nothing to fetch',
+      async run() {
+        const { adapter, fetch } = adapterWith([], {
+          config: { modelSource: 'config', models: [{ id: 'only-model' }] },
+        })
+        const result = await adapter.refreshCatalog()
+        is(result.ok, false)
+        is(result.reason, 'not-discovering')
+        is(fetch.modelsRequests.length, 0, 'nothing was requested')
+        equal(result.catalog.models.map((model) => model.id), ['only-model'])
+      },
+    },
+    {
+      name: 'the discovery cache serves memory until a read is forced',
+      async run() {
+        const { adapter, fetch } = adapterWith([], {
+          discovery: [
+            { body: modelsReply(['alpha-model']) },
+            { body: modelsReply(['alpha-model', 'beta-model']) },
+          ],
+        })
+        await adapter.listModels('opencode-go')
+        is(fetch.modelsRequests.length, 1, 'a cold catalog is discovered once')
+        await adapter.catalogSnapshot()
+        await adapter.listModels('opencode-go')
+        is(fetch.modelsRequests.length, 1, 'every later read is answered from memory')
+        // Forced reads are the point of the page's own control: a person
+        // watching it must see the service's current answer.
+        const result = await adapter.refreshCatalog()
+        is(result.ok, true)
+        is(fetch.modelsRequests.length, 2, 'a refresh reaches the service')
+        equal(result.added, ['beta-model'])
+        await adapter.listModels('opencode-go')
+        is(fetch.modelsRequests.length, 2, 'and the answer replaces what memory held')
       },
     },
     {

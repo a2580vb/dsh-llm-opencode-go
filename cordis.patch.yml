@@ -38,8 +38,9 @@
 # The plugin also ships a page for the Web client: the sidebar's Plugins page
 # lists this bundle, and the opencode-go row's Configure control opens it. It
 # edits the API key, the credential reference, which models the listing offers,
-# and the model variants; see docs/configuration.md#graphical-configuration. The
-# page needs a web server and is simply absent without one.
+# and the model variants; it also re-reads GET /models on demand. See
+# docs/configuration.md#graphical-configuration. The page needs a web server and
+# is simply absent without one.
 - insert:
     - id: opencode-go
       name: dsh-opencode-go

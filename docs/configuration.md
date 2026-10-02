@@ -46,7 +46,29 @@ change often:
 | **API key** | Stored write-only through the credential seam under `apiKeyEnv`. The page reports whether it is configured, where it comes from, and whether it can be replaced — never the value. |
 | **Credential reference** | Which `apiKeyEnv` the key is stored under. |
 | **Model visibility** | One switch per catalog model, written to `hiddenModels`. The page shows the whole catalog — including models this deployment already hides — because a listing that showed only what is listed could not offer a way back. |
-| **Model variants** | Named presets of one model, written to `modelVariants`.
+| **Model variants** | Named presets of one model, written to `modelVariants`. |
+| **Fetch the model list** | Re-reads `GET /models` on demand and reports what appeared and what went away. The only control on the page that reaches the provider. |
+
+## Fetching the model list
+
+A deployment in `modelSource: discover` reads `GET /models` once and keeps the
+answer for `modelsCacheSeconds`. The configuration page can also re-read it on
+demand, which is the one thing the page does that costs a request:
+
+- **What it reports** is what changed, counted over the *listing* rather than
+  over the raw answer. A model the service stops listing but the built-in
+  catalog also knows stays offered, and saying it went away would describe a
+  change nobody sees.
+- **A failed read never costs the catalog.** The previous answer stays in place,
+  the page says why the read failed, and the models stay callable. Discovery
+  failing is not a reason for a working deployment to lose its models.
+- **The first read is the only awaited one.** Everything else — startup, the
+  listing, the page's own load — is answered from memory or the cache file, so
+  opening the page is not a request.
+
+`modelSource: config` has nothing to fetch: the catalog is exactly the entries
+the deployment wrote, and the control says so instead of pretending to read.
+
 
 ## Hiding models from the listing
 

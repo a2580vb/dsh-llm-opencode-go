@@ -446,6 +446,28 @@ const pluginModule = await import(url(join(PLUGIN, 'lib/index.js')))
     const unknown = await fetch(`http://127.0.0.1:${port}/opencode-go/absent`)
     check('an unknown path under the prefix is not answered as a page', unknown.status === 404, String(unknown.status))
 
+    // The refresh control is the page's one call that reaches the provider.
+    // The cache file is fresh, so the Host answers from the service: a failed
+    // request is reported with the catalog kept, which is what an offline
+    // machine must see rather than a page that lost its models.
+    const refreshed = await fetch(`http://127.0.0.1:${port}/opencode-go/refresh`, { method: 'POST' })
+    const refreshPayload = await refreshed.json()
+    check(
+      'the refresh endpoint answers with the catalog either way',
+      refreshPayload.catalog?.models?.length >= 30,
+      `ok=${refreshPayload.ok} error=${refreshPayload.error} models=${refreshPayload.catalog?.models?.length}`,
+    )
+    check(
+      'a refresh that could not reach the service says so and reports no change',
+      refreshPayload.ok === true
+        || (refreshPayload.error === 'discovery-failed'
+          && refreshPayload.catalog.counts.total >= 30
+          && Array.isArray(refreshPayload.message) === false),
+      JSON.stringify({ ok: refreshPayload.ok, error: refreshPayload.error }),
+    )
+    const refreshWrongMethod = await fetch(`http://127.0.0.1:${port}/opencode-go/refresh`)
+    check('the refresh endpoint answers only POST', refreshWrongMethod.status === 405, String(refreshWrongMethod.status))
+
     const catalog = await (await fetch(`http://127.0.0.1:${port}/opencode-go/models`)).json()
     check(
       'the catalog endpoint reports every model with its hidden reason',

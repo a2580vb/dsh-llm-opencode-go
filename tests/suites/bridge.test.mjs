@@ -37,6 +37,7 @@ export default {
         is(UI_ROUTE_PREFIX, '/opencode-go')
         is(UI_ROUTES.state, '/opencode-go/state')
         is(UI_ROUTES.models, '/opencode-go/models')
+        is(UI_ROUTES.refresh, '/opencode-go/refresh')
         is(UI_ROUTES.config, '/opencode-go/config')
         is(UI_ROUTES.credential, '/opencode-go/credential')
         equal([...MANAGED_CONFIG_FIELDS], ['apiKeyEnv', 'hiddenModels', 'modelVariants'])
@@ -105,6 +106,83 @@ export default {
         is(res.json.ok, false)
         is(res.json.error, 'catalog-unavailable')
         includes(res.json.message, 'catalog offline')
+      },
+    },
+    {
+      name: 'POST refresh reports what the service changed',
+      async run() {
+        const { instance } = bridgeUnderTest()
+        const res = await call(instance, local({ method: 'POST', url: UI_ROUTES.refresh, headers: { host: '127.0.0.1:1' } }))
+        is(res.captured.statusCode, 200)
+        is(res.json.ok, true)
+        equal(res.json.added, ['new-model'])
+        equal(res.json.removed, ['gone-model'])
+        is(res.json.discovered, 3)
+        // The answer carries the fresh catalog, so the page renders one round
+        // trip and never shows a list that disagrees with the diff beside it.
+        is(res.json.catalog.counts.total, 3)
+      },
+    },
+    {
+      name: 'a refresh that cannot reach the service reports it and keeps the catalog',
+      async run() {
+        const { instance } = bridgeUnderTest({
+          refresh: async () => {
+            throw new Error('network is down')
+          },
+        })
+        const res = await call(instance, local({ method: 'POST', url: UI_ROUTES.refresh, headers: { host: '127.0.0.1:1' } }))
+        is(res.captured.statusCode, 503)
+        is(res.json.error, 'discovery-failed')
+        includes(res.json.message, 'network is down')
+      },
+    },
+    {
+      name: 'a discovery failure reported by the adapter keeps the catalog in the answer',
+      async run() {
+        const { instance } = bridgeUnderTest({
+          refresh: async () => ({
+            ok: false,
+            reason: 'discovery-failed',
+            message: 'HTTP 502 upstream',
+            catalog: fakeSnapshot(),
+          }),
+        })
+        const res = await call(instance, local({ method: 'POST', url: UI_ROUTES.refresh, headers: { host: '127.0.0.1:1' } }))
+        is(res.captured.statusCode, 503)
+        includes(res.json.message, 'HTTP 502')
+        is(res.json.catalog.counts.total, 3)
+      },
+    },
+    {
+      name: 'a catalog built from configuration says there is nothing to fetch',
+      async run() {
+        const { instance } = bridgeUnderTest({
+          config: { modelSource: 'config', models: [{ id: 'only-model' }] },
+          refresh: async () => ({ ok: false, reason: 'not-discovering', catalog: fakeSnapshot() }),
+        })
+        const res = await call(instance, local({ method: 'POST', url: UI_ROUTES.refresh, headers: { host: '127.0.0.1:1' } }))
+        is(res.captured.statusCode, 409)
+        is(res.json.error, 'not-discovering')
+        is(res.json.catalog.counts.total, 3)
+      },
+    },
+    {
+      name: 'the refresh endpoint answers only POST',
+      async run() {
+        const { instance } = bridgeUnderTest()
+        const res = await call(instance, local({ url: UI_ROUTES.refresh }))
+        is(res.captured.statusCode, 405)
+        is(res.captured.headers.allow, 'POST')
+      },
+    },
+    {
+      name: 'a deployment without a refresh path says so instead of failing',
+      async run() {
+        const { instance } = bridgeUnderTest({ refresh: undefined })
+        const res = await call(instance, local({ method: 'POST', url: UI_ROUTES.refresh, headers: { host: '127.0.0.1:1' } }))
+        is(res.captured.statusCode, 503)
+        is(res.json.error, 'discovery-failed')
       },
     },
     {
