@@ -16,10 +16,11 @@
  *   DSH_ASAR=<path>   override the archive
  */
 
-import { mkdirSync, openSync, readSync, closeSync, writeFileSync, existsSync } from 'node:fs'
+import { mkdirSync, openSync, readFileSync, readSync, closeSync, writeFileSync, existsSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { dirname, join } from 'node:path'
 import { fileURLToPath, pathToFileURL } from 'node:url'
+import { dayKey } from '../lib/usage/store.js'
 
 const PLUGIN = dirname(dirname(fileURLToPath(import.meta.url)))
 const ASAR = process.env.DSH_ASAR ?? 'E:\\dsh\\resources\\app.asar'
@@ -258,12 +259,14 @@ const pluginModule = await import(url(join(PLUGIN, 'lib/index.js')))
 // ---------------------------------------------------------------------------
 // 5. A full streaming call through the real runtime, with only the socket faked.
 // ---------------------------------------------------------------------------
+const USAGE_PATH = join(CACHE, 'usage', 'shared.json')
 {
-  const { ctx } = await activate({
+  const { ctx, fiber } = await activate({
     provider: 'opencode-go',
     apiKeyEnv: 'OC_TEST_KEY',
     baseURL: 'https://relay.test/v1',
     modelsCachePath: cachePath(),
+    usagePath: USAGE_PATH,
   })
 
   const requests = []
@@ -318,6 +321,27 @@ const pluginModule = await import(url(join(PLUGIN, 'lib/index.js')))
     globalThis.fetch = originalFetch
     delete process.env.OC_TEST_KEY
   }
+
+  // A call that never reaches disk is a table nobody can read, so the unload
+  // path is checked here: the record was written on a debounce, and disposal is
+  // the last chance to flush it.
+  await fiber.dispose()
+  // The disposer starts the write and does not wait for it, so give the file a
+  // beat: a check that read it in the same tick would measure the scheduler.
+  await new Promise((resolve) => setTimeout(resolve, 200))
+  check(
+    'the unload path writes the usage counters out',
+    (() => {
+      try {
+        const raw = JSON.parse(readFileSync(USAGE_PATH, 'utf8'))
+        const row = raw.days[dayKey(Date.now())]?.['glm-5.3']
+        return row?.requests === 1 && row.totalTokens === 10
+      } catch {
+        return false
+      }
+    })(),
+    USAGE_PATH,
+  )
 }
 
 // ---------------------------------------------------------------------------
@@ -406,6 +430,9 @@ const pluginModule = await import(url(join(PLUGIN, 'lib/index.js')))
     modelsCachePath: modelsPath,
     hiddenModels: ['glm-5.3'],
     modelVariants: [{ model: 'gpt-5.6-luna', name: 'chatty', protocol: 'chat-completions', effort: 'low' }],
+    // The same usage file section 5's streamed call wrote to, so this section
+    // reads back a call another activation made.
+    usagePath: USAGE_PATH,
   })
   await new Promise((resolve) => setTimeout(resolve, 300))
 
@@ -467,6 +494,29 @@ const pluginModule = await import(url(join(PLUGIN, 'lib/index.js')))
     )
     const refreshWrongMethod = await fetch(`http://127.0.0.1:${port}/opencode-go/refresh`)
     check('the refresh endpoint answers only POST', refreshWrongMethod.status === 405, String(refreshWrongMethod.status))
+
+    // Usage is the one table only this plugin can produce: the harness reports
+    // tokens to the caller, and nothing above the adapter knows which model a
+    // token went to. Section 5 streamed a call through this route, so the table
+    // this activation reads is another activation's record, loaded from disk.
+    const usageResponse = await fetch(`http://127.0.0.1:${port}/opencode-go/usage?days=1`)
+    const usageTable = await usageResponse.json()
+    check(
+      'the usage endpoint answers a table shaped for the window',
+      usageResponse.status === 200
+        && usageTable.ok === true
+        && usageTable.window === 1
+        && Array.isArray(usageTable.windows)
+        && Array.isArray(usageTable.days),
+      JSON.stringify({ window: usageTable.window, totals: usageTable.totals }),
+    )
+    check(
+      'a call streamed earlier is in the table, with the tokens it reported',
+      usageTable.totals.requests >= 1
+        && usageTable.totals.totalTokens >= 10
+        && usageTable.models.some((entry) => entry.model === 'glm-5.3' && entry.counters.totalTokens >= 10),
+      JSON.stringify(usageTable.totals),
+    )
 
     const catalog = await (await fetch(`http://127.0.0.1:${port}/opencode-go/models`)).json()
     check(

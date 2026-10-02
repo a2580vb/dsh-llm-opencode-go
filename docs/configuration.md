@@ -17,6 +17,7 @@ view, or read `Config` from the plugin for the authoritative list.
 | `modelSource` | `discover` | `discover` = `GET /models` + built-in fallback; `config` = the `models` list alone |
 | `modelsCacheSeconds` | `21600` | Discovered-catalog lifetime |
 | `modelsCachePath` | `~/.dsh/cache/opencode-go-models.json` | Cache file; an unwritable path only warns |
+| `usagePath` | `~/.dsh/cache/opencode-go-usage.json` | Where the usage counters live; an unwritable path only warns |
 | `models` | `[]` | Advisory catalog entries; the whole catalog when `modelSource: config` |
 | `modelOverrides` | `{}` | Reshape one catalog model without restating the rest |
 | `protocolOverrides` | `{}` | `{"<model id>": "<protocol>"}` shorthand |
@@ -48,6 +49,7 @@ change often:
 | **Model visibility** | One switch per catalog model, written to `hiddenModels`. The page shows the whole catalog — including models this deployment already hides — because a listing that showed only what is listed could not offer a way back. |
 | **Model variants** | Named presets of one model, written to `modelVariants`. |
 | **Fetch the model list** | Re-reads `GET /models` on demand and reports what appeared and what went away. The only control on the page that reaches the provider. |
+| **Usage** | Calls and tokens this plugin counted itself, per model and per day. |
 
 ## Fetching the model list
 
@@ -91,6 +93,46 @@ OpenCode has not published yet starts working the moment it appears; a startup
 warning names ids nothing in the catalog matches, which is usually a typo. The
 configuration page writes this field, and the two agree because both read the
 same listing decision.
+
+## Usage
+
+The plugin counts what goes through this route, because nothing else can: the
+harness reports tokens to whoever made the call, and only the adapter knows which
+model a token went to and which deployment paid for it. The page shows the
+result as totals, a per-model table, and a per-day series.
+
+```
+~/.dsh/cache/opencode-go-usage.json
+{
+  "version": 1,
+  "updatedAt": 1767225600000,
+  "days": { "2026-01-15": { "glm-5.3": { "requests": 12, "failures": 0, "inputTokens": …, … } } }
+}
+```
+
+| Fact | How it is counted |
+|---|---|
+| **A call** | One per harness call, however many protocols it took: a request that fell back and then succeeded is one call, not two. |
+| **A failure** | A call that ended in an error, including one the provider refused before any stream. A model that only ever fails is exactly what this table is for. |
+| **The model** | The id the harness asked for, so a variant appears under its own alias. |
+| **The day** | This machine's local calendar day, so a token spent at 23:00 belongs to the evening it was spent. |
+| **The window** | 1, 7, or 30 days. The page can ask for nothing else; a 30-day retention window is dropped from the file as it is written. |
+| **A write** | Debounced a few seconds and flushed on unload, so a stream never waits on an `fs` call and a reload does not lose the tail. |
+
+Three properties are deliberate:
+
+- **It is a report, not a bill.** These are the figures the service reported to
+  this client. The provider's own accounting of what a workspace spent is the
+  authority; a page that implied otherwise would be wrong about a number people
+  act on.
+- **Losing it is never a failure.** An unreadable file means no history yet, an
+  unwritable one is one warning, and a call is never failed because its token
+  count could not be saved.
+- **It is per deployment.** Two profiles, or two machines, keep their own
+  counters. Nothing here is shared, and nothing is sent anywhere.
+
+A call whose stream the caller abandoned is not counted: this table is about what
+the route spent, and an outcome nobody observed is not a fact worth inventing.
 
 ## Model variants
 

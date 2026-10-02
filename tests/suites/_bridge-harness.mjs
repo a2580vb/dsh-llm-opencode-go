@@ -152,9 +152,22 @@ export function fakeSnapshot(overrides = {}) {
   }
 }
 
+/** One row of usage counters, with the zeros a table will render filled in. */
+export function fakeCounters(overrides = {}) {
+  return {
+    requests: 0,
+    failures: 0,
+    inputTokens: 0,
+    outputTokens: 0,
+    totalTokens: 0,
+    cacheReadTokens: 0,
+    cacheWriteTokens: 0,
+    ...overrides,
+  }
+}
+
 /**
- * The bridge under test, with every optional collaborator controllable.
- *
+ * The bridge under test, with every optional collaborator controllable. *
  * Presence is read with `in`, not by value: a suite that says
  * `credentials: undefined` is asking for a deployment without a credential
  * store, which is a different case from leaving the collaborator out.
@@ -178,6 +191,16 @@ export function bridgeUnderTest(overrides = {}) {
       added: ['new-model'],
       removed: ['gone-model'],
       catalog: fakeSnapshot(),
+    })),
+    usage: 'usage' in overrides ? overrides.usage : (async (days) => ({
+      window: days,
+      today: '2026-01-15',
+      days: [{ day: '2026-01-15', counters: fakeCounters({ requests: 4, inputTokens: 400, outputTokens: 100, totalTokens: 500 }) }],
+      models: [{ model: 'glm-5.3', counters: fakeCounters({ requests: 4, inputTokens: 400, outputTokens: 100, totalTokens: 500 }) }],
+      totals: fakeCounters({ requests: 4, inputTokens: 400, outputTokens: 100, totalTokens: 500 }),
+      firstDay: '2026-01-15',
+      retentionDays: 30,
+      retention: ['2026-01-15'],
     })),
     logger: { info: (...args) => logs.push(args.join(' ')), warn: (...args) => logs.push(args.join(' ')) },
   })

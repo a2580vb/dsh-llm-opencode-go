@@ -21,6 +21,7 @@ import { fenceRejection, isLoopbackHostname } from '../../lib/ui/http.js'
 import {
   bridgeUnderTest,
   call,
+  fakeCounters,
   fakeCredentials,
   fakeEditor,
   fakeSnapshot,
@@ -38,6 +39,7 @@ export default {
         is(UI_ROUTES.state, '/opencode-go/state')
         is(UI_ROUTES.models, '/opencode-go/models')
         is(UI_ROUTES.refresh, '/opencode-go/refresh')
+        is(UI_ROUTES.usage, '/opencode-go/usage')
         is(UI_ROUTES.config, '/opencode-go/config')
         is(UI_ROUTES.credential, '/opencode-go/credential')
         equal([...MANAGED_CONFIG_FIELDS], ['apiKeyEnv', 'hiddenModels', 'modelVariants'])
@@ -183,6 +185,77 @@ export default {
         const res = await call(instance, local({ method: 'POST', url: UI_ROUTES.refresh, headers: { host: '127.0.0.1:1' } }))
         is(res.captured.statusCode, 503)
         is(res.json.error, 'discovery-failed')
+      },
+    },
+    {
+      name: 'GET usage answers the table for the window it was asked for',
+      async run() {
+        const { instance } = bridgeUnderTest()
+        const res = await call(instance, local({ url: `${UI_ROUTES.usage}?days=30` }))
+        is(res.captured.statusCode, 200)
+        is(res.json.ok, true)
+        is(res.json.window, 30)
+        equal(res.json.windows, [1, 7, 30])
+        is(res.json.totals.requests, 4)
+        is(res.json.totals.totalTokens, 500)
+        equal(res.json.models.map((entry) => entry.model), ['glm-5.3'])
+        is(res.json.days[0].day, '2026-01-15')
+      },
+    },
+    {
+      name: 'an unusable usage window falls back to the default the page offers',
+      async run() {
+        const seen = []
+        const { instance } = bridgeUnderTest({ usage: async (days) => {
+          seen.push(days)
+          return { window: days, totals: fakeCounters(), days: [], models: [], retentionDays: 30 }
+        } })
+        for (const query of ['', '?days=0', '?days=-1', '?days=365', '?days=abc', '?days=']) {
+          const res = await call(instance, local({ url: `${UI_ROUTES.usage}${query}` }))
+          is(res.captured.statusCode, 200, `${query} is answered`)
+        }
+        // One bounded read per request: a page cannot ask for a window this
+        // build does not offer, so a long-lived deployment cannot be asked to
+        // summarise its whole history.
+        equal(seen, [7, 7, 7, 7, 7, 7])
+        const { instance: exact } = bridgeUnderTest()
+        is((await call(exact, local({ url: `${UI_ROUTES.usage}?days=1` }))).json.window, 1)
+      },
+    },
+    {
+      name: 'a deployment that records no usage says so instead of failing',
+      async run() {
+        const { instance } = bridgeUnderTest({ usage: undefined })
+        const res = await call(instance, local({ url: UI_ROUTES.usage }))
+        is(res.captured.statusCode, 503)
+        is(res.json.error, 'usage-unavailable')
+      },
+    },
+    {
+      name: 'a usage table that cannot be read is reported as a server failure',
+      async run() {
+        const { instance } = bridgeUnderTest({
+          usage: async () => {
+            throw new Error('the file is gone')
+          },
+        })
+        const res = await call(instance, local({ url: UI_ROUTES.usage }))
+        is(res.captured.statusCode, 500)
+        is(res.json.error, 'usage-unavailable')
+        includes(res.json.message, 'the file is gone')
+      },
+    },
+    {
+      name: 'the usage endpoint answers only GET',
+      async run() {
+        const { instance } = bridgeUnderTest()
+        const res = await call(instance, local({
+          method: 'POST',
+          url: UI_ROUTES.usage,
+          headers: { host: '127.0.0.1:1' },
+        }))
+        is(res.captured.statusCode, 405)
+        is(res.captured.headers.allow, 'GET')
       },
     },
     {

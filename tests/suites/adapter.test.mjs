@@ -169,12 +169,24 @@ function adapterWith(script, overrides = {}) {
     options: () => config,
     resolveApiKey: async () => 'sk-test-value',
     cache,
+    usage: overrides.usage,
     attachments: () => overrides.attachments,
     discover: (provider) => adapter.listModels(provider),
     logger,
     fetch,
   })
   return { adapter, config, fetch }
+}
+
+/** A usage store stand-in: it records what the adapter counted. */
+class RecordingUsage {
+  constructor() {
+    this.records = []
+  }
+
+  record(entry) {
+    this.records.push(entry)
+  }
 }
 
 function silentLogger() {
@@ -448,6 +460,126 @@ export default {
         // deployment that enabled the setting after this listing, still resolves.
         const info = await adapter.resolveModel('opencode-go', 'muse-spark-1.3-contributor', undefined)
         is(info.id, 'muse-spark-1.3-contributor')
+      },
+    },
+    {
+      name: 'a completed call is counted with the tokens the stream reported',
+      async run() {
+        const usage = new RecordingUsage()
+        const { adapter } = adapterWith([{ body: CHAT_BODY }], { usage })
+        await collect(adapter, {
+          provider: 'opencode-go',
+          model: 'glm-5.3',
+          messages: [userMessage('hi')],
+          sessionId: 'usage-session',
+        })
+        is(usage.records.length, 1)
+        const [record] = usage.records
+        is(record.model, 'glm-5.3')
+        is(record.ok, true)
+        // The figures are the ones the provider reported, not a guess: this is
+        // the number a usage table is worth having.
+        is(record.usage.inputTokens, 5)
+        is(record.usage.outputTokens, 2)
+        is(record.usage.totalTokens, 7)
+      },
+    },
+    {
+      name: 'a variant is counted under the alias the harness selected',
+      async run() {
+        const usage = new RecordingUsage()
+        const { adapter } = adapterWith([{ body: CHAT_BODY }], {
+          usage,
+          config: { modelVariants: [{ model: 'glm-5.3', name: 'fast' }] },
+        })
+        await collect(adapter, {
+          provider: 'opencode-go',
+          model: 'glm-5.3@fast',
+          messages: [userMessage('hi')],
+          sessionId: 'usage-variant',
+        })
+        // The wire carried the model; the table carries what a person chose,
+        // because that is the thing they can act on.
+        is(usage.records[0].model, 'glm-5.3@fast')
+      },
+    },
+    {
+      name: 'a refused call is counted as a failure',
+      async run() {
+        const usage = new RecordingUsage()
+        const { adapter } = adapterWith([{ status: 500, body: 'boom' }], { usage })
+        let thrown
+        try {
+          await collect(adapter, {
+            provider: 'opencode-go',
+            model: 'glm-5.3',
+            messages: [userMessage('hi')],
+            sessionId: 'usage-failure',
+          })
+        } catch (error) {
+          thrown = error
+        }
+        ok(thrown !== undefined, 'the call failed')
+        is(usage.records.length, 1)
+        is(usage.records[0].ok, false)
+        is(usage.records[0].model, 'glm-5.3')
+      },
+    },
+    {
+      name: 'a stream that breaks mid-flight is counted too',
+      async run() {
+        const usage = new RecordingUsage()
+        const { adapter } = adapterWith([{ body: sse([
+          { data: { id: 'r1', choices: [{ index: 0, delta: { role: 'assistant', content: 'hi' }, finish_reason: null }] } },
+        ]) }], { usage })
+        let thrown
+        try {
+          await collect(adapter, {
+            provider: 'opencode-go',
+            model: 'glm-5.3',
+            messages: [userMessage('hi')],
+            sessionId: 'usage-broken',
+          })
+        } catch (error) {
+          thrown = error
+        }
+        // A request the provider accepted and billed for is counted even when
+        // the stream never terminated: that is exactly the case a person wants
+        // to see, and the one an "only count successes" rule would hide.
+        ok(thrown !== undefined, 'the stream failed')
+        is(usage.records.length, 1)
+        is(usage.records[0].ok, false)
+      },
+    },
+    {
+      name: 'one call that falls back to another protocol is counted once',
+      async run() {
+        const usage = new RecordingUsage()
+        const { adapter } = adapterWith([protocolUnsupported('deepseek-v4-flash'), { body: CHAT_BODY }], { usage })
+        await collect(adapter, {
+          provider: 'opencode-go',
+          model: 'deepseek-v4-flash',
+          messages: [userMessage('hi')],
+          sessionId: 'usage-fallback',
+        })
+        // Two attempts, one call: a table that counted the retry would report
+        // traffic nobody asked for.
+        is(usage.records.length, 1)
+        is(usage.records[0].ok, true)
+        is(usage.records[0].usage.totalTokens, 7)
+      },
+    },
+    {
+      name: 'a deployment without a usage store still calls models',
+      async run() {
+        const { adapter } = adapterWith([{ body: CHAT_BODY }])
+        const { blocks } = await collect(adapter, {
+          provider: 'opencode-go',
+          model: 'glm-5.3',
+          messages: [userMessage('hi')],
+          sessionId: 'no-usage',
+        })
+        equal(blocks.map((block) => block.type), ['text'])
       },
     },
     {

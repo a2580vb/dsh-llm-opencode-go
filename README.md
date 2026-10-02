@@ -36,7 +36,7 @@ page reaches the next call with no restart.
 | **Reasoning** | Per-protocol effort mapping, including Anthropic thinking budgets |
 | **Streaming** | SSE → `StreamChunk`, with usage, finish reason, and an idle watchdog |
 | **Failures** | Stable provider-neutral codes (`AUTH`, `RATE_LIMIT`, `QUOTA`, `CONTEXT_WINDOW_EXCEEDED`, …) |
-| **Configuration UI** | A page in the web client's Plugins list: API key, credential reference, model visibility, model variants, fetch the model list |
+| **Configuration UI** | A page in the web client's Plugins list: API key, credential reference, model visibility, model variants, fetching the model list, usage |
 | **Runtime dependencies** | none |
 
 ## Install
@@ -66,10 +66,11 @@ restart.
 The sidebar's **Plugins** page lists the `dsh-opencode-go` bundle, and its
 `opencode-go` row has a **Configure** control that opens the plugin's own page:
 the API key, the credential reference it is stored under, one switch per catalog
-model for what the picker offers, the model variants, and a control that re-reads
-the service's model list. The key is written to the credential store, never to
-`cordis.patch.yml`, and the page is offered only by a deployment that serves the
-web client. See [Configuration](docs/configuration.md#graphical-configuration).
+model for what the picker offers, the model variants, a control that re-reads the
+service's model list, and what this route has spent. The key is written to the
+credential store, never to `cordis.patch.yml`, and the page is offered only by a
+deployment that serves the web client. See
+[Configuration](docs/configuration.md#graphical-configuration).
 
 If you would rather the plugin read a differently-named variable, point
 `apiKeyEnv` at it:
