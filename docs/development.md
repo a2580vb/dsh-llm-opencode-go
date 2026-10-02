@@ -9,7 +9,7 @@ the code is laid out. Users who only configure the plugin can stop at
 ## Verification
 
 ```sh
-npm test          # 305 offline checks: config, SSE framing, catalog, all three protocols, adapter, plugin body, the settings bridge and the client bundle
+npm test          # 312 offline checks: config, SSE framing, catalog, all three protocols, adapter, plugin body, the settings bridge and the client bundle
 npm run test:cordis # 43 checks mounting the plugin on the harness's own cordis
 npm run test:live # 20 checks against the real service; needs OC_KEY
 ```

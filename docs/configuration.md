@@ -201,6 +201,41 @@ result as totals, a per-model table, and a per-day series.
 | **The day** | This machine's local calendar day, so a token spent at 23:00 belongs to the evening it was spent. |
 | **The window** | 1, 7, or 30 days. The page can ask for nothing else; a 30-day retention window is dropped from the file as it is written. |
 | **A write** | Debounced a few seconds and flushed on unload, so a stream never waits on an `fs` call and a reload does not lose the tail. |
+| **Uncached input** | The part of the prompt the service did not serve from cache. Not the whole prompt: see below. |
+| **Cache read / write** | What the service said it read from, and wrote to, its prompt cache. |
+| **Hit rate** | Cache read ÷ (uncached input + cache read) — the share of the prompt that came from cache. Shown as `—` when no call reported a cache figure at all. |
+
+### What the input column means, and why the cache columns need care
+
+The two service families disagree about what their prompt count contains, and the
+numbers above are only checkable if that disagreement is resolved the same way
+every time. It is resolved the way the Harness resolves it: `inputTokens` is the
+**uncached** input — the Harness's own token meter reads exactly this field under
+the name `uncachedInputTokens`.
+
+| Service family | What it sends | What this plugin records |
+|---|---|---|
+| OpenAI-shaped (`prompt_tokens_details`, `input_tokens_details`) | `prompt_tokens: 3689` with `cached_tokens: 3584` inside it | uncached input `105`, cache read `3584` |
+| Anthropic-shaped (`cache_read_input_tokens`, `cache_creation_input_tokens`) | `input_tokens: 4`, cache reported beside it | uncached input `4`, cache read `2048` |
+
+Both then add up the same way — uncached + output + read + write — which is what
+makes one total correct for both families, and what an earlier version got wrong:
+it passed the OpenAI prompt count through untouched *and* added the cached part
+on top. On a real cached call that reported 3689 prompt tokens of which 3584 were
+cached, the input column read 3689 instead of 105 and the hit rate came out at
+39% instead of 65%.
+
+Two further consequences worth stating, because both showed up as wrong data
+rather than as an error:
+
+- **`0%` and `—` are different claims.** A service that reports "nothing was
+  cached" supports a hit rate of 0%; a service that reports no cache figure at
+  all does not, and gets `—`. The counters keep how many calls reported one, so
+  the page can tell the two apart.
+- **The Messages protocol announces its cache figures once.** They arrive in
+  `message_start`, and every later `message_delta` talks about output alone. The
+  two halves are merged field by field, so the cache figures survive; a merge
+  that rebuilt the object would report a cache hit of zero for every call.
 
 Three properties are deliberate:
 
@@ -216,6 +251,12 @@ Three properties are deliberate:
 
 A call whose stream the caller abandoned is not counted: this table is about what
 the route spent, and an outcome nobody observed is not a fact worth inventing.
+
+Counting starts before the file is read, and the file is folded into what has
+been counted rather than replacing it, so the first call after a restart is not
+thrown away by the write that follows it. Every counter row is read through a
+default, so a field a newer build added is zero in a file an older one wrote
+instead of becoming `NaN` and poisoning everything written after it.
 
 ## Model variants
 

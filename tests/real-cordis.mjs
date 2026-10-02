@@ -259,7 +259,14 @@ const pluginModule = await import(url(join(PLUGIN, 'lib/index.js')))
 // ---------------------------------------------------------------------------
 // 5. A full streaming call through the real runtime, with only the socket faked.
 // ---------------------------------------------------------------------------
-const USAGE_PATH = join(CACHE, 'usage', 'shared.json')
+// The usage file is per run, like the discovery caches above. It used to be one
+// fixed path under the shared bundle cache, and the case below asserted the file
+// held exactly one call — which only ever held because a bug threw the recorded
+// call away on the write that followed it, so the number could never grow. A
+// path of its own is what makes "one call went through, one call was counted"
+// an assertion about the plugin rather than about the machine's history.
+const USAGE_RUN = `run-${String(Date.now())}-${String(process.pid)}`
+const USAGE_PATH = join(CACHE, 'usage', `${USAGE_RUN}.json`)
 {
   const { ctx, fiber } = await activate({
     provider: 'opencode-go',

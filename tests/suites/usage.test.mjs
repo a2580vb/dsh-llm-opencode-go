@@ -13,6 +13,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
 import { RETENTION_DAYS, UsageStore, dayKey, usagePath } from '../../lib/usage/store.js'
+import { mapOpenAiUsage } from '../../lib/protocol/shared.js'
 import { equal, is, ok } from '../helpers.mjs'
 
 /** A directory per case, so one case's file never reaches another. */
@@ -38,6 +39,180 @@ const call = (model, usage, ok = true) => ({ model, usage, ok })
 export default {
   name: 'usage/store',
   cases: [
+    {
+      name: 'a cached prompt is not counted twice, whichever shape reported it',
+      run() {
+        // The two families disagree about what their prompt figure counts, and
+        // the harness resolves it by defining `inputTokens` as the uncached
+        // input -- its own token meter reads the field under the name
+        // `uncachedInputTokens`. A mapper that passed the OpenAI prompt count
+        // through and then added the cached part on top counted those tokens
+        // twice, which inflated both the input column and the total.
+        const openai = mapOpenAiUsage({
+          prompt_tokens: 369,
+          completion_tokens: 63,
+          prompt_tokens_details: { cached_tokens: 256 },
+        })
+        is(openai.inputTokens, 113, '369 prompt tokens less the 256 served from cache')
+        is(openai.cacheReadTokens, 256)
+        is(openai.totalTokens, 432, 'uncached + output + read, which is what the service would have said')
+
+        // With the service's own total present, that figure is authoritative.
+        const stated = mapOpenAiUsage({
+          prompt_tokens: 369,
+          completion_tokens: 63,
+          total_tokens: 432,
+          prompt_tokens_details: { cached_tokens: 256 },
+        })
+        is(stated.totalTokens, 432)
+        is(stated.inputTokens, 113, 'and the input column means the same thing either way')
+
+        // The Anthropic family already reports the uncached part alone, so
+        // nothing is subtracted and the four parts add up as they are.
+        const anthropic = mapOpenAiUsage({
+          input_tokens: 4,
+          output_tokens: 15,
+          cache_read_input_tokens: 2048,
+          cache_creation_input_tokens: 1024,
+        })
+        is(anthropic.inputTokens, 4, 'left alone: this shape never folded the cache in')
+        is(anthropic.totalTokens, 4 + 15 + 2048 + 1024)
+
+        // Responses-style details fold the write in as well as the read.
+        const responses = mapOpenAiUsage({
+          input_tokens: 200,
+          output_tokens: 10,
+          input_tokens_details: { cached_tokens: 50, cache_write_tokens: 30 },
+        })
+        is(responses.inputTokens, 120, '200 less both the read and the write')
+        is(responses.totalTokens, 120 + 10 + 50 + 30)
+      },
+    },
+    {
+      name: 'a cache figure is reported when the provider named it, zero included',
+      run() {
+        // "The service says nothing was cached" and "the service did not say"
+        // are different facts, and the page shows a hit rate for the first and
+        // a dash for the second. So the key's presence carries the distinction
+        // rather than its value.
+        const explicitZero = mapOpenAiUsage({
+          input_tokens: 168,
+          output_tokens: 5,
+          input_tokens_details: { cached_tokens: 0, cache_write_tokens: 0 },
+        })
+        is('cacheReadTokens' in explicitZero, true, 'a reported zero is still a report')
+        is('cacheWriteTokens' in explicitZero, true)
+        is(explicitZero.cacheReadTokens, 0)
+
+        const silent = mapOpenAiUsage({ prompt_tokens: 100, completion_tokens: 10 })
+        is('cacheReadTokens' in silent, false, 'silence is not a zero')
+        is('cacheWriteTokens' in silent, false)
+
+        // An empty detail object is OpenAI saying it has no breakdown to give.
+        const emptyDetails = mapOpenAiUsage({
+          prompt_tokens: 100,
+          completion_tokens: 10,
+          total_tokens: 110,
+          prompt_tokens_details: {},
+        })
+        is(emptyDetails.inputTokens, 100, 'nothing to subtract')
+        is(emptyDetails.totalTokens, 110)
+        is('cacheReadTokens' in emptyDetails, false)
+      },
+    },
+    {
+      name: 'a field a newer build added is zero, not NaN, in an older file',
+      async run() {
+        // The counters gained `cacheReported`, and a file written before it
+        // existed has no such member. `undefined + 0` is NaN, which would then
+        // be written back and poison every later read, so an absent field has to
+        // mean zero here exactly as it does when merging.
+        const dir = await scratch()
+        try {
+          const path = join(dir, 'usage.json')
+          await writeFile(path, JSON.stringify({
+            version: 1,
+            updatedAt: 0,
+            days: {
+              [dayKey(Date.now())]: {
+                // No cacheReported: the shape an older build wrote.
+                'glm-5.3': { requests: 2, failures: 0, inputTokens: 300, outputTokens: 40, totalTokens: 340, cacheReadTokens: 0, cacheWriteTokens: 0 },
+              },
+            },
+          }), 'utf8')
+          const store = new UsageStore({ usagePath: path }, { flushDelayMs: 0 })
+          store.record({ model: 'glm-5.3', ok: true, usage: { inputTokens: 10, outputTokens: 5, totalTokens: 15 } })
+          await store.flush()
+          const written = JSON.parse(await readFile(path, 'utf8'))
+          const row = written.days[dayKey(Date.now())]['glm-5.3']
+          is(row.requests, 3, 'the file history and the new call both survive')
+          is(row.inputTokens, 310)
+          // The decisive one: a NaN here would make the whole file unreadable to
+          // anything that parses it as numbers.
+          is(Number.isFinite(row.cacheReported), true, `cacheReported is ${String(row.cacheReported)}`)
+          is(row.cacheReported, 0, 'the call carried no cache figure, so it counts none')
+          is(JSON.stringify(written).includes('null'), false, 'no NaN serialised as null')
+        } finally {
+          await rm(dir, { recursive: true, force: true })
+        }
+      },
+    },
+    {
+      name: 'the first call after a restart is added to the history, not dropped for it',
+      async run() {
+        // `flush` reads the file through `load`, and recording never waits for
+        // that read. A load that assigned the file's map over the in-memory one
+        // therefore discarded everything this activation had counted before its
+        // first write -- always the first call after a restart, and often the
+        // one that primes the cache, so the cache figures went with it.
+        const dir = await scratch()
+        try {
+          const path = join(dir, 'usage.json')
+          const day = dayKey(Date.now())
+          await writeFile(path, JSON.stringify({
+            version: 1,
+            updatedAt: 0,
+            days: { [day]: { 'glm-5.3': { requests: 5, failures: 0, inputTokens: 500, outputTokens: 50, totalTokens: 550, cacheReadTokens: 0, cacheWriteTokens: 0 } } },
+          }), 'utf8')
+
+          // A fresh activation: no read yet, one call, then the ordinary flush.
+          const store = new UsageStore({ usagePath: path }, { flushDelayMs: 0 })
+          store.record({ model: 'glm-5.3', ok: true, usage: { inputTokens: 100, outputTokens: 10, cacheReadTokens: 40, cacheWriteTokens: 0 } })
+          await store.flush()
+
+          const row = JSON.parse(await readFile(path, 'utf8')).days[day]['glm-5.3']
+          is(row.requests, 6, 'the five in the file plus the one just counted')
+          is(row.inputTokens, 600)
+          is(row.cacheReadTokens, 40, 'and the cache figure the new call carried')
+          is(row.cacheReported, 1, 'the older rows carry no cache figure, so they count none')
+
+          // The second flush of the same activation must not add the history in
+          // again: the `loaded` guard is the only thing standing between a merge
+          // and a double count, so it is worth pinning.
+          store.record({ model: 'glm-5.3', ok: true, usage: { inputTokens: 10, outputTokens: 1, totalTokens: 11 } })
+          await store.flush()
+          const again = JSON.parse(await readFile(path, 'utf8')).days[day]['glm-5.3']
+          is(again.requests, 7, 'the file was not folded in a second time')
+          is(again.inputTokens, 610)
+        } finally {
+          await rm(dir, { recursive: true, force: true })
+        }
+      },
+    },
+    {
+      name: 'a call that reported a cache figure is counted as reported',
+      run() {
+        const store = new UsageStore({ usagePath: 'unused' }, { flushDelayMs: 0 })
+        store.record({ model: 'a', ok: true, usage: { inputTokens: 10, outputTokens: 1, totalTokens: 11 } })
+        store.record({ model: 'a', ok: true, usage: { inputTokens: 10, outputTokens: 1, totalTokens: 11, cacheReadTokens: 0, cacheWriteTokens: 0 } })
+        const day = dayKey(Date.now())
+        is(store.days[day].a.cacheReported, 1, 'only the second call said anything about cache')
+        is(store.days[day].a.cacheReadTokens, 0)
+        // A total the provider did not state still adds up, cache included.
+        store.record({ model: 'a', ok: true, usage: { inputTokens: 100, outputTokens: 10, cacheReadTokens: 50 } })
+        is(store.days[day].a.totalTokens, 11 + 11 + 160)
+      },
+    },
     {
       name: 'the day key is the local calendar day, not a UTC one',
       run() {

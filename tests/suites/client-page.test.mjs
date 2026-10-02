@@ -38,15 +38,23 @@ const STATE = {
   config: { editable: true, fields: { hiddenModels: [], modelVariants: [] }, override: {} },
 }
 
-/** A usage table with one model's calls. */
+/**
+ * A usage table with one model's calls.
+ *
+ * The counters carry a cache read so the hit rate has something to divide: the
+ * prompt is 400 uncached + 100 cached = 500, which is a 20% hit rate. The
+ * per-model and per-day rows carry the cache figures too, because a cache you
+ * cannot attribute to a model or a day is a number without a use.
+ */
+const CACHED = { requests: 4, failures: 1, inputTokens: 400, outputTokens: 100, totalTokens: 500, cacheReadTokens: 100, cacheWriteTokens: 20, cacheReported: 4 }
 const USAGE = {
   ok: true,
   window: 7,
   today: '2026-01-15',
   windows: [1, 7, 30],
-  days: [{ day: '2026-01-15', counters: { requests: 4, failures: 1, inputTokens: 400, outputTokens: 100, totalTokens: 500, cacheReadTokens: 0, cacheWriteTokens: 0 } }],
-  models: [{ model: 'glm-5.3', counters: { requests: 4, failures: 1, inputTokens: 400, outputTokens: 100, totalTokens: 500, cacheReadTokens: 0, cacheWriteTokens: 0 } }],
-  totals: { requests: 4, failures: 1, inputTokens: 400, outputTokens: 100, totalTokens: 500, cacheReadTokens: 0, cacheWriteTokens: 0 },
+  days: [{ day: '2026-01-15', counters: { ...CACHED } }],
+  models: [{ model: 'glm-5.3', counters: { ...CACHED } }],
+  totals: { ...CACHED },
   firstDay: '2026-01-15',
   retentionDays: 30,
   retention: ['2026-01-15'],
@@ -130,15 +138,22 @@ export default {
         equal(bars.map(({ node }) => node.props['aria-valuenow']), [8, 42, 91])
 
         const [totalsTable, modelTable, dayTable] = tables(section)
+        // All three tables share one column set, so a reader who has learned one
+        // has learned the rest -- including the cache columns, which used to
+        // appear only on the totals row.
+        const columns = [
+          'Total', 'Calls', 'Failed', 'Uncached input', 'Output tokens',
+          'Cache read', 'Cache write', 'Hit rate', 'Total tokens',
+        ]
         const totals = rows(totalsTable)
-        equal(totals[0], ['Total', 'Calls', 'Failed', 'Input tokens', 'Output tokens', 'Total tokens', 'Cache read'])
-        equal(totals[1], ['Total', '4', '1', '400', '100', '500', '0'], totals[1].join(','))
+        equal(totals[0], columns)
+        equal(totals[1], ['Total', '4', '1', '400', '100', '100', '20', '20%', '500'], totals[1].join(','))
         const byModel = rows(modelTable)
-        equal(byModel[0], ['Model', 'Calls', 'Failed', 'Input tokens', 'Output tokens', 'Total tokens'])
-        equal(byModel[1], ['glm-5.3', '4', '1', '400', '100', '500'])
+        equal(byModel[0], ['Model', ...columns.slice(1)])
+        equal(byModel[1], ['glm-5.3', '4', '1', '400', '100', '100', '20', '20%', '500'], byModel[1].join(','))
         const byDay = rows(dayTable)
-        equal(byDay[0], ['Day', 'Calls', 'Failed', 'Total tokens'])
-        equal(byDay[1], ['2026-01-15', '4', '1', '500'])
+        equal(byDay[0], ['Day', ...columns.slice(1)])
+        equal(byDay[1], ['2026-01-15', '4', '1', '400', '100', '100', '20', '20%', '500'], byDay[1].join(','))
 
         // The selected window is the one markable as current, so a reader can
         // tell what the numbers cover.
@@ -779,6 +794,37 @@ export default {
         }
         equal(problems, [], problems.join(' · '))
         ok(checked >= 4, `the page rendered placeholders to check (${String(checked)})`)
+      },
+    },
+    {
+      name: 'a hit rate is a measured figure, and the page will not invent one',
+      async run() {
+        // Two services that behave differently and look identical in the raw
+        // numbers: one reports "nothing was cached", the other reports no cache
+        // figure at all. Only the first supports the claim "0% of your prompt
+        // was cached", so only the first is allowed to show a percentage.
+        const silent = { requests: 2, failures: 0, inputTokens: 300, outputTokens: 50, totalTokens: 350, cacheReadTokens: 0, cacheWriteTokens: 0, cacheReported: 0 }
+        const explicitZero = { ...silent, cacheReported: 2 }
+        const page = await renderPage({
+          fetch: host({ usage: { body: { ...USAGE, totals: silent, models: [{ model: 'glm-5.3', counters: silent }], days: [{ day: '2026-01-15', counters: silent }] } } }),
+        })
+        const tree = await page.open()
+        const section = find(tree, (node) => node.type === 'section' && text(node).includes('Usage'))
+        const totals = rows(tables(section)[0])
+        is(totals[1][7], '—', 'a service that said nothing does not get a 0%')
+        // The convention that makes the arithmetic checkable is stated, not left
+        // for the reader to infer from numbers that look inconsistent.
+        const said = text(section).replace(/\s+/g, ' ')
+        ok(said.includes('Uncached input" counts only the part of the prompt'), said.slice(0, 200))
+        ok(said.includes('Hit rate = cache read ÷ (uncached input + cache read)'), 'the formula is on the page')
+
+        // The same numbers, this time from a service that reported them as zero.
+        const reported = await renderPage({
+          fetch: host({ usage: { body: { ...USAGE, totals: explicitZero, models: [{ model: 'glm-5.3', counters: explicitZero }], days: [{ day: '2026-01-15', counters: explicitZero }] } } }),
+        })
+        const reportedTree = await reported.open()
+        const reportedSection = find(reportedTree, (node) => node.type === 'section' && text(node).includes('Usage'))
+        is(rows(tables(reportedSection)[0])[1][7], '0%', 'a reported zero is a measurement')
       },
     },
     {

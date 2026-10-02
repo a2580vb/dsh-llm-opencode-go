@@ -17,6 +17,46 @@ export default {
       },
     },
     {
+      name: 'the cache figures message_start reported survive the message_delta that follows',
+      async run() {
+        // This API announces its input side once, in `message_start`, and the
+        // cache figures only ever appear there. Every later `message_delta`
+        // speaks about output alone, so a merge that rebuilt the usage object
+        // instead of merging into it threw the cache away -- and the page then
+        // reported a cache hit of zero for every Messages-protocol call.
+        const text = [
+          'event: message_start',
+          'data: {"type":"message_start","message":{"id":"m1","type":"message","role":"assistant","model":"glm-5.3","content":[],"usage":{"input_tokens":46,"output_tokens":0,"cache_read_input_tokens":2048,"cache_creation_input_tokens":1024}}}',
+          '',
+          'event: content_block_start',
+          'data: {"type":"content_block_start","index":0,"content_block":{"type":"text","text":""}}',
+          '',
+          'event: content_block_delta',
+          'data: {"type":"content_block_delta","index":0,"delta":{"type":"text_delta","text":"OK"}}',
+          '',
+          'event: content_block_stop',
+          'data: {"type":"content_block_stop","index":0}',
+          '',
+          'event: message_delta',
+          'data: {"type":"message_delta","delta":{"stop_reason":"end_turn"},"usage":{"output_tokens":129}}',
+          '',
+          'event: message_stop',
+          'data: {"type":"message_stop"}',
+          '',
+          '',
+        ].join('\n')
+        const { usage, chunks } = await assemble(anthropic, text, 'glm-5.3')
+        is(usage.inputTokens, 46, 'the input count is the uncached part this shape reports')
+        is(usage.outputTokens, 129, 'the delta supplied the output half')
+        is(usage.cacheReadTokens, 2048, 'the cache read outlived the delta')
+        is(usage.cacheWriteTokens, 1024, 'and so did the cache write')
+        // This shape never folds the cached part into the prompt count, so the
+        // four parts are exclusive and simply add up.
+        is(usage.totalTokens, 46 + 129 + 2048 + 1024)
+        is(usageChunk(chunks).usage.cacheReadTokens, 2048, 'and the same figures reach the harness')
+      },
+    },
+    {
       name: 'thinking then text becomes two blocks, with the signature retained',
       async run() {
         const text = await fixture('anthropic.text.sse')
