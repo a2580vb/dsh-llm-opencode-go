@@ -285,13 +285,32 @@ export default {
       },
     },
     {
-      name: 'resolveModel reports the context window and no image modality by default',
+      name: 'resolveModel reports the measured context window, not one assumed value',
       async run() {
         const { adapter } = adapterWith([])
         const info = await adapter.resolveModel('opencode-go', 'glm-5.3', undefined)
-        equal(info.context, { contextWindow: 262_144 })
+        // glm-5.3 is catalogued at a 1M-token window; the fallback assumption is 256K.
+        equal(info.context, { contextWindow: 1_000_000 })
+        is(info.defaultMaxTokens, 131_072)
         equal(info.inputModalities, ['text'])
         ok(info.reasoning.efforts.length > 0, 'the reasoning ladder is advertised')
+      },
+    },
+    {
+      name: 'listModels carries each model own context window, cap, and modalities',
+      async run() {
+        const { adapter } = adapterWith([])
+        const models = await adapter.listModels('opencode-go')
+        const flash = models.find((model) => model.id === 'deepseek-v4.1-flash')
+        is(flash.contextWindow, 1_000_000)
+        is(flash.maxTokens, 384_000)
+        const luna = models.find((model) => model.id === 'gpt-5.6-luna')
+        is(luna.contextWindow, 1_050_000)
+        // Two models the old assumed default reported identically now differ.
+        ok(
+          flash.contextWindow !== luna.contextWindow,
+          'a listing distinguishes two models with different windows',
+        )
       },
     },
     {

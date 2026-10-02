@@ -73,16 +73,19 @@ OpenCode Go 提供三种线格式协议，并且对**哪个模型能走哪个协
 ```
 
 所以每个模型携带的是一份有序的协议列表，而不是一个全局的 endpoint 选择。当请求以这种方式被
-拒绝时，适配器会记录日志，并用该模型的下一个协议重试同一调用。以下是针对线上实测的结果：
+拒绝时，适配器会记录日志，并用该模型的下一个协议重试同一调用。以下是逐个模型对线上实测的结果：
 
 | 模型 | 提供的协议 |
 |---|---|
 | `deepseek-v4-pro`、`deepseek-v4-flash`、`deepseek-v4.1-flash`、`deepseek-flash`、`deepseek-v4-flash-vision-exp` | responses、chat-completions、anthropic |
 | `gpt-6-luna`、`gpt-5.6-luna`、`grok-4.7`、`grok-4.6` | responses |
 | `minimax-m2.7` | anthropic |
-| `minimax-m3`、`kimi-k3`、`qwen3.8-max`、`qwen3.8-flash`、`qwen3.7-plus`、`space-bunny-free` | chat-completions、anthropic |
-| `glm-5.3`、`glm-5.3-flash`、`glm-5.2`、`kimi-k2.7-code`、`mimo-*`、`longcat-*`、`hy3`、`hy4-preview` | chat-completions |
+| `minimax-m2.5`、`minimax-m3`、`kimi-k3`、`qwen3.6-plus`、`qwen3.7-max`、`qwen3.8-max`、`qwen3.8-flash`、`qwen3.7-plus`、`space-bunny-free` | chat-completions、anthropic |
+| `glm-5.3`、`glm-5.3-flash`、`glm-5.2`、`glm-5.1`、`kimi-k2.7-code`、`kimi-k2.6`、`mimo-v2.6-pro`、`mimo-v2.6-flash`、`mimo-v2.5-pro`、`mimo-v2.5`、`longcat-*`、`hy3`、`hy4-preview`、`omen-alpha` | chat-completions |
 | `muse-spark-1.*-contributor` | 会列出，但对非 contributor 账号会被拒绝 |
+
+`GET /models` 返回的每一个 id 在这张表里都有对应行，所以没有任何一个在服务的模型需要先失败一次
+才能确定自己的协议。服务变更后用[如何验证](#如何验证)里描述的探针重新实测即可。
 
 优先级顺序是 responses → chat-completions → anthropic。用 `protocolOverrides` 可以钉住另一个：
 
@@ -96,6 +99,68 @@ config:
 id，只会带上默认协议——「服务列出了它」本身就是插件掌握的一条事实。而**哪里都找不到**的
 id——新到 `GET /models` 都还没收录，或者走的是没有发现能力的网关——才是协议真正未知的那一种，
 它会依次尝试每一个协议。你永远不需要等插件发新版本才能用上新模型。
+
+## 容量与多模态
+
+`GET /models` 只公布 id：
+
+```json
+{"id":"deepseek-v4.1-flash","object":"model","created":1790899718,"owned_by":"opencode"}
+```
+
+没有上下文窗口、没有输出上限、也没有多模态信息。这些数字是存在的——就在 OpenCode 自己随包发布的
+目录（`models.dev`）里——所以 `lib/model/limits.js` 以**快照**的形式带上它们，而不是每次请求去
+拉：需要上下文窗口的调用不能等一个第三方 endpoint，没有外网的部署也得能显示真实上限。每个模型
+解析出的都是自己的数字：
+
+| 模型 | 上下文 | 输出上限 | 模型输入 |
+|---|---|---|---|
+| `deepseek-v4.1-flash` | 1,000,000 | 384,000 | text、image |
+| `gpt-5.6-luna` | 1,050,000 | 128,000 | text、image、pdf |
+| `grok-4.7` | 500,000 | 500,000 | text、image、pdf |
+| `minimax-m2.7` | 204,800 | 131,072 | text |
+| `kimi-k2.7-code` | 262,144 | 262,144 | text、image、video |
+| `mimo-v2.6-pro` | 1,048,576 | 131,072 | text、image、audio、video |
+| `hy3` | 256,000 | 128,000 | text |
+
+快照完全没听说过的模型——比它更晚发布的——会先匹配到**同族**的实测数字（`qwen…`、`glm-…`、
+`grok-…` 等），最后才退回 `defaultContextWindow`。经由会公布自身容量的网关接入的模型，则直接
+从响应里读取；见[塑造目录](#塑造目录)。
+
+### 多模态：模型能接受什么，与一条路由能发什么
+
+目录里列出的能力，有些是这里任何线协议都没有对应字段的——`video`、`audio`、`pdf`——所以两个事实
+被分开保存：
+
+- **`providerModalities`** 是目录自己的列表，原样保留。
+- **`inputModalities`** 是本适配器真正能放进请求里的东西。Harness 只建模两种，本适配器也只对两种
+  有线路表达，所以解析出的模型只声明 `['text']` 或 `['text', 'image']`。
+
+这个区分不是装饰性的。Harness 依据解析出的列表来投影持久的 image block：声明了 `image` 的路由会
+拿到真实的 image block，并且必须解析出它的字节；没声明的只会拿到文本占位符。因此，「模型支持、但
+这条路由发不出去」的能力会以一句说明的形式出现：
+
+```
+"description": "the model also accepts video, audio, which no protocol on this route can send"
+```
+
+`sendImages` 决定是否真的尝试发送图片字节：
+
+| 取值 | 效果 |
+|---|---|
+| `auto`（默认） | 当**本部署能解析图片字节**（即挂载了 attachment seam）时，为视觉模型声明 `image`；否则报告为纯文本，并说明省略了什么。 |
+| `always` | 只要目录条目接受图片就声明 `image`，无论有没有挂载 seam。此时含图片的请求会带着原因失败，而不是静默地只发文本。 |
+| `off` | 从不声明 `image`。 |
+
+如果你的部署把图片挂在别处而不是 attachment seam，就设为 `always`：
+
+```yaml
+config:
+  sendImages: always
+```
+
+声明之后三种协议都能携带图片：Chat Completions 与 Responses 收到 `data:` URL 部件，Messages 收到
+base64 `source`。这是对线上实测的结论，不是假设——见[如何验证](#如何验证)。
 
 ## 配置
 
@@ -123,6 +188,7 @@ id——新到 `GET /models` 都还没收录，或者走的是没有发现能力
 | `reasoningEfforts` | `[minimal, low, medium, high, max]` | 可选的思考等级；按协议收窄 |
 | `sessionHeader` | `session-id` | `session-id` \| `uuid` \| `off` |
 | `sendClientHeader` | `true` | 是否发送 `x-opencode-client` |
+| `sendImages` | `auto` | `auto` \| `always` \| `off`——是否尝试发送图片字节（见[多模态](#多模态模型能接受什么与一条路由能发什么)） |
 | `disableReasoningReplay` | `false` | 不再回传此前的 reasoning（见[推理](#推理)） |
 | `healthCheck` | `off` | `startup` 会记录一份凭据 + 目录报告 |
 | `retryPolicy` | normal，5 次重试 | 由重试执行器采用的 provider 自有策略 |
@@ -146,26 +212,36 @@ config:
       efforts: [low, medium, high]
 ```
 
+条目也可以直接粘贴目录记录：`limit: { context, output }` 是 `contextWindow` / `maxTokens` 的同义
+写法，`modalities: { input: [...] }`（或裸的 `modalities: [...]`）记录 provider 自己的列表。本适配
+器只认得 `text` 与 `image`，所以粘贴进来的列表会原样保留，而真正被声明出去的是其中可发送的子集。
+
 当 `modelSource: config` 时，`models` 就是整个目录，`GET /models` 永远不会被调用——这正是接兼容
 网关时该有的姿态。
 
 ### 图片输入
 
-图片输入对每个模型默认都是**关闭**的，插件解析出的 `inputModalities` 也如实反映这一点。这不是
-疏漏：一个持久化的 `ImageBlock` 携带的是附件的*引用*，要把它变成请求字节需要挂载了
-`attachments` 服务。在无法解析附件的部署上为模型声明 `image`，会让每一个带图片的请求都失败。
+图片输入跟着模型走。在[容量表](#容量与多模态)里的视觉模型会声明 `image`，适配器随后通过挂载的
+attachment seam 把每一处出现解析成请求部件：Chat Completions 与 Responses 用 `data:` URL，
+Messages 用 base64 source。
 
-要为确实接受图片的模型打开它：
+这个声明是**跟着部署条件**的——见上面的 `sendImages`。一个持久化的 `ImageBlock` 携带的是附件的
+*引用*，把它变成请求字节需要 `attachments` 服务，所以解析不出来的路由会报告为纯文本，而不是声明一
+项自己兑现不了的能力。provider 自己的列表不会丢：解析出的 description 会点名这条路由发不出去的
+部分。
+
+也可以按模型覆盖其中任何一半：
 
 ```yaml
 config:
   modelOverrides:
-    deepseek-v4-flash-vision-exp:
+    # 为目录没有描述的模型强制打开图片输入。
+    my-vision-model:
       input: [text, image]
+    # 只记录 provider 的列表，不声明图片支持。
+    some-model:
+      modalities: { input: [text, image, video] }
 ```
-
-此后适配器会通过附件接缝解析每一处出现；如果没有挂载附件 provider，`inputModalities` 仍然只报告
-text，因此请求路径和声明的能力不可能互相矛盾。
 
 ## Endpoint 与鉴权
 
@@ -252,18 +328,21 @@ Harness 类的跨包副本在 Harness 里本来也永远不会被 `instanceof` �
 ## 如何验证
 
 ```sh
-npm test          # 117 项离线检查：配置、SSE 分帧、目录、三种协议、适配器、插件本体
+npm test          # 127 项离线检查：配置、SSE 分帧、目录、三种协议、适配器、插件本体
 npm run test:cordis # 20 项检查，把插件挂到 Harness 自己的 cordis 上
-npm run test:live # 16 项检查，打到真实服务；需要 OC_KEY
+npm run test:live # 19 项检查，打到真实服务；需要 OC_KEY
 ```
 
 `npm test` 离线运行，不需要凭据。协议套件回放的是**从线上服务抓取**的响应体
 （`tests/golden/`），所以一旦某个翻译器不再与 OpenCode Go 实际发送的内容一致，它们就会失败。
-每个用例都用 Harness 自己的 block assembler 组装分片——agent loop 跑的正是同一份代码。
+每个用例都用 Harness 自己的 block assembler 组装分片——agent loop 跑的正是同一份代码。其中一个
+用例会把容量快照与这台机器缓存的 OpenCode 目录做比对，所以过期的 `lib/model/limits.js` 会被报
+出来，而不是悄悄漂移。
 
 `npm run test:live` 会消耗真实配额。它针对线上中继证明：模型发现与缓存、三种协议各自的往返、
 每种协议的完整工具调用往返、协议回退恢复、重复 session id 上的缓存复用、历史中存在「被记录但
-从未派发」的工具调用时请求仍被接受，以及每一个对外公布的思考等级都被接受。
+从未派发」的工具调用时请求仍被接受、每个模型都报告自己的实测上下文窗口与模态，以及每一个对外
+公布的思考等级都被接受。
 
 ```sh
 OC_KEY=oc_sk_... npm run test:live
@@ -279,17 +358,40 @@ OC_KEY=oc_sk_... npm run test:live
 `Config['~standard'].validate(raw)`，所以那里如果是个普通对象，激活就会以
 `Cannot read properties of undefined (reading 'validate')` 失败。任何孤立的单元测试都抓不到这一点。
 
+### 重新实测线上事实
+
+关于这个服务有两类事实是实测而非公布的，各自都有一个纳入版本控制的探针。它们都需要 key 并消耗
+真实配额：
+
+```sh
+OC_KEY=oc_sk_... node scripts/probe-protocols.mjs [model ...]   # 对每个在服务的模型逐个探测协议
+OC_KEY=oc_sk_... node scripts/probe-image.mjs                   # 三种协议的图片请求形状
+node scripts/snapshot-models.mjs [--write]                      # 容量快照与线上目录的差异
+```
+
+`probe-protocols.mjs` 会逐模型给出 `served=[…]`，`FALLBACK_MODELS` 就是照它写的。
+`probe-image.mjs` 会把一张生成的 PNG 按每种协议发出去，验证模型是否真的能读图——这才让 `image`
+声明站得住脚；它用到的图片写在 `.live-cache/probe-image.png`（未纳入版本控制的草稿区）。
+`snapshot-models.mjs` 会打印快照之后的变化（`new`、`changed`、`gone`），加 `--write` 则重写两张表。
+
 ## 限制
 
 - **协议能力是实测出来的，不是官方公布的。** OpenCode Go 的 `/models` 响应只列 id，所以
-  `lib/model/catalog.js` 里的映射来自对线上服务的探测。模型换了协议就需要一条
-  `protocolOverrides` 或一个新插件版本。两种「未知」的程度并不相同：服务**列出了**、但本插件尚未
+  `lib/model/catalog.js` 里的映射来自对线上服务逐个端点的探测。模型换了协议就需要一条
+  `protocolOverrides` 或重新实测。两种「未知」的程度并不相同：服务**列出了**、但本插件尚未
   实测的 id 只拿到 `defaultProtocol`，没有回退；而哪里都找不到的 id——既不在内置目录、也不在已
   发现的列表里——会依次尝试每一个协议，因为它的协议正是缺失的那一项。
-- **上下文窗口和输出上限是回退值。** 服务不公布它们，所以除非某条 `models` 条目纠正，
-  `defaultContextWindow` 和 `defaultMaxTokens` 就是被假定的值。两者到达线上的方式不同：
-  Messages 总会发送上限（`max_tokens`，缺省时回退到模型的值），而 Chat Completions 与
-  Responses 在调用没有声明上限时就省略该字段，所以这个决定权在中继而不是本插件。
+- **容量是一份快照，不是订阅。** `lib/model/limits.js` 保存着在 `CAPABILITY_SOURCE` 所记日期从
+  OpenCode 目录实测来的上下文窗口、输出上限和 provider 模态列表，用
+  `node scripts/snapshot-models.mjs --write` 刷新。由此带来三个后果：
+  - 快照之后发布的模型会先拿到**同族**的实测数字（`qwen…`、`glm-…`、`grok-…` 等），而不是全局
+    假定值；
+  - 同族也匹配不上的模型才取 `defaultContextWindow` 与 `defaultMaxTokens`，这也是这两个值唯一
+    仍是猜测的情形；
+  - 服务列出、目录却没描述的 id，可以用 `models` / `modelOverrides` 配置解决，无需等插件发版。
+  上限到达线上的方式不同：Messages 总会发送一个（`max_tokens`，缺省时回退到模型的值），而
+  Chat Completions 与 Responses 在调用没有声明上限时就省略该字段，所以这个决定权在中继而不是
+  本插件。
 - **推理不会回放到 Responses API。** reasoning item 会针对 Harness 并未保留的上游状态做校验，
   不匹配就是一个含义不明的 `400`，所以该协议的请求里直接丢弃此前的思考，而不是发出去然后随机被
   拒。Messages 协议确实会回放 thinking block，并使用 provider 签发的签名。
@@ -299,7 +401,12 @@ OC_KEY=oc_sk_... npm run test:live
   Messages 拒绝没有 `tool_result` 跟随的 `tool_use` 块。因此转换器在发出请求前会先通读历史，把缺少
   配对的调用、以及缺少调用的结果一并省略——单独发出任何一半都会让整轮失败，而两者都无法被重建。
   历史中的一个空洞只会让那一次调用从对话记录里消失，不再让整个会话失败。
-- **图片输入按模型显式开启**——见上文。
+- **线路上只有 `text` 与 `image`。** 目录给若干模型标了 `video`、`audio`、`pdf` 输入。这些会被记录
+  并上报，但这里没有任何协议有对应字段，所以没有请求会携带它们，模型声明的 `inputModalities` 也
+  永远不会声称支持。见[多模态](#多模态模型能接受什么与一条路由能发什么)。
+- **图片输入取决于部署，而不只取决于模型。** `sendImages` 默认 `auto`：只有当 attachment seam 被
+  挂载时才为视觉模型声明 `image`。没有该 seam 的部署上，模型会报告为纯文本，并附一句说明这条
+  路由发不出去什么。
 - **`stop` 原样转发。** 某个模型是否遵守 stop 序列是模型自己的事；插件不做任何额外声称。
 - **一次挂载一个路由。** 挂载两次插件需要两个 `provider` 名和两把 API key。
 
@@ -314,6 +421,7 @@ lib/
 │   └── mapping.js            HTTP 状态 / 传输失败 → 稳定错误码
 ├── model/
 │   ├── catalog.js            实测得到的协议映射与记录合并
+│   ├── limits.js             实测得到的容量与模态快照
 │   ├── cache.js              GET /models，内存 + 磁盘缓存
 │   ├── capabilities.js       记录 → Harness 模型元数据
 │   └── images.js             持久引用 → 请求字节
@@ -328,6 +436,11 @@ lib/
     ├── messages.js           content block → 各协议的 messages
     ├── tools.js              tool schema → 各协议的声明
     └── reasoning.js          Harness 思考等级 → 各协议的拼写
+
+scripts/
+├── snapshot-models.mjs       从目录刷新 lib/model/limits.js
+├── probe-protocols.mjs       实测每个在服务的模型接受哪些协议
+└── probe-image.mjs           实测每种协议的图片请求形状
 ```
 
 增加第四种协议意味着在 `protocol/` 下加一个新文件、在 transport map 里加一个条目——而不是重写。

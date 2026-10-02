@@ -36,12 +36,26 @@ function report(name, ok, detail) {
   console.log(`${ok ? 'PASS' : 'FAIL'}  ${name}${detail === undefined ? '' : ` — ${detail}`}`)
 }
 
+/** The deployment facts a live adapter gets, so a test can withhold them. */
+const SEAM = { readImageRequest: async () => undefined }
+const NO_SEAM = undefined
+
+/**
+ * One adapter over the live service.
+ *
+ * `attachments` defaults to a minimal seam, because the route's declared
+ * modalities follow the request path: without one, a vision model correctly
+ * reports text-only and the metadata checks below would be measuring the
+ * absence of a service rather than the catalogue. Pass `attachments: () =>
+ * NO_SEAM` for the deployment that has none.
+ */
 function buildAdapter(overrides = {}) {
+  const { attachments = () => SEAM, ...configOverrides } = overrides
   const config = resolveConfig({
     baseURL: process.env.OC_BASE ?? 'https://opencode.ai/zen/go/v1',
     apiKeyEnv: 'OC_KEY',
     modelsCachePath: CACHE_PATH,
-    ...overrides,
+    ...configOverrides,
   })
   const cache = new ModelCache(config, {
     authHeaders: async () => ({ authorization: `Bearer ${API_KEY}` }),
@@ -51,7 +65,7 @@ function buildAdapter(overrides = {}) {
     options: () => config,
     resolveApiKey: async () => API_KEY,
     cache,
-    attachments: () => undefined,
+    attachments,
     discover: (provider) => adapter.listModels(provider),
     logger: { info() {}, warn: console.warn, debug() {}, error: console.error },
   })
@@ -106,6 +120,36 @@ const userTurn = (text) => ({ role: 'user', content: [{ type: 'text', text }] })
     'gpt-5.6-luna resolves as Responses-only with a context window',
     luna.context?.contextWindow > 0,
     `contextWindow=${luna.context?.contextWindow} efforts=${luna.reasoning?.efforts.map((effort) => effort.id).join('/')}`,
+  )
+
+  // The catalogue's figures, not one assumed window shared by every model.
+  const unique = new Set(models.map((model) => model.contextWindow))
+  const missing = models.filter((model) => !Number.isInteger(model.contextWindow) || !Number.isInteger(model.maxTokens))
+  report(
+    'every advertised model carries its own measured context window and output cap',
+    missing.length === 0 && unique.size > 3,
+    `${models.length} models, ${unique.size} distinct windows,`
+    + ` e.g. deepseek-v4.1-flash=${models.find((m) => m.id === 'deepseek-v4.1-flash')?.contextWindow}`
+    + ` gpt-5.6-luna=${luna.context?.contextWindow}`
+    + ` hy3=${models.find((m) => m.id === 'hy3')?.contextWindow}`,
+  )
+  // The declared modalities follow the request path: this builder mounts a
+  // minimal attachment seam, so a vision model declares image input.
+  const vision = models.find((model) => model.id === 'deepseek-v4-flash-vision-exp')
+  const textOnly = models.find((model) => model.id === 'glm-5.3')
+  report(
+    'a vision model declares image input while a text-only model does not',
+    vision?.inputModalities?.includes('image') === true && textOnly?.inputModalities?.includes('image') === false,
+    `vision=${vision?.inputModalities?.join('+')} text=${textOnly?.inputModalities?.join('+')}`,
+  )
+  // The same catalog without the attachment seam: the declaration follows the
+  // request path, so the vision model reports text-only and says why.
+  const withoutSeam = buildAdapter({ attachments: () => NO_SEAM })
+  const gated = await withoutSeam.adapter.resolveModel(config.provider, 'deepseek-v4-flash-vision-exp', undefined)
+  report(
+    'without an attachment seam, the same model reports text-only with a note',
+    gated.inputModalities.includes('image') === false && String(gated.description ?? '').length > 0,
+    `modalities=${gated.inputModalities.join('+')} note=${JSON.stringify(String(gated.description ?? '').slice(0, 80))}`,
   )
 }
 

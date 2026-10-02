@@ -1,11 +1,33 @@
 /** Model catalog: protocol mapping, override merging, and capability resolution. */
 
 import { PROTOCOLS, normalizeProtocol, resolveConfig } from '../../lib/config.js'
-import { catalogModelInfo, resolvedModelInfo, supportsImages } from '../../lib/model/capabilities.js'
+import { catalogModelInfo, resolvedInputModalities, resolvedModelInfo, supportsImages } from '../../lib/model/capabilities.js'
 import { FALLBACK_MODELS, buildCatalog, displayName, preferredProtocol } from '../../lib/model/catalog.js'
 import { parseModelList } from '../../lib/model/cache.js'
+import { CAPABILITY_SOURCE, capabilityFor, isMeasured, measuredIds } from '../../lib/model/limits.js'
 import { orderAttempts } from '../../lib/index.js'
 import { equal, is, ok } from '../helpers.mjs'
+
+/** A read-only view of the cached OpenCode catalogue, when this machine has one. */
+async function cachedCatalogue() {
+  const { readFile } = await import('node:fs/promises')
+  const { homedir } = await import('node:os')
+  const { join } = await import('node:path')
+  const paths = [
+    process.env.OC_MODELS_CACHE,
+    join(homedir(), '.cache', 'opencode', 'models.json'),
+  ].filter((path) => path !== undefined)
+  for (const path of paths) {
+    try {
+      const parsed = JSON.parse(await readFile(path, 'utf8'))
+      const provider = parsed?.['opencode-go']
+      if (provider?.models !== undefined) return provider.models
+    } catch {
+      // Try the next candidate; a missing catalogue just skips the comparison.
+    }
+  }
+  return undefined
+}
 
 export default {
   name: 'model/catalog',
@@ -163,7 +185,7 @@ export default {
         const info = resolvedModelInfo('opencode-go', records.get('r'))
         is(info.provider, 'opencode-go')
         is(info.context.contextWindow, 262_144)
-        equal(info.inputModalities, undefined)
+        equal(info.inputModalities, ['text'])
         equal(info.reasoning.efforts.map((effort) => String(effort.id)), ['minimal', 'low', 'medium', 'high', 'max'])
       },
     },
@@ -184,15 +206,175 @@ export default {
       },
     },
     {
-      name: 'the catalog listing carries the id, name, and modalities',
+      name: 'the measured table gives every served model its own window and cap',
+      run() {
+        const records = buildCatalog(resolveConfig({}), [])
+        const cases = [
+          ['deepseek-v4.1-flash', 1_000_000, 384_000],
+          ['gpt-5.6-luna', 1_050_000, 128_000],
+          ['grok-4.7', 500_000, 500_000],
+          ['minimax-m2.7', 204_800, 131_072],
+          ['hy3', 256_000, 128_000],
+          ['kimi-k2.7-code', 262_144, 262_144],
+        ]
+        for (const [id, contextWindow, maxTokens] of cases) {
+          const record = records.get(id)
+          ok(record !== undefined, `${id} is in the catalog`)
+          is(record.contextWindow, contextWindow, `${id} context window`)
+          is(record.maxTokens, maxTokens, `${id} output cap`)
+        }
+        // The old behaviour: one assumed window for every model.
+        ok(
+          new Set(cases.map(([id]) => records.get(id).contextWindow)).size > 1,
+          'two models no longer report the same window',
+        )
+      },
+    },
+    {
+      name: 'every fallback model carries a measured or stated capacity source',
+      run() {
+        for (const record of FALLBACK_MODELS) {
+          ok(typeof record.capacitySource === 'string' && record.capacitySource !== '', `${record.id} names a source`)
+          is(Number.isInteger(record.contextWindow), true, `${record.id} has an integer window`)
+          is(Number.isInteger(record.maxTokens), true, `${record.id} has an integer cap`)
+          is(isMeasured(record.id), true, `${record.id} is named by the measured table`)
+        }
+      },
+    },
+    {
+      name: 'a model the table does not name falls back to its measured family',
+      run() {
+        const family = capabilityFor('qwen3.9-unreleased', { contextWindow: 1, maxTokens: 1 })
+        is(family.exact, false)
+        is(family.contextWindow, 1_000_000)
+        is(family.maxTokens, 131_072)
+        ok(String(family.source).includes('family:qwen'), 'the source names the family it used')
+
+        const unmeasured = capabilityFor('brand-new-model', { contextWindow: 111, maxTokens: 222 })
+        is(unmeasured.exact, false)
+        is(unmeasured.contextWindow, 111)
+        is(unmeasured.maxTokens, 222)
+        is(unmeasured.source, 'assumed')
+
+        // A family fallback never overrides a measured row.
+        ok(isMeasured('qwen3.7-max'), 'the exact id is measured')
+        is(capabilityFor('qwen3.7-max', {}).contextWindow, 1_000_000)
+        is(capabilityFor('qwen3.7-max', {}).exact, true)
+      },
+    },
+    {
+      name: 'the snapshot still agrees with the OpenCode catalogue this machine caches',
+      async run() {
+        const models = await cachedCatalogue()
+        if (models === undefined) {
+          ok(true, 'no local OpenCode catalogue to compare against')
+          return
+        }
+        const measured = new Set(measuredIds())
+        const mismatches = []
+        for (const id of Object.keys(models)) {
+          if (!measured.has(id)) continue
+          const entry = models[id]
+          const context = entry?.limit?.context
+          if (context === undefined) continue
+          const record = capabilityFor(id, {})
+          if (record.contextWindow !== context) {
+            mismatches.push(`${id}: table ${record.contextWindow} vs catalogue ${context}`)
+          }
+        }
+        equal(mismatches, [], `snapshot ${CAPABILITY_SOURCE} disagrees with the cached catalogue`)
+      },
+    },
+    {
+      name: 'provider modalities are kept whole while the harness list stays sendable',
+      run() {
+        const records = buildCatalog(resolveConfig({}), [])
+        const mimo = records.get('mimo-v2.6-pro')
+        // The catalogue lists abilities no protocol here can carry.
+        equal([...mimo.providerModalities], ['text', 'image', 'audio', 'video'])
+        // Nothing is declared for a route that cannot resolve image bytes.
+        equal(resolvedInputModalities(mimo, { imageRoute: false, mode: 'auto' }), ['text'])
+        equal(resolvedInputModalities(mimo, { imageRoute: true, mode: 'auto' }), ['text', 'image'])
+        // The abilities left out are stated rather than dropped.
+        const info = resolvedModelInfo('opencode-go', mimo, { imageRoute: false, mode: 'auto' })
+        equal(info.inputModalities, ['text'])
+        ok(
+          String(info.description).includes('audio') && String(info.description).includes('video'),
+          `the note names what the route cannot send: ${info.description}`,
+        )
+      },
+    },
+    {
+      name: 'a text-only model is never reported as image-capable',
+      run() {
+        const records = buildCatalog(resolveConfig({}), [])
+        const flash = records.get('deepseek-v4-flash')
+        equal([...flash.providerModalities], ['text'])
+        is(supportsImages(flash), false)
+        is(resolvedInputModalities(flash, { imageRoute: true, mode: 'auto' }).includes('image'), false)
+        is(resolvedInputModalities(flash, { imageRoute: true, mode: 'always' }).includes('image'), false)
+      },
+    },
+    {
+      name: 'sendImages off suppresses the modality even for a vision model on a ready route',
+      run() {
+        const records = buildCatalog(resolveConfig({}), [])
+        const vision = records.get('deepseek-v4-flash-vision-exp')
+        is(supportsImages(vision), true)
+        equal(resolvedInputModalities(vision, { imageRoute: true, mode: 'off' }), ['text'])
+        equal(resolvedInputModalities(vision, { imageRoute: false, mode: 'always' }), ['text', 'image'])
+      },
+    },
+    {
+      name: 'a config entry may paste a catalogue record limits and modalities verbatim',
+      run() {
+        const config = resolveConfig({
+          modelSource: 'config',
+          models: [{
+            id: 'pasted',
+            limit: { context: 1_050_000, output: 128_000 },
+            modalities: { input: ['text', 'image', 'pdf'] },
+          }],
+        })
+        const record = buildCatalog(config, []).get('pasted')
+        is(record.contextWindow, 1_050_000)
+        is(record.maxTokens, 128_000)
+        equal([...record.providerModalities], ['text', 'image', 'pdf'])
+        is(record.capacitySource, 'config')
+      },
+    },
+    {
+      name: 'an input list naming something unsendable is refused by name',
+      run() {
+        const config = resolveConfig({ modelSource: 'config', models: [{ id: 'bad', input: ['text', 'video'] }] })
+        let error
+        try {
+          buildCatalog(config, [])
+        } catch (thrown) {
+          error = thrown
+        }
+        ok(error instanceof TypeError, 'a TypeError is thrown')
+        ok(String(error.message).includes('video'), `the message names the field: ${error.message}`)
+      },
+    },
+    {
+      name: 'the catalog listing carries the id, name, capacity, and modalities',
       run() {
         const records = buildCatalog(resolveConfig({ modelSource: 'config', models: [{ id: 'x', name: 'X', input: ['text', 'image'] }] }), [])
+        // With no deployment facts the listing is conservative: text-only, the
+        // same answer `resolveModel` gives without an image route.
         equal(catalogModelInfo('opencode-go', records.get('x')), {
           provider: 'opencode-go',
           id: 'x',
           name: 'X',
-          inputModalities: ['text', 'image'],
+          inputModalities: ['text'],
+          contextWindow: 262_144,
+          maxTokens: 32_768,
         })
+        // A mounted seam and a model that takes images: the listing says so,
+        // because the selector offers what the route can actually send.
+        const withRoute = catalogModelInfo('opencode-go', records.get('x'), { imageRoute: true, imageMode: 'auto' })
+        equal(withRoute.inputModalities, ['text', 'image'])
       },
     },
     {

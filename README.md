@@ -82,16 +82,21 @@ use which. A model that only speaks `/responses` does not degrade onto
 
 So every model carries an ordered protocol list rather than one global endpoint
 choice. When a request is refused that way, the adapter logs it and retries the
-same call over the model's next protocol. Measured against the live service:
+same call over the model's next protocol. Measured against the live service,
+model by model:
 
 | Models | Protocols served |
 |---|---|
 | `deepseek-v4-pro`, `deepseek-v4-flash`, `deepseek-v4.1-flash`, `deepseek-flash`, `deepseek-v4-flash-vision-exp` | responses, chat-completions, anthropic |
 | `gpt-6-luna`, `gpt-5.6-luna`, `grok-4.7`, `grok-4.6` | responses |
 | `minimax-m2.7` | anthropic |
-| `minimax-m3`, `kimi-k3`, `qwen3.8-max`, `qwen3.8-flash`, `qwen3.7-plus`, `space-bunny-free` | chat-completions, anthropic |
-| `glm-5.3`, `glm-5.3-flash`, `glm-5.2`, `kimi-k2.7-code`, `mimo-*`, `longcat-*`, `hy3`, `hy4-preview` | chat-completions |
+| `minimax-m2.5`, `minimax-m3`, `kimi-k3`, `qwen3.6-plus`, `qwen3.7-max`, `qwen3.8-max`, `qwen3.8-flash`, `qwen3.7-plus`, `space-bunny-free` | chat-completions, anthropic |
+| `glm-5.3`, `glm-5.3-flash`, `glm-5.2`, `glm-5.1`, `kimi-k2.7-code`, `kimi-k2.6`, `mimo-v2.6-pro`, `mimo-v2.6-flash`, `mimo-v2.5-pro`, `mimo-v2.5`, `longcat-*`, `hy3`, `hy4-preview`, `omen-alpha` | chat-completions |
 | `muse-spark-1.*-contributor` | listed, but refused for a non-contributor account |
+
+Every id `GET /models` returns has a row in that table, so no served model has to
+discover its own protocol by failing first. Re-measure after a service change
+with the probe described in [Verify it](#verify-it).
 
 Preference order is responses → chat-completions → anthropic. Pin a different
 one with `protocolOverrides`:
@@ -109,6 +114,76 @@ lacks. An id that appears **nowhere** — new enough that even `GET /models` has
 not caught up, or reached through a gateway with no discovery — is the one case
 where the protocol is genuinely unknown, so it tries every protocol in order.
 You never have to wait for a plugin release to use a new model.
+
+## Capacity and modalities
+
+`GET /models` publishes ids only:
+
+```json
+{"id":"deepseek-v4.1-flash","object":"model","created":1790899718,"owned_by":"opencode"}
+```
+
+No context window, no output cap, no modalities. The figures do exist, on the
+catalogue OpenCode itself ships (`models.dev`), so `lib/model/limits.js` carries
+them as a **snapshot** rather than fetching them per request: a call that needs a
+context window must not wait on a third-party endpoint, and a deployment with no
+egress must still show real limits. Every resolved model reports its own:
+
+| Model | Context | Output cap | Model input |
+|---|---|---|---|
+| `deepseek-v4.1-flash` | 1,000,000 | 384,000 | text, image |
+| `gpt-5.6-luna` | 1,050,000 | 128,000 | text, image, pdf |
+| `grok-4.7` | 500,000 | 500,000 | text, image, pdf |
+| `minimax-m2.7` | 204,800 | 131,072 | text |
+| `kimi-k2.7-code` | 262,144 | 262,144 | text, image, video |
+| `mimo-v2.6-pro` | 1,048,576 | 131,072 | text, image, audio, video |
+| `hy3` | 256,000 | 128,000 | text |
+
+A model the snapshot has never heard of — one released after it was taken — is
+matched to its family's measured figures (`qwen…`, `glm-…`, `grok-…`, …) before
+falling back to `defaultContextWindow`. A model reached through a gateway that
+publishes its own capacity is read from the wire; see
+[Shaping the catalog](#shaping-the-catalog).
+
+### Modalities: what the model takes versus what a route can send
+
+The catalogue lists abilities no wire protocol here has a field for — `video`,
+`audio`, `pdf` — so two facts are kept apart:
+
+- **`providerModalities`** is the catalogue's own list, kept whole.
+- **`inputModalities`** is what this adapter can actually put in a request. The
+  harness models two and this adapter has a wire for two, so the resolved model
+  declares `['text']` or `['text', 'image']`.
+
+The split is not cosmetic. The harness projects durable image blocks on the
+strength of the resolved list: a route that declares `image` is handed real image
+blocks and must resolve their bytes, while one that does not gets a text
+placeholder. A model whose abilities this route cannot carry therefore carries a
+note saying so:
+
+```
+"description": "the model also accepts video, audio, which no protocol on this route can send"
+```
+
+`sendImages` decides whether image bytes are attempted at all:
+
+| Value | Effect |
+|---|---|
+| `auto` (default) | Declare `image` for a vision model **when this deployment can resolve image bytes** — that is, when the attachment seam is mounted. Otherwise report text-only, and say what was left out. |
+| `always` | Declare `image` for every model whose catalogue entry takes images, mounted seam or not. A request that then contains an image fails with the reason instead of silently sending text. |
+| `off` | Never declare `image`. |
+
+Set it to `always` if your deployment mounts images somewhere other than the
+attachment seam:
+
+```yaml
+config:
+  sendImages: always
+```
+
+All three protocols carry images once declared: Chat Completions and Responses
+receive a `data:` URL part, Messages receives a base64 `source`. That is measured
+against the live service, not assumed — see [Verify it](#verify-it).
 
 ## Configuration
 
@@ -131,11 +206,12 @@ view, or read `Config` from the plugin for the authoritative list.
 | `modelOverrides` | `{}` | Reshape one catalog model without restating the rest |
 | `protocolOverrides` | `{}` | `{"<model id>": "<protocol>"}` shorthand |
 | `defaultProtocol` | `chat-completions` | Protocol for an entry that names none |
-| `defaultContextWindow` | `262144` | Capacity fallback for an undescribed model |
-| `defaultMaxTokens` | `32768` | Output-cap fallback for an undescribed model |
+| `defaultContextWindow` | `262144` | Capacity used when neither the measured table nor a family names the model |
+| `defaultMaxTokens` | `32768` | Output cap under the same condition |
 | `reasoningEfforts` | `[minimal, low, medium, high, max]` | Selectable thinking levels; narrowed per protocol |
 | `sessionHeader` | `session-id` | `session-id` \| `uuid` \| `off` |
 | `sendClientHeader` | `true` | Send `x-opencode-client` |
+| `sendImages` | `auto` | `auto` \| `always` \| `off` — whether image bytes are attempted (see [Modalities](#modalities-what-the-model-takes-versus-what-a-route-can-send)) |
 | `disableReasoningReplay` | `false` | Stop sending prior reasoning back (see [Reasoning](#reasoning)) |
 | `healthCheck` | `off` | `startup` logs a credential + catalog report |
 | `retryPolicy` | normal, 5 retries | Provider-owned policy the retry executor applies |
@@ -161,29 +237,41 @@ config:
       efforts: [low, medium, high]
 ```
 
+An entry may also paste a catalogue record verbatim: `limit: { context, output }`
+is accepted as a synonym for `contextWindow` / `maxTokens`, and
+`modalities: { input: [...] }` (or a bare `modalities: [...]`) records the
+provider's own list. Only `text` and `image` mean anything to this adapter, so a
+pasted list is kept whole while the sendable subset is what gets declared.
+
 With `modelSource: config`, `models` becomes the entire catalog and `GET /models`
 is never called — the right posture for a compatible gateway.
 
 ### Image input
 
-Image input is **off** for every model by default, and the plugin's resolved
-`inputModalities` says so. That is not an oversight: a durable `ImageBlock`
-carries an attachment *reference*, and turning it into request bytes needs the
-mounted `attachments` service. Declaring `image` for a model on a deployment
-that cannot resolve it would fail every request that contained a picture.
+Image input follows the model. A vision model in the [capacity
+table](#capacity-and-modalities) declares `image`, and the adapter resolves each
+occurrence through the mounted attachment seam into a request part: a `data:` URL
+for Chat Completions and Responses, a base64 source for Messages.
 
-To enable it for a model that really accepts images:
+That declaration is deliberately conditional on the deployment — see
+`sendImages` above. A durable `ImageBlock` carries an attachment *reference*, and
+turning it into request bytes needs the `attachments` service, so a route that
+cannot resolve one reports text-only rather than declaring a capability it would
+fail to honour. The provider's own list is never lost: the resolved description
+names whatever the route cannot send.
+
+Override either half per model:
 
 ```yaml
 config:
   modelOverrides:
-    deepseek-v4-flash-vision-exp:
+    # Force image input on a model the catalogue does not describe.
+    my-vision-model:
       input: [text, image]
+    # Record the provider's list for a model, without declaring image support.
+    some-model:
+      modalities: { input: [text, image, video] }
 ```
-
-The adapter then resolves each occurrence through the attachment seam; if no
-attachment provider is mounted, `inputModalities` still reports text-only, so
-the request path and the declared capability cannot disagree.
 
 ## Endpoints and auth
 
@@ -287,21 +375,24 @@ package: a cross-package copy of the harness class would never be recognized by
 ## Verify it
 
 ```sh
-npm test          # 117 offline checks: config, SSE framing, catalog, all three protocols, adapter, plugin body
+npm test          # 127 offline checks: config, SSE framing, catalog, all three protocols, adapter, plugin body
 npm run test:cordis # 20 checks mounting the plugin on the harness's own cordis
-npm run test:live # 16 checks against the real service; needs OC_KEY
+npm run test:live # 19 checks against the real service; needs OC_KEY
 ```
 
 `npm test` runs offline and needs no credential. The protocol suites replay
 response bodies **captured from the live service** (`tests/golden/`), so they
 fail if a translator stops agreeing with what OpenCode Go actually sends. Every
 case assembles its chunks with the harness's own block assembler, which is the
-same code the agent loop runs over them.
+same code the agent loop runs over them. One case compares the capacity snapshot
+against whatever OpenCode catalogue the machine has cached, so a stale
+`lib/model/limits.js` is reported instead of quietly drifting.
 
 `npm run test:live` spends real quota. It proves, against the live relay: model
 discovery and caching, a round trip over each of the three protocols, a full
 tool-calling round trip per protocol, protocol fallback recovery, cache reuse on
 a repeated session id, a history holding a tool call that was never dispatched,
+that every model reports its own measured context window, cap, and modalities,
 and that every advertised reasoning effort is accepted.
 
 ```sh
@@ -323,22 +414,49 @@ plain object there fails activation with
 `Cannot read properties of undefined (reading 'validate')`. Nothing in an
 isolated unit test would have caught that.
 
+### Re-measuring the live facts
+
+Two facts about this service are measured rather than published, and both have a
+tracked probe. They need a key and spend real quota:
+
+```sh
+OC_KEY=oc_sk_... node scripts/probe-protocols.mjs [model ...]   # one probe per served model
+OC_KEY=oc_sk_... node scripts/probe-image.mjs                   # image shapes, all three protocols
+node scripts/snapshot-models.mjs [--write]                      # capacity snapshot vs the catalogue
+```
+
+`probe-protocols.mjs` answers `served=[…]` per model, which is what
+`FALLBACK_MODELS` is written from. `probe-image.mjs` posts a generated PNG over
+each protocol and checks the model can actually read it, which is what makes an
+`image` declaration honest; its image is written to `.live-cache/probe-image.png`
+(untracked scratch). `snapshot-models.mjs` prints what changed since the snapshot
+was taken — `new`, `changed`, `gone` — and rewrites the two tables with `--write`.
+
 ## Limits
 
 - **Protocol capability is measured, not published.** OpenCode Go's `/models`
   response lists ids only, so the mapping in `lib/model/catalog.js` comes from
-  probing the live service. A model whose protocol changes needs a
-  `protocolOverrides` entry or a new plugin version. The two unknown cases differ
-  in how much is unknown: an id the service *lists* but this plugin has not
+  probing the live service, one endpoint at a time. A model whose protocol
+  changes needs a `protocolOverrides` entry or a re-measure. The two unknown cases
+  differ in how much is unknown: an id the service *lists* but this plugin has not
   measured gets `defaultProtocol` and no fallback, while an id that appears
   nowhere — not in the built-in catalog and not in the discovered list — is tried
   over every protocol, because its protocol is exactly what is missing.
-- **Context windows and output caps are fallbacks.** The service does not
-  publish them, so `defaultContextWindow` and `defaultMaxTokens` are assumed
-  unless a `models` entry corrects them. The two reach the wire differently:
-  Messages always sends a cap (`max_tokens`, falling back to the model's value),
-  while Chat Completions and Responses omit theirs when the call states none, so
-  the decision there belongs to the relay rather than to this plugin.
+- **Capacity is a snapshot, not a subscription.** `lib/model/limits.js` holds the
+  context windows, output caps, and provider modality lists measured from the
+  OpenCode catalogue on the date in `CAPABILITY_SOURCE`, refreshed with
+  `node scripts/snapshot-models.mjs --write`. Three consequences:
+  - a model released after the snapshot is served its **family's** measured
+    figures (`qwen…`, `glm-…`, `grok-…`, …) rather than the global assumption;
+  - a model no family matches takes `defaultContextWindow` and `defaultMaxTokens`,
+    which remains the only case where those two values are guesses;
+  - an id the service lists but the catalogue does not describe is visible in the
+    plugin's own startup line and resolvable by `models` / `modelOverrides`
+    config without a plugin release.
+  The caps reach the wire differently: Messages always sends one (`max_tokens`,
+  falling back to the model's value), while Chat Completions and Responses omit
+  theirs when the call states none, so the decision there belongs to the relay
+  rather than to this plugin.
 - **Reasoning is not replayed to the Responses API.** A reasoning item is
   validated against upstream state the harness does not retain, and a mismatch
   is an opaque `400`, so prior thinking is dropped from that protocol's requests
@@ -354,7 +472,15 @@ isolated unit test would have caught that.
   because sending either alone fails the whole turn and neither can be
   reconstructed. A history hole costs that one call its place in the transcript;
   it no longer costs the session.
-- **Image input is opt-in per model** — see above.
+- **Only `text` and `image` are on the wire.** The catalogue gives several models
+  `video`, `audio`, or `pdf` input. Those are recorded and reported, but no
+  protocol here has a field for them, so no request carries one and a model's
+  declared `inputModalities` never claims them. See
+  [Modalities](#modalities-what-the-model-takes-versus-what-a-route-can-send).
+- **Image input depends on the deployment, not only the model.** `sendImages`
+  defaults to `auto`, which declares `image` for a vision model only when the
+  attachment seam is mounted. On a deployment without it the model reports
+  text-only, with a note naming what the route cannot send.
 - **`stop` is forwarded as-is.** Whether a given model honours stop sequences is
   the model's business; the plugin does not claim otherwise.
 - **One route per mount.** Mounting the plugin twice needs two `provider` names
@@ -371,6 +497,7 @@ lib/
 │   └── mapping.js            HTTP status / transport failure → stable code
 ├── model/
 │   ├── catalog.js            the measured protocol map and record merging
+│   ├── limits.js             the measured capacity and modality snapshot
 │   ├── cache.js              GET /models, memory + on-disk cache
 │   ├── capabilities.js       records → harness model metadata
 │   └── images.js             durable references → request bytes
@@ -385,6 +512,11 @@ lib/
     ├── messages.js           content blocks → each protocol's messages
     ├── tools.js              tool schemas → each protocol's declarations
     └── reasoning.js          harness effort → each protocol's spelling
+
+scripts/
+├── snapshot-models.mjs       refresh lib/model/limits.js from the catalogue
+├── probe-protocols.mjs       measure which protocol each served model accepts
+└── probe-image.mjs           measure the image request shape per protocol
 ```
 
 Adding a fourth protocol means one new file under `protocol/` and one entry in
