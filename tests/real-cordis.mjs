@@ -405,6 +405,7 @@ const pluginModule = await import(url(join(PLUGIN, 'lib/index.js')))
     apiKeyEnv: 'OC_TEST_KEY',
     modelsCachePath: modelsPath,
     hiddenModels: ['glm-5.3'],
+    modelVariants: [{ model: 'gpt-5.6-luna', name: 'chatty', protocol: 'chat-completions', effort: 'low' }],
   })
   await new Promise((resolve) => setTimeout(resolve, 300))
 
@@ -469,6 +470,24 @@ const pluginModule = await import(url(join(PLUGIN, 'lib/index.js')))
       !listedThroughRuntime.some((model) => model.id === 'glm-5.3')
         && (await ctx.llm.resolveModelInfo('opencode-go', 'glm-5.3'))?.id === 'glm-5.3',
       `listed=${listedThroughRuntime.length}`,
+    )
+
+    // A variant is a second entry for one model, and it has to work through
+    // the same runtime a session uses: resolved by its own id, offered in the
+    // listing, and called — while the wire still carries the base model.
+    const variantInfo = await ctx.llm.resolveModelInfo('opencode-go', 'gpt-5.6-luna@chatty')
+    check(
+      'the harness resolves a variant as its own model',
+      variantInfo?.id === 'gpt-5.6-luna@chatty'
+        && variantInfo?.reasoning?.defaultEffort === 'low'
+        && String(variantInfo?.description).includes('variant of gpt-5.6-luna'),
+      `id=${variantInfo?.id} name=${variantInfo?.name} effort=${variantInfo?.reasoning?.defaultEffort}`,
+    )
+    check(
+      'the variant is offered beside the model it varies',
+      listedThroughRuntime.some((model) => model.id === 'gpt-5.6-luna@chatty')
+        && listedThroughRuntime.some((model) => model.id === 'gpt-5.6-luna'),
+      `variants=[${listedThroughRuntime.map((model) => model.id).filter((id) => id.includes('@')).join(',')}]`,
     )
   } finally {
     await fiber.dispose()

@@ -30,6 +30,7 @@ view, or read `Config` from the plugin for the authoritative list.
 | `disableReasoningReplay` | `false` | Stop sending prior reasoning back (see [Wire protocol](wire-protocol.md#reasoning)) |
 | `hideTrainingModels` | `false` | Keep models whose provider trains on request data out of the listing (see [Models](models.md#models-that-train-on-request-data)) |
 | `hiddenModels` | `[]` | Model ids this deployment keeps out of the listing; hiding never makes a model unusable |
+| `modelVariants` | `[]` | Named presets of one model, each offered as its own `<model>@<name>` entry |
 | `healthCheck` | `off` | `startup` logs a credential + catalog report |
 | `retryPolicy` | normal, 5 retries | Provider-owned policy the retry executor applies |
 
@@ -45,6 +46,7 @@ change often:
 | **API key** | Stored write-only through the credential seam under `apiKeyEnv`. The page reports whether it is configured, where it comes from, and whether it can be replaced — never the value. |
 | **Credential reference** | Which `apiKeyEnv` the key is stored under. |
 | **Model visibility** | One switch per catalog model, written to `hiddenModels`. The page shows the whole catalog — including models this deployment already hides — because a listing that showed only what is listed could not offer a way back. |
+| **Model variants** | Named presets of one model, written to `modelVariants`.
 
 ## Hiding models from the listing
 
@@ -67,6 +69,49 @@ OpenCode has not published yet starts working the moment it appears; a startup
 warning names ids nothing in the catalog matches, which is usually a typo. The
 configuration page writes this field, and the two agree because both read the
 same listing decision.
+
+## Model variants
+
+A variant is one model's second set of settings under a name. It appears in the
+model list as its own entry — `<model>@<name>` — so choosing between presets is
+the same gesture as choosing between models, and a session can pin one.
+
+```yaml
+config:
+  modelVariants:
+    - model: gpt-5.6-luna
+      name: fast            # the entry is gpt-5.6-luna@fast
+      label: Luna Fast      # optional; otherwise "<model name> (fast)"
+      protocol: chat-completions
+      effort: low
+      contextWindow: 200000
+      maxTokens: 32768
+```
+
+| Key | Meaning |
+|---|---|
+| `model` | The model this varies. Must be a catalog id, and may not contain `@`. |
+| `name` | The variant's own name; `model@name` is the id it is offered under. |
+| `label` | Optional display name. |
+| `protocol` | Optional. The protocol a call through this variant opens with; the model's other protocols stay behind it as fallbacks. |
+| `effort` | Optional. The thinking level calls through this variant open with. The model must support reasoning, and must offer this level. |
+| `contextWindow`, `maxTokens` | Optional. What the variant advertises instead of the model's own figures. |
+
+Rules worth knowing before writing one:
+
+- **A variant is a local alias.** The harness selects and reports
+  `<model>@<name>`; the request on the wire still names `model`. Nothing about
+  the provider's view of the model changes.
+- **A variant inherits everything it does not restate**, including the base's
+  capacity, modalities, reasoning ladder, and remaining protocols.
+- **A variant whose `model` the catalog does not list is not offered**, and one
+  startup warning names the ids. It would otherwise advertise capacities nothing
+  measured and fail at the far end of a call.
+- **A variant is a default, not a cage.** `effort` and `maxTokens` decide what a
+  call opens with; a request that names its own values wins.
+- **Two contradictions are refused at startup** rather than absorbed, each by
+  name: an effort on a model that does not support reasoning, and an effort the
+  model does not offer.
 
 Everything else — protocol shaping, timeouts, retry policy, cache paths — stays
 in `cordis.patch.yml`, where a machine-readable value lives next to the comment

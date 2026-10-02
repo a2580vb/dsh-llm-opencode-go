@@ -410,8 +410,120 @@ export default {
       },
     },
     {
-      name: 'hiddenModels drops the named models from the listing but not from the route',
+      name: 'a variant is offered as its own model and called as its base',
       async run() {
+        const { adapter, fetch } = adapterWith([{ body: CHAT_BODY }], {
+          config: { modelVariants: [{ model: 'glm-5.3', name: 'fast' }] },
+        })
+        const models = await adapter.listModels('opencode-go')
+        ok(models.some((model) => model.id === 'glm-5.3@fast'), 'the variant is offered')
+        const info = await adapter.resolveModel('opencode-go', 'glm-5.3@fast', undefined)
+        is(info.id, 'glm-5.3@fast', 'the harness sees the alias')
+        is(info.name, 'GLM 5.3 (fast)')
+        ok(String(info.description).includes('variant of glm-5.3'), `the listing says what it is: ${info.description}`)
+        await collect(adapter, {
+          provider: 'opencode-go',
+          model: 'glm-5.3@fast',
+          messages: [userMessage('hi')],
+          sessionId: 'variant-session',
+        })
+        // The alias is local: the service only knows the model it serves.
+        const body = JSON.parse(fetch.requests[0].init.body)
+        is(body.model, 'glm-5.3')
+      },
+    },
+    {
+      name: 'a variant leads with the protocol it names and falls back to the rest',
+      async run() {
+        const { adapter, fetch } = adapterWith(
+          [protocolUnsupported('glm-5.3'), { body: CHAT_BODY }],
+          { config: { modelVariants: [{ model: 'glm-5.3', name: 'messages', protocol: 'anthropic' }] } },
+        )
+        // The variant prefers the protocol it names; the base still serves the
+        // same model over another, so the call recovers instead of failing.
+        await collect(adapter, {
+          provider: 'opencode-go',
+          model: 'glm-5.3@messages',
+          messages: [userMessage('hi')],
+          sessionId: 'variant-protocol',
+        })
+        is(fetch.requests.length, 2)
+        ok(fetch.requests[0].url.endsWith('/messages'), fetch.requests[0].url)
+        ok(fetch.requests[1].url.endsWith('/chat/completions'), fetch.requests[1].url)
+        is(JSON.parse(fetch.requests[1].init.body).model, 'glm-5.3')
+      },
+    },
+    {
+      name: 'a variant carries its own thinking level and output cap',
+      async run() {
+        const { adapter, fetch } = adapterWith([{ body: CHAT_BODY }], {
+          config: { modelVariants: [{ model: 'glm-5.3', name: 'fast', effort: 'low', maxTokens: 4_096 }] },
+        })
+        const info = await adapter.resolveModel('opencode-go', 'glm-5.3@fast', undefined)
+        is(info.defaultMaxTokens, 4_096)
+        // The preset is the level a call opens with; the harness reads it from
+        // here, and the base model has none of its own to offer.
+        is(info.reasoning?.defaultEffort, 'low')
+        is((await adapter.resolveModel('opencode-go', 'glm-5.3', undefined)).reasoning?.defaultEffort, undefined)
+        await collect(adapter, {
+          provider: 'opencode-go',
+          model: 'glm-5.3@fast',
+          messages: [userMessage('hi')],
+          sessionId: 'variant-effort',
+          maxTokens: 2_048,
+        })
+        // A preset is a default, not a cage: a call that names its own cap wins.
+        is(JSON.parse(fetch.requests[0].init.body).max_tokens, 2_048)
+      },
+    },
+    {
+      name: 'a variant the catalog cannot build is reported and not offered',
+      async run() {
+        const logger = recordingLogger()
+        const { adapter } = adapterWith([], {
+          logger,
+          config: { modelVariants: [{ model: 'no-such-model', name: 'fast' }] },
+        })
+        const models = await adapter.listModels('opencode-go')
+        ok(!models.some((model) => model.id === 'no-such-model@fast'), 'the variant is not offered')
+        const line = logger.lines.find((text) => text.includes('modelVariants name models'))
+        ok(line !== undefined, `the warning names the miss: ${logger.lines.join(' | ')}`)
+        ok(line.includes('no-such-model'), 'the model is named')
+      },
+    },
+    {
+      name: 'a buildable variant is named once at catalog assembly',
+      async run() {
+        const logger = recordingLogger()
+        const { adapter } = adapterWith([], {
+          logger,
+          config: { modelVariants: [{ model: 'glm-5.3', name: 'fast' }] },
+        })
+        await adapter.listModels('opencode-go')
+        const line = logger.lines.find((text) => text.includes('modelVariants adds'))
+        ok(line !== undefined, `the line names the variant: ${logger.lines.join(' | ')}`)
+        ok(line.includes('glm-5.3@fast'), 'by its catalog id')
+      },
+    },
+    {
+      name: 'catalogSnapshot reports the variants and the ids they could not use',
+      async run() {
+        const { adapter } = adapterWith([], {
+          config: { modelVariants: [{ model: 'glm-5.3', name: 'fast' }, { model: 'ghost', name: 'x' }] },
+        })
+        const snapshot = await adapter.catalogSnapshot()
+        equal(snapshot.variants, [{ model: 'glm-5.3', name: 'fast' }, { model: 'ghost', name: 'x' }])
+        equal(snapshot.variantsWithoutModel, ['ghost'])
+        is(snapshot.counts.variants, 1)
+        equal(
+          snapshot.models.find((model) => model.id === 'glm-5.3@fast').variant,
+          { of: 'glm-5.3', name: 'fast', label: 'GLM 5.3 (fast)', offered: true },
+        )
+        is(snapshot.models.find((model) => model.id === 'glm-5.3').variant, null)
+      },
+    },
+    {
+      name: 'hiddenModels drops the named models from the listing but not from the route',      async run() {
         const { adapter } = adapterWith([], { config: { hiddenModels: ['glm-5.3', 'kimi-k3'] } })
         const models = await adapter.listModels('opencode-go')
         ok(!models.some((model) => model.id === 'glm-5.3'), 'the named model is not offered')

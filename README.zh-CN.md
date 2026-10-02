@@ -33,7 +33,7 @@
 | **推理** | 按协议映射思考等级，包含 Anthropic thinking budget |
 | **流式** | SSE → `StreamChunk`，带 usage、结束原因和空闲看门狗 |
 | **失败** | 稳定的 provider 无关错误码（`AUTH`、`RATE_LIMIT`、`QUOTA`、`CONTEXT_WINDOW_EXCEEDED` 等） |
-| **图形化配置** | Web 客户端 Plugins 列表里的独立页面：API 密钥、凭据引用、模型可见性 |
+| **图形化配置** | Web 客户端 Plugins 列表里的独立页面：API 密钥、凭据引用、模型可见性、模型变体 |
 | **运行时依赖** | 无 |
 
 ## 安装
@@ -58,9 +58,9 @@ dsh-opencode-go: provider "opencode-go" ready at https://opencode.ai/zen/go/v1 (
 ### 或者用插件自己的页面
 
 侧边栏的 **Plugins** 页列出 `dsh-opencode-go` 组合包，其中 `opencode-go` 行上有 **配置**
-（Configure）控件，打开插件自己的页面：API 密钥、密钥所在的凭据引用、以及目录里每个模型一个的
-「是否在选择器中出现」开关。密钥写进凭据存储，永远不写进 `cordis.patch.yml`；只有提供 Web
-客户端的部署才会提供这一页。详见
+（Configure）控件，打开插件自己的页面：API 密钥、密钥所在的凭据引用、目录里每个模型一个的
+「是否在选择器中出现」开关，以及模型变体。密钥写进凭据存储，永远不写进 `cordis.patch.yml`；
+只有提供 Web 客户端的部署才会提供这一页。详见
 [配置](docs/configuration.zh-CN.md#图形化配置)。
 
 如果你希望插件读取另一个名字的环境变量，把 `apiKeyEnv` 指向它：

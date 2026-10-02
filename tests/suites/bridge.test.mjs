@@ -39,7 +39,7 @@ export default {
         is(UI_ROUTES.models, '/opencode-go/models')
         is(UI_ROUTES.config, '/opencode-go/config')
         is(UI_ROUTES.credential, '/opencode-go/credential')
-        equal([...MANAGED_CONFIG_FIELDS], ['apiKeyEnv', 'hiddenModels'])
+        equal([...MANAGED_CONFIG_FIELDS], ['apiKeyEnv', 'hiddenModels', 'modelVariants'])
       },
     },
     {
@@ -64,11 +64,12 @@ export default {
         is(res.json.route.baseURL, 'https://relay.test/v1')
         is(res.json.credential.configured, true)
         is(res.json.credential.writable, true)
-        is(res.json.catalog.counts.total, 2)
-        is(res.json.catalog.counts.listed, 1)
+        is(res.json.catalog.counts.total, 3)
+        is(res.json.catalog.counts.listed, 2)
+        is(res.json.catalog.counts.variants, 1)
         is(res.json.config.editable, true)
         is(res.json.config.entry.id, 'opencode-go')
-        equal(res.json.config.fields, ['apiKeyEnv', 'hiddenModels'])
+        equal(res.json.config.fields, ['apiKeyEnv', 'hiddenModels', 'modelVariants'])
         is(res.json.config.values.apiKeyEnv, 'OC_KEY')
         equal(res.json.config.values.hiddenModels, ['space-bunny-free'])
       },
@@ -80,7 +81,7 @@ export default {
         const res = await call(instance, local({ url: UI_ROUTES.models }))
         is(res.captured.statusCode, 200)
         is(res.json.ok, true)
-        is(res.json.models.length, 2)
+        is(res.json.models.length, 3)
         equal(res.json.hidden, ['space-bunny-free'])
         const hidden = res.json.models.find((model) => model.id === 'space-bunny-free')
         is(hidden.hidden, true)
@@ -112,7 +113,7 @@ export default {
         const { instance } = bridgeUnderTest()
         const res = await call(instance, local())
         is(res.json.catalog.models, undefined)
-        equal(res.json.catalog.counts, { total: 2, listed: 1, hidden: 1, hiddenByTraining: 0 })
+        equal(res.json.catalog.counts, { total: 3, listed: 2, hidden: 1, hiddenByTraining: 0, variants: 1 })
         is(res.json.catalog.source, 'discover')
         is(res.json.catalog.fetchedAt, 1_700_000_000_000)
       },
@@ -298,6 +299,102 @@ export default {
         is(res.captured.statusCode, 400)
         is(res.json.error, 'invalid-field-value')
         includes(res.json.message, 'apiKeyEnv')
+      },
+    },
+    {
+      name: 'GET models carries each variant beside the model it varies',
+      async run() {
+        const { instance } = bridgeUnderTest()
+        const res = await call(instance, local({ url: UI_ROUTES.models }))
+        const fast = res.json.models.find((model) => model.id === 'glm-5.3@fast')
+        equal(fast.variant, { of: 'glm-5.3', name: 'fast', label: 'GLM 5.3 (fast)', offered: true })
+        is(fast.defaultEffort, 'low')
+        // The base model is not a variant, and the field says so rather than
+        // being absent: the page distinguishes the two by value, not by `in`.
+        is(res.json.models.find((model) => model.id === 'glm-5.3').variant, null)
+      },
+    },
+    {
+      name: 'the catalog carries the declared variants, including unusable ones',
+      async run() {
+        const declared = [{ model: 'glm-5.3', name: 'fast', protocol: 'anthropic-messages', effort: 'low' }]
+        const { instance } = bridgeUnderTest({
+          snapshot: async () => fakeSnapshot({
+            variants: declared,
+            variantsWithoutModel: ['typo-model'],
+          }),
+        })
+        const res = await call(instance, local({ url: UI_ROUTES.models }))
+        equal(res.json.variants, declared)
+        equal(res.json.variantsWithoutModel, ['typo-model'])
+      },
+    },
+    {
+      name: 'POST config writes the variant list as declared',
+      async run() {
+        const editor = fakeEditor()
+        const { instance } = bridgeUnderTest({ configEditor: editor })
+        const variants = [
+          { model: 'glm-5.3', name: 'fast', protocol: 'anthropic-messages', effort: 'low', maxTokens: 32_768 },
+          { model: 'gpt-5.6-luna', name: 'deep', label: 'Luna (deep)', effort: 'max' },
+        ]
+        const res = await call(instance, local({
+          method: 'POST',
+          url: UI_ROUTES.config,
+          headers: { host: '127.0.0.1:1' },
+          body: { set: { modelVariants: variants } },
+        }))
+        is(res.captured.statusCode, 200)
+        equal(editor.writes, [{ modelVariants: variants }])
+      },
+    },
+    {
+      name: 'a malformed variant list is refused by field, before the editor',
+      async run() {
+        const editor = fakeEditor()
+        const { instance } = bridgeUnderTest({ configEditor: editor })
+        const rejected = {
+          'not an array': { model: 'glm-5.3', name: 'fast' },
+          'no model': [{ name: 'fast' }],
+          'no name': [{ model: 'glm-5.3' }],
+          'a nested variant': [{ model: 'glm-5.3@fast', name: 'faster' }],
+          'a model with whitespace': [{ model: 'glm 5.3', name: 'fast' }],
+          'a name that is not an id': [{ model: 'glm-5.3', name: 'the fast one' }],
+          'an unknown protocol': [{ model: 'glm-5.3', name: 'fast', protocol: 'grpc' }],
+          'a zero cap': [{ model: 'glm-5.3', name: 'fast', maxTokens: 0 }],
+          'a duplicated id': [{ model: 'glm-5.3', name: 'fast' }, { model: 'glm-5.3', name: 'fast' }],
+        }
+        for (const [label, value] of Object.entries(rejected)) {
+          const res = await call(instance, local({
+            method: 'POST',
+            url: UI_ROUTES.config,
+            headers: { host: '127.0.0.1:1' },
+            body: { set: { modelVariants: value } },
+          }))
+          is(res.captured.statusCode, 400, `${label} must be refused`)
+          is(res.json.error, 'invalid-field-value')
+          includes(res.json.message, 'modelVariants')
+        }
+        equal(editor.writes, [])
+      },
+    },
+    {
+      name: 'the variant validator accepts what the config schema accepts',
+      run() {
+        is(validateFieldValue('modelVariants', []), undefined)
+        is(validateFieldValue('modelVariants', [{ model: 'glm-5.3', name: 'fast' }]), undefined)
+        is(
+          validateFieldValue('modelVariants', [{
+            model: 'glm-5.3',
+            name: 'fast',
+            label: 'GLM 5.3 (fast)',
+            protocol: 'anthropic',
+            effort: 'low',
+            contextWindow: 200_000,
+            maxTokens: 32_768,
+          }]),
+          undefined,
+        )
       },
     },
     {

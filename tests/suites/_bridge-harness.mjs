@@ -87,7 +87,7 @@ export function fakeEditor({ id = 'opencode-go', name = 'dsh-opencode-go', inher
   }
 }
 
-/** A catalog snapshot stand-in: one listed model and one hidden one. */
+/** A catalog snapshot stand-in: a listed model, a hidden one, and a variant. */
 export function fakeSnapshot(overrides = {}) {
   const models = overrides.models ?? [
     {
@@ -96,11 +96,27 @@ export function fakeSnapshot(overrides = {}) {
       hidden: false,
       hiddenReason: null,
       trainingGated: false,
-      protocols: ['chat-completions'],
+      protocols: ['chat-completions', 'anthropic-messages'],
       contextWindow: 200_000,
       maxTokens: 131_072,
       reasoning: true,
       inputModalities: ['text'],
+      defaultEffort: null,
+      variant: null,
+    },
+    {
+      id: 'glm-5.3@fast',
+      name: 'GLM 5.3 (fast)',
+      hidden: false,
+      hiddenReason: null,
+      trainingGated: false,
+      protocols: ['anthropic-messages', 'chat-completions'],
+      contextWindow: 200_000,
+      maxTokens: 32_768,
+      reasoning: true,
+      inputModalities: ['text'],
+      defaultEffort: 'low',
+      variant: { of: 'glm-5.3', name: 'fast', label: 'GLM 5.3 (fast)', offered: true },
     },
     {
       id: 'space-bunny-free',
@@ -113,6 +129,8 @@ export function fakeSnapshot(overrides = {}) {
       maxTokens: 32_768,
       reasoning: false,
       inputModalities: ['text'],
+      defaultEffort: null,
+      variant: null,
     },
   ]
   const hidden = overrides.hidden ?? models.filter((model) => model.hiddenReason === 'configured').map((model) => model.id)
@@ -124,9 +142,12 @@ export function fakeSnapshot(overrides = {}) {
       listed: models.filter((model) => !model.hidden).length,
       hidden: hidden.length,
       hiddenByTraining: models.filter((model) => model.hiddenReason === 'training').length,
+      variants: models.filter((model) => model.variant !== null && model.variant !== undefined).length,
     },
     models,
     hidden,
+    variants: overrides.variants ?? [],
+    variantsWithoutModel: overrides.variantsWithoutModel ?? [],
     ...overrides,
   }
 }

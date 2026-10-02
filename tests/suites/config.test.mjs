@@ -127,6 +127,93 @@ export default {
       },
     },
     {
+      name: 'modelVariants defaults to nothing and normalizes each entry',
+      run() {
+        equal([...resolveConfig({}).modelVariants], [])
+        const config = resolveConfig({
+          modelVariants: [
+            {
+              model: ' glm-5.3 ',
+              name: ' fast ',
+              label: ' GLM 5.3 Turbo ',
+              protocol: 'messages',
+              effort: 'low',
+              contextWindow: 200_000,
+              maxTokens: 32_768,
+            },
+          ],
+        })
+        equal(config.modelVariants, [{
+          model: 'glm-5.3',
+          name: 'fast',
+          label: 'GLM 5.3 Turbo',
+          protocol: 'anthropic',
+          effort: 'low',
+          contextWindow: 200_000,
+          maxTokens: 32_768,
+        }])
+        ok(Object.isFrozen(config.modelVariants))
+        ok(Object.isFrozen(config.modelVariants[0]))
+        // Options an entry does not state are absent, not undefined: the
+        // variant inherits them, and a present `undefined` would read as a
+        // decision to clear them.
+        equal(Object.keys(resolveConfig({ modelVariants: [{ model: 'a', name: 'b' }] }).modelVariants[0]), ['model', 'name'])
+      },
+    },
+    {
+      name: 'a variant name has to be usable as part of a model id',
+      run: async () => {
+        for (const name of ['the fast one', 'fast/slow', '@fast', '', 'x'.repeat(1) + '!']) {
+          await rejectsWith(
+            Promise.resolve().then(() => resolveConfig({ modelVariants: [{ model: 'glm-5.3', name }] })),
+            'name',
+          )
+        }
+        for (const model of ['glm 5.3', 'glm-5.3@fast', '']) {
+          await rejectsWith(
+            Promise.resolve().then(() => resolveConfig({ modelVariants: [{ model, name: 'fast' }] })),
+            'model',
+          )
+        }
+      },
+    },
+    {
+      name: 'a duplicated variant id and a wrong protocol or cap are refused by name',
+      run: async () => {
+        await rejectsWith(
+          Promise.resolve().then(() => resolveConfig({
+            modelVariants: [{ model: 'glm-5.3', name: 'fast' }, { model: 'glm-5.3', name: 'fast', effort: 'low' }],
+          })),
+          'glm-5.3@fast',
+        )
+        await rejectsWith(
+          Promise.resolve().then(() => resolveConfig({
+            modelVariants: [{ model: 'glm-5.3', name: 'fast', protocol: 'carrier-pigeon' }],
+          })),
+          'glm-5.3@fast',
+        )
+        for (const field of ['contextWindow', 'maxTokens']) {
+          await rejectsWith(
+            Promise.resolve().then(() => resolveConfig({
+              modelVariants: [{ model: 'glm-5.3', name: 'fast', [field]: -1 }],
+            })),
+            field,
+          )
+        }
+      },
+    },
+    {
+      name: 'the schema refuses the variant shapes resolveConfig refuses',
+      run() {
+        for (const value of ['glm-5.3', [null], [{ model: 'glm-5.3' }], [{ name: 'fast' }]]) {
+          const issues = Config['~standard'].validate({ modelVariants: value }).issues
+          ok(Array.isArray(issues) && issues.length > 0, `${JSON.stringify(value)} must be refused`)
+          ok(issues.some((issue) => String(issue.message).includes('modelVariants')), 'by name')
+        }
+        is('issues' in Config['~standard'].validate({ modelVariants: [{ model: 'glm-5.3', name: 'fast' }] }), false)
+      },
+    },
+    {
       name: 'the User-Agent leads with the plugin identity',
       run() {
         const config = resolveConfig({})

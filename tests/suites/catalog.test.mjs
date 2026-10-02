@@ -2,7 +2,7 @@
 
 import { PROTOCOLS, normalizeProtocol, resolveConfig } from '../../lib/config.js'
 import { catalogModelInfo, resolvedInputModalities, resolvedModelInfo, supportsImages, trainingConsentNote } from '../../lib/model/capabilities.js'
-import { FALLBACK_MODELS, buildCatalog, displayName, preferredProtocol, requiresTrainingConsent } from '../../lib/model/catalog.js'
+import { FALLBACK_MODELS, buildCatalog, displayName, preferredProtocol, requiresTrainingConsent, splitVariantId, unmatchedVariantModels, wireModelId } from '../../lib/model/catalog.js'
 import { parseModelList } from '../../lib/model/cache.js'
 import { CAPABILITY_SOURCE, capabilityFor, isMeasured, measuredIds } from '../../lib/model/limits.js'
 import { orderAttempts } from '../../lib/index.js'
@@ -146,8 +146,117 @@ export default {
       },
     },
     {
-      name: 'modelSource=config replaces the catalog wholesale',
+      name: 'a variant offers its model a second time under its own settings',
       run() {
+        const config = resolveConfig({
+          modelVariants: [
+            { model: 'glm-5.3', name: 'fast', protocol: 'anthropic', effort: 'low', maxTokens: 4_096 },
+          ],
+        })
+        const records = buildCatalog(config, [])
+        const variant = records.get('glm-5.3@fast')
+        ok(variant !== undefined, 'the variant is in the catalog')
+        is(variant.variantOf, 'glm-5.3')
+        is(variant.variantName, 'fast')
+        is(variant.maxTokens, 4_096)
+        is(variant.defaultEffort, 'low')
+        // The variant leads with the protocol it names, keeping the rest of the
+        // model's protocols behind it as fallbacks.
+        is(preferredProtocol(variant), PROTOCOLS.ANTHROPIC)
+        is(preferredProtocol(variant) === preferredProtocol(records.get('glm-5.3')), false)
+        ok(variant.protocols.includes(PROTOCOLS.CHAT), 'the base protocol is still attempted')
+        // The base record is untouched.
+        is(records.get('glm-5.3').maxTokens, 131_072)
+        is(records.get('glm-5.3').variantOf, undefined)
+      },
+    },
+    {
+      name: 'a variant inherits what it does not restate',
+      run() {
+        const config = resolveConfig({ modelVariants: [{ model: 'glm-5.3', name: 'same' }] })
+        const records = buildCatalog(config, [])
+        const base = records.get('glm-5.3')
+        const variant = records.get('glm-5.3@same')
+        is(variant.contextWindow, base.contextWindow)
+        is(variant.maxTokens, base.maxTokens)
+        is(variant.defaultEffort, base.defaultEffort)
+        equal([...variant.protocols], [...base.protocols])
+        is(variant.name, `${base.name} (same)`)
+        is(variant.capacitySource, base.capacitySource)
+      },
+    },
+    {
+      name: 'a variant may label itself and name the protocol it leads with',
+      run() {
+        const config = resolveConfig({
+          modelVariants: [{ model: 'glm-5.3', name: 'fast', label: 'GLM 5.3 Turbo' }],
+        })
+        const variant = buildCatalog(config, []).get('glm-5.3@fast')
+        is(variant.name, 'GLM 5.3 Turbo')
+      },
+    },
+    {
+      name: 'the wire id is the model, not the alias the harness selected',
+      run() {
+        const config = resolveConfig({ modelVariants: [{ model: 'glm-5.3', name: 'fast' }] })
+        const records = buildCatalog(config, [])
+        is(wireModelId(records.get('glm-5.3@fast')), 'glm-5.3')
+        is(wireModelId(records.get('glm-5.3')), 'glm-5.3')
+        equal(splitVariantId('glm-5.3@fast'), { model: 'glm-5.3', name: 'fast' })
+        is(splitVariantId('glm-5.3'), undefined)
+        is(splitVariantId('@fast'), undefined)
+        is(splitVariantId('glm-5.3@'), undefined)
+      },
+    },
+    {
+      name: 'a variant of a model the catalog does not list is not offered',
+      run() {
+        const config = resolveConfig({ modelVariants: [{ model: 'not-a-model', name: 'fast' }] })
+        const records = buildCatalog(config, [])
+        is(records.get('not-a-model@fast'), undefined)
+        equal(unmatchedVariantModels(records, config), ['not-a-model'])
+        const matched = resolveConfig({ modelVariants: [{ model: 'glm-5.3', name: 'fast' }] })
+        equal(unmatchedVariantModels(buildCatalog(matched, []), matched), [])
+      },
+    },
+    {
+      name: 'a variant that asks for an effort on a model that does not think is refused',
+      run() {
+        const config = resolveConfig({
+          models: [{ id: 'no-think' }],
+          modelVariants: [{ model: 'no-think', name: 'deep', effort: 'low' }],
+        })
+        let error
+        try {
+          buildCatalog(config, [])
+        } catch (thrown) {
+          error = thrown
+        }
+        ok(error !== undefined, 'it threw')
+        ok(String(error.message).includes('no-think@deep'), 'the variant is named')
+        ok(String(error.message).includes('does not support reasoning'), String(error.message))
+      },
+    },
+    {
+      name: 'a variant effort outside the model ladder is refused with the levels it has',
+      run() {
+        const config = resolveConfig({
+          models: [{ id: 'tiny', efforts: ['low', 'high'], reasoning: true }],
+          modelVariants: [{ model: 'tiny', name: 'deep', effort: 'max' }],
+        })
+        let error
+        try {
+          buildCatalog(config, [])
+        } catch (thrown) {
+          error = thrown
+        }
+        ok(error !== undefined, 'it threw')
+        ok(String(error.message).includes('tiny@deep'), 'the variant is named')
+        ok(String(error.message).includes('low, high'), `the ladder is named: ${error?.message}`)
+      },
+    },
+    {
+      name: 'modelSource=config replaces the catalog wholesale',      run() {
         const config = resolveConfig({
           modelSource: 'config',
           models: [{ id: 'only-model', contextWindow: 1000, maxTokens: 100 }],

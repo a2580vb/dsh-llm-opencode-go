@@ -20,7 +20,7 @@ import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import vm from 'node:vm'
 
-import { UI_ROUTES } from '../../lib/ui/bridge.js'
+import { MANAGED_CONFIG_FIELDS, UI_ROUTES } from '../../lib/ui/bridge.js'
 import { is, ok } from '../helpers.mjs'
 
 const ROOT = join(dirname(dirname(dirname(fileURLToPath(import.meta.url)))))
@@ -53,6 +53,7 @@ function fakeReact() {
     useState: () => [undefined, () => {}],
     useEffect: () => {},
     useCallback: (callback) => callback,
+    useMemo: (factory) => factory(),
   }
 }
 
@@ -165,6 +166,21 @@ export default {
         // mean a second, unversioned entry point.
         ok(!/\bfetch\(\s*['"`]/.test(clientSource), 'fetch is never called with a literal target')
         ok(!clientSource.includes('/api'), 'the page does not reach another host surface')
+      },
+    },
+    {
+      name: 'every field the page writes is one the bridge manages',
+      run() {
+        const written = [...clientSource.matchAll(/saveField\('([^']+)'/g)].map((match) => match[1])
+        ok(written.length >= 2, `the page writes its fields by name: ${written.join(', ')}`)
+        for (const field of written) {
+          ok(MANAGED_CONFIG_FIELDS.includes(field), `the bridge manages "${field}"`)
+        }
+        // Both shipped dictionaries must name every section the page renders,
+        // so a translated page is never half-translated.
+        for (const key of ['sectionKey', 'sectionModels', 'sectionVariants']) {
+          ok(clientSource.includes(`${key}:`), `the dictionary has ${key}`)
+        }
       },
     },
     {

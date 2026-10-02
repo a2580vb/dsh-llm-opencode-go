@@ -29,14 +29,17 @@
 #   disableReasoningReplay  stop replaying prior reasoning
 #   hideTrainingModels      keep models that train on request data out of the list
 #   hiddenModels       model ids to keep out of the list (hiding never disables one)
+#   modelVariants      named presets of one model, each offered as <model>@<name>
+#                      entries: [{ model, name, label?, protocol?, effort?,
+#                                  contextWindow?, maxTokens? }]
 #   healthCheck        'off' | 'startup'
 #   retryPolicy        { mode, maxRetries, ... }
 #
 # The plugin also ships a page for the Web client: the sidebar's Plugins page
 # lists this bundle, and the opencode-go row's Configure control opens it. It
-# edits the API key, the credential reference, and which models the listing
-# offers; see docs/configuration.md#graphical-configuration. The page needs a web
-# server and is simply absent without one.
+# edits the API key, the credential reference, which models the listing offers,
+# and the model variants; see docs/configuration.md#graphical-configuration. The
+# page needs a web server and is simply absent without one.
 - insert:
     - id: opencode-go
       name: dsh-opencode-go
