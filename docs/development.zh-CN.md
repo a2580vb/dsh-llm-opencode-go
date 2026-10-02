@@ -7,7 +7,7 @@
 ## 如何验证
 
 ```sh
-npm test          # 270 项离线检查：配置、SSE 分帧、目录、三种协议、适配器、插件本体、配置桥接与客户端 bundle
+npm test          # 271 项离线检查：配置、SSE 分帧、目录、三种协议、适配器、插件本体、配置桥接与客户端 bundle
 npm run test:cordis # 40 项检查，把插件挂到 Harness 自己的 cordis 上
 npm run test:live # 20 项检查，打到真实服务；需要 OC_KEY
 ```

@@ -15,6 +15,7 @@
  * browser's boot script provides.
  */
 
+import { readFileSync } from 'node:fs'
 import { readFile } from 'node:fs/promises'
 import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -169,6 +170,22 @@ export default {
         )
         ok(!/\bfetch\(\s*['"`]/.test(clientSource), 'fetch is never called with a literal target')
         ok(!clientSource.includes('/api'), 'the page does not reach another host surface')
+      },
+    },
+    {
+      name: 'the documented endpoints are the ones the bridge actually serves',
+      run() {
+        // The page's surface is documented for anyone reading it with `curl`,
+        // and a table that drifts from the code is worse than no table: a
+        // renamed route would be described as working while answering 404.
+        for (const file of ['docs/configuration.md', 'docs/configuration.zh-CN.md']) {
+          const text = readFileSync(join(ROOT, file), 'utf8')
+          const documented = [...new Set([...text.matchAll(/\/opencode-go\/[a-z]+/g)].map((match) => match[0]))].sort()
+          equal(documented, Object.values(UI_ROUTES).sort(), `${file} documents every route`)
+          for (const route of Object.values(UI_ROUTES)) {
+            ok(text.includes(`| \`${route}\` |`), `${file} documents ${route} in a table row`)
+          }
+        }
       },
     },
     {

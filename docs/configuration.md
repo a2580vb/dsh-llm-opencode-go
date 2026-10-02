@@ -57,6 +57,40 @@ later rather than assuming its own draft survived, and says so when the read
 back fails. The key is the exception: it goes to the credential store and applies
 to the next request.
 
+### The page's own endpoints
+
+The page is a separate artifact from the Host half, and the two agree on one flat
+namespace. Nothing else serves these paths, so they are safe to read with `curl`
+while the client is open:
+
+| Endpoint | Method | Answers |
+|---|---|---|
+| `/opencode-go/state` | `GET` | the route, the `apiKeyEnv` in use, the credential's status — never its value — and the profile override of each managed field |
+| `/opencode-go/models` | `GET` | the whole catalog, listed and hidden, with the reason each hidden model is hidden |
+| `/opencode-go/config` | `POST` | writes one managed field into the profile patch |
+| `/opencode-go/credential` | `POST` | stores the API key; `DELETE` clears it |
+| `/opencode-go/refresh` | `POST` | re-reads `GET /models` and reports what changed |
+| `/opencode-go/usage` | `GET` | the usage table for `?days=1`, `7`, or `30` |
+
+Three properties are deliberate:
+
+- **The fence comes first.** Every request goes through the harness's connection
+  service, which owns the host/origin policy and the browser session. Without
+  that service the fallback is a loopback authority, a `sec-fetch-site` that is
+  not `cross-site`, and an `Origin` matching the authority — so a page on another
+  host cannot read these endpoints, and a cross-site form post cannot write them.
+  A refused request gets a status and no body: an unauthenticated caller learns
+  nothing about the surface.
+- **No secret ever travels back.** The key is written and reported as
+  configured-or-not; nothing here returns its value, and `state` never carries it.
+- **A wrong method answers `405` with `Allow`**, an unknown path under the prefix
+  answers `404`, and a body over 64 KiB answers `413` — the page can always tell
+  a refusal it caused from a fault.
+
+The page itself is only mounted by a deployment that serves the web client.
+Without a `webServer`, the plugin is complete and this whole surface is absent,
+which is what the offline suites exercise by mounting nothing.
+
 ## Fetching the model list
 
 A deployment in `modelSource: discover` reads `GET /models` once and keeps the
@@ -76,7 +110,6 @@ demand, which is the one thing the page does that costs a request:
 
 `modelSource: config` has nothing to fetch: the catalog is exactly the entries
 the deployment wrote, and the control says so instead of pretending to read.
-
 
 ## Hiding models from the listing
 

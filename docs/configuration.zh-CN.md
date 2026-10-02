@@ -54,6 +54,34 @@
 一拍之后重新读取 Host 报告的现状，而不是假定自己刚写的草稿已经生效；读不回来时它会直说。密钥是
 例外：它写进凭据存储，下一次请求就生效。
 
+### 页面自己的 endpoint
+
+页面与 Host 半侧是两个独立的产物，它们约定在同一个扁平命名空间下。这些路径没有别人提供，所以
+客户端开着的时候可以放心用 `curl` 读：
+
+| Endpoint | 方法 | 返回 |
+|---|---|---|
+| `/opencode-go/state` | `GET` | 路由、正在使用的 `apiKeyEnv`、凭据状态（**永远不含密钥本身**），以及每个受管字段的 profile 覆盖值 |
+| `/opencode-go/models` | `GET` | 整个目录（在列表里的和已隐藏的），以及每个被隐藏模型的隐藏原因 |
+| `/opencode-go/config` | `POST` | 把一个受管字段写入 profile patch |
+| `/opencode-go/credential` | `POST` | 保存 API 密钥；`DELETE` 清除它 |
+| `/opencode-go/refresh` | `POST` | 重新读取 `GET /models` 并报告变化 |
+| `/opencode-go/usage` | `GET` | `?days=1`、`7`、`30` 对应的用量表 |
+
+有三条性质是有意为之：
+
+- **先过栅栏。** 每个请求都先经过 Harness 的 connection 服务，它拥有 host/origin 策略与浏览器会话。
+  没有该服务时，回退规则是：loopback authority、`sec-fetch-site` 不是 `cross-site`、且 `Origin`
+  与 authority 一致——所以别的 host 上的页面读不到这些 endpoint，跨站表单也写不进来。被拒绝的请求
+  只有状态码、没有响应体：未认证的调用者不会从中学到这个表面上的任何事。
+- **密钥永不回传。** 密钥只被写入、只被报告为「已配置/未配置」；这里没有任何东西返回它的值，
+  `state` 也从不携带它。
+- **方法不对返回 `405` 并带 `Allow`**，前缀下的未知路径返回 `404`，超过 64 KiB 的请求体返回 `413`
+  ——页面因此总能区分「自己造成的拒绝」和「别的故障」。
+
+只有提供 Web 客户端的部署才会挂载这一页。没有 `webServer` 时插件依然完整，而这整套表面是不存在的
+——离线套件正是通过「什么都不挂」来覆盖这种情况。
+
 ## 获取模型列表
 
 `modelSource: discover` 的部署会读取一次 `GET /models`，并在 `modelsCacheSeconds` 内一直使用这份
