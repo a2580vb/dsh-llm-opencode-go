@@ -123,11 +123,13 @@ export default {
         const section = find(tree, (node) => node.type === 'section' && text(node).includes('Usage'))
         ok(section !== undefined, 'the usage section rendered')
 
-        // Four tables, in the order the page introduces them: the provider's
-        // own quota, then totals, then the per-model breakdown, then the
-        // per-day series.
-        const [quotaTable, totalsTable, modelTable, dayTable] = tables(section)
-        equal(rows(quotaTable)[0], ['Window', 'Used', 'Resets'], 'the quota table comes first')
+        // The quota is one bar per window rather than a table: it is a share of
+        // a whole, and a share reads as a length before it reads as a number.
+        // The tables left are the counters this plugin kept itself.
+        const bars = nodes(section).filter(({ node }) => node.props?.role === 'progressbar')
+        equal(bars.map(({ node }) => node.props['aria-valuenow']), [8, 42, 91])
+
+        const [totalsTable, modelTable, dayTable] = tables(section)
         const totals = rows(totalsTable)
         equal(totals[0], ['Total', 'Calls', 'Failed', 'Input tokens', 'Output tokens', 'Total tokens', 'Cache read'])
         equal(totals[1], ['Total', '4', '1', '400', '100', '500', '0'], totals[1].join(','))
@@ -147,21 +149,63 @@ export default {
       },
     },
     {
-      name: 'the quota panel shows the service\'s own three windows, and a refresh forces a read',
+      name: 'each window is a bar whose two segments are the spent and the remaining share',
       async run() {
         const page = await renderPage({ fetch: host() })
         const tree = await page.open()
         const section = find(tree, (node) => node.type === 'section' && text(node).includes('Usage'))
-        const [quotaTable] = tables(section)
-        const quota = rows(quotaTable)
-        equal(quota[1][0], 'Rolling')
-        equal(quota[1][1], '8%')
-        equal(quota[2][1], '42%')
-        equal(quota[3][1], '91%')
+
+        // The bar is the track; its label, figures, and reset time are the row
+        // around it, which is what a reader actually reads.
+        const bars = nodes(section)
+          .filter(({ node }) => node.props?.role === 'progressbar')
+          .map(({ node, path }) => ({ track: node, row: path[path.length - 1] }))
+        equal(bars.length, 3, 'one bar per metered window')
+        equal(bars.map(({ track }) => track.props['aria-label']), ['Rolling', 'Weekly', 'Monthly'])
+        equal(bars.map(({ track }) => track.props['aria-valuenow']), [8, 42, 91])
+
+        for (const { track, row } of bars) {
+          const used = track.props['aria-valuenow']
+          const [spent, remaining] = track.children
+          // The two segments are complements, so the bar cannot claim a share
+          // was both spent and kept: it is `used` from the left, the rest after.
+          is(spent.props.style.width, `${used}%`, 'the spent share is the value')
+          is(remaining.props.style.width, `${100 - used}%`, 'and the remainder is the rest')
+          // Both colours come from theme tokens, never from a literal, so the
+          // bar follows the theme it happens to be rendered in.
+          for (const [name, segment] of [['spent', spent], ['remaining', remaining]]) {
+            const colour = String(segment.props.style.background)
+            ok(colour.includes('var(--dsw-alias-'), `${name} is a theme token: ${colour}`)
+            ok(!/#[0-9a-f]{3,6}\b|rgba?\(/i.test(colour), `${name} is not a literal colour: ${colour}`)
+          }
+          ok(String(spent.props.style.background).includes('state-idle'), 'spent is the theme grey')
+          ok(String(remaining.props.style.background).includes('state-success'), 'remaining is the theme green')
+          // A bar whose meaning is its hue needs a text equivalent, or it says
+          // nothing to a reader who cannot see it.
+          const spoken = String(track.props['aria-valuetext'])
+          ok(
+            spoken.includes(`${String(used)}% used`) && spoken.includes(`${String(100 - used)}% left`),
+            spoken,
+          )
+          // And the visible figures say the same thing, because most readers
+          // will read these rather than the bar.
+          const said = text(row).replace(/\s+/g, ' ')
+          ok(said.includes(`${String(used)}% used`) && said.includes(`${String(100 - used)}% left`), said)
+        }
+
         // The window a reader is closest to losing is the one worth noticing,
-        // so it carries the warning colour rather than the ordinary one.
-        const monthly = nodes(quotaTable).find(({ node }) => node.type === 'span' && text(node) === '91%')
-        is(monthly?.node.props.style.color, 'var(--dsw-alias-state-warn-primary)')
+        // so its figure carries the warning colour rather than the ordinary one.
+        const figure = (row, value) => nodes(row).find(({ node }) => node.type === 'span' && text(node) === value)
+        const warning = figure(bars[2].row, '91% used')
+        ok(warning !== undefined, 'the figure behind the bar is rendered')
+        is(warning.node.props?.style?.color, 'var(--dsw-alias-state-warn-primary)')
+        const ordinary = figure(bars[0].row, '8% used')
+        ok(ordinary !== undefined, 'the figure of an ordinary window is rendered too')
+        is(ordinary.node.props?.style?.color, undefined, 'and it is not coloured')
+
+        // The legend names the two colours, so grey and green do not have to be
+        // guessed at.
+        ok(text(section).replace(/\s+/g, ' ').includes('Used Remaining'), 'the legend names both shares')
 
         // A refresh is the only thing that spends a request on the provider,
         // and it says so in the query rather than relying on the Host.
@@ -186,7 +230,7 @@ export default {
         // The counters the plugin kept itself are still the answer to what this
         // route spent, so they stay on screen.
         ok(text(section).includes('2026-01-15'), 'the per-day table is still rendered')
-        const [, totalsTable] = tables(section)
+        const [totalsTable] = tables(section)
         equal(rows(totalsTable)[1][1], '4')
       },
     },

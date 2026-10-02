@@ -159,8 +159,17 @@ because they come from different places:
 
 | | |
 |---|---|
-| **Subscription quota** | The service's own metering, read from `GET {baseURL}/usage`: a percentage for the rolling, weekly, and monthly windows, with when each resets. This is the figure that answers "how much of the plan is left". |
+| **Subscription quota** | The service's own metering, read from `GET {baseURL}/usage`: one bar per metered window — rolling, weekly, monthly — with the spent share in grey and the remaining share in pale green, both percentages as figures, and when the window resets. This is what answers "how much of the plan is left". |
 | **This route's counters** | What the plugin counted itself, below: totals, per model, per day. |
+
+The bars keep the service's own window names rather than mapping them onto "day,
+week, month": the shortest one is a rolling window that resets within hours
+rather than at midnight, so calling it a day would be a claim the service does
+not make. Each bar says when its window resets, which is the fact that matters
+for that one. Running out is the only thing this panel warns about, so past 80%
+the figure takes the warning colour and at 100% the error colour — the bar
+shortening is the primary signal, and the same numbers travel in
+`aria-valuetext` for a reader who cannot see the colour.
 
 The quota endpoint is not part of the published API — it is what the console
 calls — so the *shape* may move without notice. Every way it can be missing is
