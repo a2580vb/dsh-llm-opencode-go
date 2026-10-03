@@ -9,7 +9,7 @@ the code is laid out. Users who only configure the plugin can stop at
 ## Verification
 
 ```sh
-npm test          # 312 offline checks: config, SSE framing, catalog, all three protocols, adapter, plugin body, the settings bridge and the client bundle
+npm test          # 326 offline checks: config, SSE framing, catalog, all three protocols, adapter, plugin body, the settings bridge and the client bundle
 npm run test:cordis # 43 checks mounting the plugin on the harness's own cordis
 npm run test:live # 20 checks against the real service; needs OC_KEY
 ```
@@ -21,6 +21,16 @@ case assembles its chunks with the harness's own block assembler, which is the
 same code the agent loop runs over them. One case compares the capacity snapshot
 against whatever OpenCode catalogue the machine has cached, so a stale
 `lib/model/limits.js` is reported instead of quietly drifting.
+
+The scratch files these suites write live in `.test-cache/`, a gitignored corner
+of the checkout, and their paths come from `tests/suites/_scratch.mjs`: one
+directory per case, removed when that case ends, under a name carrying a token
+minted for the run. Both halves are needed. A model-cache entry lives for six
+hours and process ids are recycled, so a run that drew a used id opened the
+previous run's file at the same path, answered discovery from it, and left a case
+that counts requests measuring nothing — failing three assertions away from the
+cause. A leftover can no longer be the file a run opens, even when a run dies
+before its own cleanup; removing it is only tidiness.
 
 The two suites that cover the configuration page run offline as well. The bridge
 suite drives the real HTTP handler with fake request/response pairs, so routing,

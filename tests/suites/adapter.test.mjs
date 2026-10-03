@@ -14,6 +14,7 @@ import { PROTOCOLS, resolveConfig } from '../../lib/config.js'
 import { OpenCodeGoAdapter, signaturesFromHistory } from '../../lib/index.js'
 import { ModelCache } from '../../lib/model/cache.js'
 import { equal, is, ok } from '../helpers.mjs'
+import { createScratch } from './_scratch.mjs'
 
 /** A `fetch` that replays scripted responses and records every request. */
 function fakeFetch(script) {
@@ -127,18 +128,18 @@ function recordingLogger() {
   }
 }
 
+/** The scratch area every case's cache files live in, removed one case at a time. */
+const scratch = createScratch()
+
 /**
- * A per-adapter cache path, so one case's discovery never reaches another.
+ * A cache path of this case's own.
  *
- * The run's process id is part of the name: a leftover file from an earlier
- * run would otherwise be a warm cache, and a case that measures what discovery
- * fetched would silently measure nothing.
+ * `scratch.path` mints a name no earlier run can have used — see `_scratch.mjs`
+ * for why the process id was not enough — and this case's own cleanup deletes it
+ * afterwards. So discovery starts cold and every case measures the requests it
+ * asked for, however many runs the machine has behind it.
  */
-let cacheCounter = 0
-const cacheFile = () => {
-  cacheCounter += 1
-  return `L:\\e2\\dsh-plugin\\opencodego-transfrom\\.test-cache\\${process.pid}-${cacheCounter}.json`
-}
+const cacheFile = () => scratch.path('models')
 
 /**
  * Build an adapter over scripted responses.
@@ -216,7 +217,7 @@ const CHAT_BODY = sse([
 
 export default {
   name: 'adapter',
-  cases: [
+  cases: scratch.withCleanup([
     {
       name: 'the request carries the session header, the client header, and both identities',
       async run() {
@@ -1021,5 +1022,5 @@ export default {
         ok(!JSON.stringify(error?.failure ?? {}).includes('sk-super-secret-value'), 'the secret is not in the failure facts')
       },
     },
-  ],
+  ]),
 }

@@ -11,6 +11,10 @@
 import { Config, resolveConfig } from '../../lib/config.js'
 import { apply, runHealthCheck } from '../../lib/index.js'
 import { equal, is, ok } from '../helpers.mjs'
+import { createScratch } from './_scratch.mjs'
+
+/** The scratch area the health-check cases put their model cache in. */
+const scratch = createScratch()
 
 /**
  * A Cordis context stub recording what the plugin registered.
@@ -123,7 +127,7 @@ async function captureStreamError(adapter) {
 
 export default {
   name: 'plugin',
-  cases: [
+  cases: scratch.withCleanup([
     {
       name: 'the exported Config satisfies the interface Cordis actually calls',
       run() {
@@ -360,7 +364,7 @@ export default {
         const config = resolveConfig({
           baseURL: 'https://relay.test/v1',
           apiKeyEnv: 'TEST_KEY',
-          modelsCachePath: 'L:\\e2\\dsh-plugin\\opencodego-transfrom\\.test-cache\\plugin.json',
+          modelsCachePath: scratch.path('plugin'),
         })
         process.env.TEST_KEY = 'sk-test'
         const fetch = fakeFetch()
@@ -380,7 +384,7 @@ export default {
         const config = resolveConfig({
           baseURL: 'https://relay.test/v1',
           apiKeyEnv: 'TEST_KEY',
-          modelsCachePath: 'L:\\e2\\dsh-plugin\\opencodego-transfrom\\.test-cache\\health.json',
+          modelsCachePath: scratch.path('health'),
         })
         process.env.TEST_KEY = 'sk-test'
         const fetch = fakeFetch()
@@ -403,5 +407,5 @@ export default {
         ok(report.steps[0].count > 0, 'models were listed')
       },
     },
-  ],
+  ]),
 }
