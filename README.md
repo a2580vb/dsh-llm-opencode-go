@@ -42,10 +42,16 @@ page reaches the next call with no restart.
 
 ## Install
 
-From this checkout:
+### From npm (recommended)
 
 ```sh
-dsh plugin --profile desktop add L:\e2\dsh-plugin\opencodego-transfrom
+dsh plugin add dsh-llm-opencode-go
+```
+
+### From a local checkout
+
+```sh
+dsh plugin add /path/to/opencodego-transfrom
 ```
 
 Then **fully restart** the profile: bundle layers are read at startup. Verify the

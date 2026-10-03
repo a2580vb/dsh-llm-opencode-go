@@ -39,10 +39,16 @@
 
 ## 安装
 
-从当前检出目录安装：
+### 从 npm 安装（推荐）
 
 ```sh
-dsh plugin --profile desktop add L:\e2\dsh-plugin\opencodego-transfrom
+dsh plugin add dsh-llm-opencode-go
+```
+
+### 从本地检出目录安装
+
+```sh
+dsh plugin add /path/to/opencodego-transfrom
 ```
 
 然后**完全重启**该 profile：bundle 层只在启动时读取。确认启动日志：
