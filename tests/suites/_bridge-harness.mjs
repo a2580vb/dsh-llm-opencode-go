@@ -81,9 +81,9 @@ export function fakeCredentials(initial) {
  *
  * The stand-in reproduces all three checks, because a stand-in that accepted a
  * flatter shape would keep passing while the real deployment answered
- * "no profile entry for dsh-opencode-go" — which is exactly what happened.
+ * "no profile entry for dsh-llm-opencode-go" — which is exactly what happened.
  */
-export function fakeEditor({ id = 'opencode-go', name = 'dsh-opencode-go', inherited = {}, override = {} } = {}) {
+export function fakeEditor({ id = 'opencode-go', name = 'dsh-llm-opencode-go', inherited = {}, override = {} } = {}) {
   const fiber = { state: 2 }
   const entry = { options: { id, name, config: { ...inherited, ...override } }, fiber, parent: null }
   const state = { inherited: { ...inherited }, override: { ...override } }

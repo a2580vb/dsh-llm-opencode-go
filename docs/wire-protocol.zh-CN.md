@@ -23,6 +23,11 @@ x-opencode-session: <每个会话一个稳定 id>
 x-opencode-client: dsh-opencode-go
 ```
 
+上面这两个产品标识就是 `userAgentProduct` 的默认值，而且它们**刻意不等于包名**。包名是
+`dsh-llm-opencode-go`；这两个字符串是向中继表明「我是谁」的东西，所以它们是与服务之间的契约，而不是
+本地可以随意改的标签——改包名不该悄悄改变网关看到的内容。想让两者一致，就设置
+`userAgentProduct`。
+
 ## `x-opencode-session`
 
 OpenCode 的中继会把共享同一个 `x-opencode-session` 值的所有请求钉在同一个上游后端上，这正是

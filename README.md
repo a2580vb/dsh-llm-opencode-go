@@ -1,4 +1,4 @@
-# dsh-opencode-go
+# dsh-llm-opencode-go
 
 **English** | [简体中文](README.zh-CN.md)
 
@@ -14,7 +14,7 @@ into each one, and translates the streamed response back into DSH
 ```yaml
 - insert:
     - id: opencode-go
-      name: dsh-opencode-go
+      name: dsh-llm-opencode-go
       config:
         apiKeyEnv: OPENCODE_GO_API_KEY
 ```
@@ -52,7 +52,7 @@ Then **fully restart** the profile: bundle layers are read at startup. Verify th
 startup log:
 
 ```
-dsh-opencode-go: provider "opencode-go" ready at https://opencode.ai/zen/go/v1 (credential OPENCODE_GO_API_KEY, models discover)
+dsh-llm-opencode-go: provider "opencode-go" ready at https://opencode.ai/zen/go/v1 (credential OPENCODE_GO_API_KEY, models discover)
 ```
 
 ### Give it a key
@@ -79,7 +79,7 @@ without one has none of them and is otherwise unchanged. See
 
 ### Or use the plugin's own page
 
-The sidebar's **Plugins** page lists the `dsh-opencode-go` bundle, and its
+The sidebar's **Plugins** page lists the `dsh-llm-opencode-go` bundle, and its
 `opencode-go` row has a **Configure** control that opens the plugin's own page:
 the API key, the credential reference it is stored under, one switch per catalog
 model for what the picker offers, the model variants, a control that re-reads the

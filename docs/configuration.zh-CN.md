@@ -74,7 +74,7 @@
 
 ## 图形化配置
 
-插件在 Harness Web 客户端里自带一个配置页。打开侧边栏的 **Plugins** 页，进入 `dsh-opencode-go`
+插件在 Harness Web 客户端里自带一个配置页。打开侧边栏的 **Plugins** 页，进入 `dsh-llm-opencode-go`
 组合包，在 `opencode-go` 行上点 **配置**（Configure）。这一页覆盖那些「随部署而定、又经常改」的
 事实：
 

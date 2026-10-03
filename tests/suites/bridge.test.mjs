@@ -761,7 +761,7 @@ export default {
       name: 'a refused editor write is reported with its own reason',
       async run() {
         const editor = {
-          entries: () => [{ options: { id: 'opencode-go', name: 'dsh-opencode-go', config: {} }, fiber: { state: 2 } }],
+          entries: () => [{ options: { id: 'opencode-go', name: 'dsh-llm-opencode-go', config: {} }, fiber: { state: 2 } }],
           async edit() {
             throw new Error('settings/conflict')
           },
@@ -1017,18 +1017,18 @@ export default {
         const row = (id, name) => ({ options: { id, name, config: {} }, fiber: { state: 2 } })
         const rows = [row('ui-settings', '@deepseek-ai/dsh-client-ui-settings')]
         is(findEntry(rows, 'opencode-go'), undefined)
-        is(findEntry([...rows, row('custom-row', 'dsh-opencode-go')], 'opencode-go')?.options.id, 'custom-row')
-        is(findEntry([row('scoped', '@acme/dsh-opencode-go')], 'opencode-go')?.options.id, 'scoped')
+        is(findEntry([...rows, row('custom-row', 'dsh-llm-opencode-go')], 'opencode-go')?.options.id, 'custom-row')
+        is(findEntry([row('scoped', '@acme/dsh-llm-opencode-go')], 'opencode-go')?.options.id, 'scoped')
         is(
-          findEntry([row('opencode-go', 'anything'), row('other', 'dsh-opencode-go')], 'opencode-go')?.options.id,
+          findEntry([row('opencode-go', 'anything'), row('other', 'dsh-llm-opencode-go')], 'opencode-go')?.options.id,
           'opencode-go',
         )
         // The editor's `edit` demands the object its own `entries()` returned,
         // so the plugin's entry wins by identity even when an id would match.
         const own = row('weird-id', 'weird-name')
-        equal(findEntry([row('opencode-go', 'dsh-opencode-go'), own], 'opencode-go', own), own)
+        equal(findEntry([row('opencode-go', 'dsh-llm-opencode-go'), own], 'opencode-go', own), own)
         // A flat entry — the shape no Loader produces — is not mistaken for one.
-        is(findEntry([{ id: 'opencode-go', name: 'dsh-opencode-go' }], 'opencode-go'), undefined)
+        is(findEntry([{ id: 'opencode-go', name: 'dsh-llm-opencode-go' }], 'opencode-go'), undefined)
       },
     },
   ],

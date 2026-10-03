@@ -1,4 +1,4 @@
-# dsh-opencode-go layer.
+# dsh-llm-opencode-go layer.
 #
 # Registers one LLM provider route backed by the OpenCode Go relay at
 # https://opencode.ai/zen/go/v1, speaking whichever of its three wire protocols
@@ -56,7 +56,7 @@
 # plugins page simply has fewer of them.
 - insert:
     - id: opencode-go
-      name: dsh-opencode-go
+      name: dsh-llm-opencode-go
       config:
         provider: opencode-go
         apiKeyEnv: OPENCODE_GO_API_KEY

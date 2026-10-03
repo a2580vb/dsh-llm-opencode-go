@@ -93,7 +93,7 @@ request does.
 ## Graphical configuration
 
 The plugin ships a page in the Harness web client. Open the sidebar's
-**Plugins** page, open the `dsh-opencode-go` bundle, and press **Configure** on
+**Plugins** page, open the `dsh-llm-opencode-go` bundle, and press **Configure** on
 the `opencode-go` row. The page covers the facts that are per-deployment and
 change often:
 

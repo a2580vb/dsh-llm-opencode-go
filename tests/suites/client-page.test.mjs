@@ -1018,14 +1018,14 @@ export default {
         const panel = wired.surface('main')
         const tree = await panel.open()
         await panel.click((node) => node.type === 'button' && text(node).trim() === 'Plugin settings')
-        equal(opened, ['dsh-opencode-go'])
+        equal(opened, ['dsh-llm-opencode-go'])
         // The capsule carries the same entry, so the reader who sees the number
         // can reach the page that configures it without a detour.
         const capsule = wired.surface('sidebar.footer.action')
         const capsuleTree = await capsule.open()
         await capsule.click((node) => node.type === 'button' && node.props['aria-label'] === 'Open the plugin configuration page')
-        equal(opened, ['dsh-opencode-go', 'dsh-opencode-go'])
-        ok(text(tree).includes('Plugins → dsh-opencode-go'), 'the entry names the path it takes')
+        equal(opened, ['dsh-llm-opencode-go', 'dsh-llm-opencode-go'])
+        ok(text(tree).includes('Plugins → dsh-llm-opencode-go'), 'the entry names the path it takes')
       },
     },
     {

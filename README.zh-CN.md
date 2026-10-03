@@ -1,4 +1,4 @@
-# dsh-opencode-go
+# dsh-llm-opencode-go
 
 [English](README.md) | **简体中文**
 
@@ -12,7 +12,7 @@
 ```yaml
 - insert:
     - id: opencode-go
-      name: dsh-opencode-go
+      name: dsh-llm-opencode-go
       config:
         apiKeyEnv: OPENCODE_GO_API_KEY
 ```
@@ -48,7 +48,7 @@ dsh plugin --profile desktop add L:\e2\dsh-plugin\opencodego-transfrom
 然后**完全重启**该 profile：bundle 层只在启动时读取。确认启动日志：
 
 ```
-dsh-opencode-go: provider "opencode-go" ready at https://opencode.ai/zen/go/v1 (credential OPENCODE_GO_API_KEY, models discover)
+dsh-llm-opencode-go: provider "opencode-go" ready at https://opencode.ai/zen/go/v1 (credential OPENCODE_GO_API_KEY, models discover)
 ```
 
 ### 给它一个 Key
@@ -71,7 +71,7 @@ dsh-opencode-go: provider "opencode-go" ready at https://opencode.ai/zen/go/v1 (
 
 ### 或者用插件自己的页面
 
-侧边栏的 **Plugins** 页列出 `dsh-opencode-go` 组合包，其中 `opencode-go` 行上有 **配置**
+侧边栏的 **Plugins** 页列出 `dsh-llm-opencode-go` 组合包，其中 `opencode-go` 行上有 **配置**
 （Configure）控件，打开插件自己的页面：API 密钥、密钥所在的凭据引用、目录里每个模型一个的
 「是否在选择器中出现」开关、模型变体、一个重新读取服务端模型列表的控件，以及这条路由花掉了多少。
 密钥写进凭据存储，永远不写进 `cordis.patch.yml`；只有提供 Web 客户端的部署才会提供这一页。详见

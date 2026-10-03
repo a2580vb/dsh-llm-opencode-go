@@ -24,7 +24,7 @@ import { dayKey } from '../lib/usage/store.js'
 
 const PLUGIN = dirname(dirname(fileURLToPath(import.meta.url)))
 const ASAR = process.env.DSH_ASAR ?? 'E:\\dsh\\resources\\app.asar'
-const CACHE = process.env.DSH_BUNDLE_CACHE ?? join(tmpdir(), 'dsh-opencode-go-real-cordis')
+const CACHE = process.env.DSH_BUNDLE_CACHE ?? join(tmpdir(), 'dsh-llm-opencode-go-real-cordis')
 
 /** A Windows path as the file URL the ESM loader requires. */
 const url = (path) => pathToFileURL(path).href
@@ -525,7 +525,7 @@ const USAGE_PATH = join(CACHE, 'usage', `${USAGE_RUN}.json`)
     loaderCtx.plugin(Loader, { filename: join(CACHE, 'loader.yml') })
     await new Promise((resolve) => setTimeout(resolve, 50))
     const loader = loaderCtx.get('loader')
-    await loader.create({ id: 'opencode-go', name: 'dsh-opencode-go', config: { provider: 'opencode-go' } })
+    await loader.create({ id: 'opencode-go', name: 'dsh-llm-opencode-go', config: { provider: 'opencode-go' } })
     await new Promise((resolve) => setTimeout(resolve, 100))
     // `loader.entries()` is a generator; the editor's own `entries()` spreads it
     // into an array before filtering, which is the shape the bridge receives.
@@ -533,7 +533,7 @@ const USAGE_PATH = join(CACHE, 'usage', `${USAGE_RUN}.json`)
     const loaded = rows.find((entry) => entry.options.id === 'opencode-go')
     check(
       'a real Loader row keeps its id and module name under `options`',
-      loaded?.options?.id === 'opencode-go' && loaded?.options?.name === 'dsh-opencode-go',
+      loaded?.options?.id === 'opencode-go' && loaded?.options?.name === 'dsh-llm-opencode-go',
       JSON.stringify({ id: loaded?.options?.id, name: loaded?.options?.name, top: Object.keys(loaded ?? {}).slice(0, 6) }),
     )
     check(
@@ -545,7 +545,7 @@ const USAGE_PATH = join(CACHE, 'usage', `${USAGE_RUN}.json`)
     )
     check(
       'a flat entry — the shape no Loader produces — is not mistaken for one',
-      locateRow([{ id: 'opencode-go', name: 'dsh-opencode-go' }], 'opencode-go') === undefined,
+      locateRow([{ id: 'opencode-go', name: 'dsh-llm-opencode-go' }], 'opencode-go') === undefined,
     )
 
     // Usage is the one table only this plugin can produce: the harness reports

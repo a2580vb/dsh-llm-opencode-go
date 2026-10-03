@@ -25,6 +25,13 @@ x-opencode-session: <stable per-conversation id>
 x-opencode-client: dsh-opencode-go
 ```
 
+Both product tokens above are the `userAgentProduct` default, and they are
+deliberately *not* the package name. The package is `dsh-llm-opencode-go`; these
+two strings identify this client to the relay, which makes them a contract with a
+service rather than a label anyone here owns — renaming the package must not
+silently change what the gateway sees. Set `userAgentProduct` if you want them to
+match the package.
+
 ## `x-opencode-session`
 
 OpenCode's relay pins every request sharing one `x-opencode-session` value to
