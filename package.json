@@ -41,6 +41,14 @@
     "chat-completions"
   ],
   "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/a2580vb/dsh-llm-opencode-go.git"
+  },
+  "homepage": "https://github.com/a2580vb/dsh-llm-opencode-go#readme",
+  "bugs": {
+    "url": "https://github.com/a2580vb/dsh-llm-opencode-go/issues"
+  },
   "comment": "Zero runtime dependencies on purpose: the adapter implements the harness contract with its own error and brand helpers, so it installs into any DSH version. See lib/error/errors.js.",
   "devDependencies": {
     "@deepseek-ai/dsh-llm": "^0.2.0-rc.2"
