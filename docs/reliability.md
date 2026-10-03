@@ -2,9 +2,8 @@
 
 > Back to [README](../README.md).
 
-Everything on this page is about what can go wrong and what this plugin will
-not do: the stable failure codes, and the limits that follow from measured
-protocols, snapshot capacity, and workspace policy.
+This page lists the plugin's failure codes and the limits that follow from
+measured protocols, snapshot capacity, and workspace policy.
 
 ## Failures
 
@@ -24,11 +23,9 @@ that train on request data — is `TRAINING_CONSENT_REQUIRED`, whose message nam
 the setting that removes it; see [Models that train on request
 data](models.md#models-that-train-on-request-data).
 
-An adapter failure is reported by the **shape** the harness reads — an `Error`
-with own `code` and `failure` data properties — not by class identity. That is
-why this plugin can define its own failure type and depend on no harness
-package: a cross-package copy of the harness class would never be recognized by
-`instanceof` in the harness anyway.
+Failures are reported by the **shape** the harness reads — an `Error` with own
+`code` and `failure` data properties — not by class identity. The plugin
+therefore defines its own failure types and depends on no harness package.
 
 ## Limits
 
@@ -36,10 +33,10 @@ package: a cross-package copy of the harness class would never be recognized by
   response lists ids only, so the mapping in `lib/model/catalog.js` comes from
   probing the live service, one endpoint at a time. A model whose protocol
   changes needs a `protocolOverrides` entry or a re-measure. The two unknown cases
-  differ in how much is unknown: an id the service *lists* but this plugin has not
+  are handled differently: an id the service *lists* but this plugin has not
   measured gets `defaultProtocol` and no fallback, while an id that appears
   nowhere — not in the built-in catalog and not in the discovered list — is tried
-  over every protocol, because its protocol is exactly what is missing.
+  over every protocol in order.
 - **Capacity is a snapshot, not a subscription.** `lib/model/limits.js` holds the
   context windows, output caps, and provider modality lists measured from the
   OpenCode catalogue on the date in `CAPABILITY_SOURCE`, refreshed with
@@ -48,9 +45,8 @@ package: a cross-package copy of the harness class would never be recognized by
     figures (`qwen…`, `glm-…`, `grok-…`, …) rather than the global assumption;
   - a model no family matches takes `defaultContextWindow` and `defaultMaxTokens`,
     which remains the only case where those two values are guesses;
-  - an id the service lists but the catalogue does not describe is visible in the
-    plugin's own startup line and resolvable by `models` / `modelOverrides`
-    config without a plugin release.
+  - an id the service lists but the catalogue does not describe is resolvable by
+    the `models` / `modelOverrides` config without a plugin release.
   The caps reach the wire differently: Messages always sends one (`max_tokens`,
   falling back to the model's value), while Chat Completions and Responses omit
   theirs when the call states none, so the decision there belongs to the relay
@@ -60,14 +56,14 @@ package: a cross-package copy of the harness class would never be recognized by
   train on request data, and it refuses them with its own error before the model
   is reached. The adapter classifies that refusal (`TRAINING_CONSENT_REQUIRED`),
   states the setting and where it lives, notes the models in their metadata, and
-  offers `hideTrainingModels` for a deployment that cannot enable it — but it
-  never enables it, because that consent is not a client's to give. See
+  offers `hideTrainingModels` for a deployment that cannot enable it; it provides
+  no switch that would grant that consent on a deployment's behalf. See
   [Models that train on request data](models.md#models-that-train-on-request-data).
 - **Reasoning is not replayed to the Responses API.** A reasoning item is
   validated against upstream state the harness does not retain, and a mismatch
-  is an opaque `400`, so prior thinking is dropped from that protocol's requests
-  rather than sent and refused at random. The Messages protocol does replay
-  thinking blocks, using the signature the provider issued.
+  is an opaque `400`, so prior thinking is dropped from that protocol's requests.
+  The Messages protocol does replay thinking blocks, using the signature the
+  provider issued.
 - **A tool call the history cannot answer is dropped, not sent.** An assistant
   message can record a `tool-call` that was never dispatched — the process
   stopped between the model's answer and the tool starting — so no result exists
@@ -76,8 +72,7 @@ package: a cross-package copy of the harness class would never be recognized by
   block that no `tool_result` follows. The converters therefore omit a call whose
   result is missing from the request, and a result whose call is missing with it,
   because sending either alone fails the whole turn and neither can be
-  reconstructed. A history hole costs that one call its place in the transcript;
-  it no longer costs the session.
+  reconstructed. A history hole costs that one call its place in the transcript.
 - **Only `text` and `image` are on the wire.** The catalogue gives several models
   `video`, `audio`, or `pdf` input. Those are recorded and reported, but no
   protocol here has a field for them, so no request carries one and a model's

@@ -2,9 +2,9 @@
 
 > Back to [README](../README.md).
 
-Everything on this page describes what crosses the wire: the three endpoints
-and their auth, the session affinity header, and how reasoning and tool calls
-are translated per protocol.
+This page describes what crosses the wire: the three endpoints and their auth,
+the session affinity header, and how reasoning and tool calls are translated per
+protocol.
 
 ## Endpoints and auth
 
@@ -14,8 +14,8 @@ are translated per protocol.
 | Responses | `POST {baseURL}/responses` | `Authorization: Bearer <key>` |
 | Messages | `POST {baseURL}/messages` | `x-api-key: <key>` + `anthropic-version: 2023-06-01` |
 
-The Messages endpoint refuses a bearer token with `AuthError: Missing API key`;
-that is why it has its own header set rather than inheriting the shared one.
+The Messages endpoint uses its own header set: it refuses a bearer token with
+`AuthError: Missing API key`.
 
 Every request also carries:
 
@@ -25,28 +25,24 @@ x-opencode-session: <stable per-conversation id>
 x-opencode-client: dsh-opencode-go
 ```
 
-Both product tokens above are the `userAgentProduct` default, and they are
-deliberately *not* the package name. The package is `dsh-llm-opencode-go`; these
-two strings identify this client to the relay, which makes them a contract with a
-service rather than a label anyone here owns — renaming the package must not
-silently change what the gateway sees. Set `userAgentProduct` if you want them to
-match the package.
+Both product tokens above are the `userAgentProduct` default, and their value
+differs from the package name `dsh-llm-opencode-go`; set `userAgentProduct` to any
+value you want instead.
 
 ## `x-opencode-session`
 
-OpenCode's relay pins every request sharing one `x-opencode-session` value to
-the same upstream backend, which is what keeps its prompt cache warm across the
-turns of a conversation. The value only has to be opaque and stable **per
-conversation** — a single fixed value would put every session on one shared
-cache lineage, so this plugin derives it from the DSH session id that already
-travels with each call.
+OpenCode's relay pins every request sharing one `x-opencode-session` value to the
+same upstream backend, which is how the turns of one conversation keep hitting the
+same prompt cache. The value only has to be opaque and stable **per conversation**
+— one fixed value for every session would put them all on a shared cache lineage.
+The plugin derives it from the DSH session id that already travels with each call:
 
 - `session-id` (default) — the DSH session id: unique per conversation, stable
   across turns, compaction, retries, and process restarts.
 - `uuid` — an opaque random UUID derived once per session id and remembered for
   the process, for deployments that would rather not send the harness id.
-- `off` — send nothing. The plugin warns at startup, because OpenCode may then
-  refuse the request or lose cache affinity.
+- `off` — send nothing. The plugin warns at startup: OpenCode may then refuse the
+  request or lose cache affinity.
 
 An auxiliary call with no session id (session-title generation) still gets a
 per-process fallback value rather than an absent header.

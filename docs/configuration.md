@@ -38,57 +38,42 @@ view, or read `Config` from the plugin for the authoritative list.
 
 ## Fast entries
 
-Usage is a question asked several times a day ("how much of the plan is left"),
-so it should not sit behind the Plugins page. Besides that page, the plugin hangs
-one entry in each of three shallow places, all reading the same facts:
+Usage has three entries, all reading the same facts:
 
 | Entry | Where | What it offers |
 |---|---|---|
-| **The quota capsule at the sidebar's foot** | Beside Settings, in `sidebar.footer.action` | One group per metered window in a single row — ring, short tag, and what is left, separated by hairlines — without a click. Two actions: that row opens the usage panel, the gear opens the plugin's configuration page. |
-| **The usage panel** | From that row, or the keyboard (`main`, id `opencode-go-usage`) | The whole picture: the subscription's three windows first, this route's counters (totals, by model, by day) under them, with *re-read quota* and a jump to the plugin's configuration page in its header. |
-| **A tab under Settings → Plugins** | `settings.plugins.tab` | The same two blocks as the panel, in the place a reader looks when they go to Settings. |
+| **The quota capsule at the sidebar's foot** | Beside Settings, in `sidebar.footer.action` | One group per metered window in a single row — ring, short tag, and what is left, separated by hairlines — without a click. That row opens the usage panel, and the gear beside it opens the plugin's configuration page. |
+| **The usage panel** | From that row, or the keyboard (`main`, id `opencode-go-usage`) | The subscription's three windows first, this route's counters (totals, by model, by day) under them, with *re-read quota* and a jump to the plugin's configuration page in its header. |
+| **A tab under Settings → Plugins** | `settings.plugins.tab` | The same two blocks as the panel. |
 
-Three properties of this set are deliberate:
+All three are optional. The panel body, the capsule's click, and the shortcut come
+from `layout` and `shortcuts`; the configuration entry comes from the Plugins
+page's `pluginNavigation`. Where one of those is missing the entry is *not
+rendered* rather than rendered inert: a deployment with no Plugins page shows
+neither the gear nor the *Plugin settings* button, and one without the `shortcuts`
+service or a selectable panel simply has no such command.
 
-- **The foot lists every window it can name.** The three fail on different clocks:
-  the rolling window resets within hours, so it runs out first, but a weekly
-  window at 95% is the same bad news arriving more slowly — a single figure could
-  not show it at all. Each window is *one ring of its own* rather than three arcs
-  sharing a circle, because an arc has no room for a name: the reader would have
-  to know which arc was which window and read a length where a figure belongs.
-  The row reads `◉ 5H 92% │ ◉ 周 58% │ ◉ 月 9%`: the tag comes before the figure,
-  the figures are "% left" — the same direction the arcs are drawn — and they are
-  set in tabular figures so the row does not twitch as they move. The tags are two
-  characters because the spelled-out names do not fit the sidebar's 264px minimum
-  (all three groups need ~170px of the ~220px available); the full name still
-  travels in the tooltip and the accessible name. A window the service did not
-  report keeps its group, loses its arc, and prints a dash: "not measured" is not
-  "nothing left".
-- **The panel keeps no sidebar row of its own.** The panel and the capsule are two
-  views of one number, and a second sidebar entry holding it would be a second
-  door into one room — while every other row in that list is the host's. The panel
-  is entered from the capsule's row and left with the keyboard. For the same reason
-  the row is drawn to the host's own foot measurements (the host row's 42px and
-  12px radius), spread across its width with `space-between` so the three groups
-  use the whole sidebar rather than huddling at one end. Collapsed to the rail it
+The capsule itself:
+
+- Each metered window gets **one ring of its own**, and the row reads
+  `◉ 5H 92% │ ◉ 周 58% │ ◉ 月 9%`: the tag comes before the figure, the figures are
+  "% left", and they are set in tabular figures. The tags are two characters
+  (`5H`, `周`, `月`); the spelled-out names do not fit the sidebar's 264px
+  minimum, so they travel in the tooltip and the accessible name.
+- A window the service did not report keeps its group, loses its arc, and prints a
+  dash: "not measured" is not "nothing left".
+- The row is drawn to the host's own foot measurements (42px tall, 12px radius)
+  and spread across its width with `space-between`. Collapsed to the rail it
   becomes the 36px round button the host's rail uses, showing the rolling window
-  alone — a 36px column has no room for a "which window is this" label, and three
-  unnamed rings would be three identical circles.
-- **Every entry is optional.** The panel body, the capsule's click, and the
-  shortcut come from `layout` and `shortcuts`; the configuration entry comes from
-  the Plugins page's `pluginNavigation`. Where one is missing the entry is *not
-  rendered* rather than rendered inert: a deployment with no Plugins page shows
-  neither the gear nor the *Plugin settings* button, and one without the
-  `shortcuts` service or a selectable panel simply has no such command.
+  alone.
 
 The shortcut is rebindable in Settings → Shortcuts. It is `Ctrl/Cmd+U` on the
 desktop; the browser shell refuses a bare `primary+U`, so there it defaults to
 `Ctrl/Cmd+Alt+U` (Linux browsers can set their own).
 
-Opening the panel *does* read the service's quota, through the Host's
+Opening the panel reads the service's quota once, through the Host's
 `subscriptionCacheSeconds` cache; only *re-read quota* forces a fresh request. The
-capsule reads once when it mounts and never polls — a quota only moves when a
-request does.
+capsule reads once when it mounts and never polls.
 
 ## Graphical configuration
 
@@ -100,19 +85,18 @@ change often:
 | | |
 |---|---|
 | **API key** | Stored write-only through the credential seam under `apiKeyEnv`. The page reports whether it is configured, where it comes from, and whether it can be replaced — never the value. |
-| **Credential reference** | Which `apiKeyEnv` the key is stored under. Editable, because it is the way out of a key the launching environment supplies. |
-| **Model visibility** | One switch per catalog model, written to `hiddenModels`. The page shows the whole catalog — including models this deployment already hides — because a listing that showed only what is listed could not offer a way back. |
+| **Credential reference** | Which `apiKeyEnv` the key is stored under. Editable, so a name other than the one the launching environment supplies can be used. |
+| **Model visibility** | One switch per catalog model, written to `hiddenModels`. The page shows the whole catalog, including models this deployment already hides. |
 | **Model variants** | Named presets of one model, written to `modelVariants`, in an editable list: add a model, name it, then change or delete any row. |
 | **Fetch the model list** | Re-reads `GET /models` on demand and reports what appeared and what went away. |
-| **Usage** | Two things side by side: the service's own metered quota for the subscription, and the calls and tokens this plugin counted itself, per model and per day. The same block is the substance of the panel described under [fast entries](#fast-entries), so this page points at that one rather than implying it is the only door. |
+| **Usage** | Two things side by side: the service's own metered quota for the subscription, and the calls and tokens this plugin counted itself, per model and per day. This is the same block the panel under [fast entries](#fast-entries) carries. |
 
 Writing an ordinary config field reloads that plugin row — the Loader reconciles
-it through the profile patch — so the page re-reads what the Host reports a beat
-later rather than assuming its own draft survived, and says so when the read
-back fails. The key is the exception: it goes to the credential store and applies
-to the next request.
+it through the profile patch — after which the page re-reads what the Host
+reports, and says so when the read back fails. The key is the exception: it goes
+to the credential store and applies to the next request.
 
-### Where the API key comes from, and why "Clear" is sometimes inert
+### Where the key comes from, and when "Clear" is unavailable
 
 The credential seam layers a reference, most trusted first:
 
@@ -122,12 +106,12 @@ The credential seam layers a reference, most trusted first:
 | the managed store (`~/.dsh/.credentials.yaml`) | this is the value the route reads | **Clear key** removes it |
 | a `.env` file (project first, then home) | stores, and is immediately shadowed back by the file | **Clear key** is disabled, and the message names the file |
 
-The page can only remove the middle one, so it reports which layer it found
-rather than offering a button that would do nothing. When a value is supplied
-from outside, the way out is the **Credential reference** field: point the route
-at a name nothing shadows (`OPENCODE_GO_HOME_KEY`, say), press **Save reference**,
-and store the key under that name. It is an ordinary config field, so the Loader
-applies it on reload — no restart and no editing of your shell profile.
+The page can remove only the middle layer, and reports which layer it found in the
+other two cases. When a value is supplied from outside, the way out is the
+**Credential reference** field: point the route at a name nothing shadows
+(`OPENCODE_GO_HOME_KEY`, say), press **Save reference**, and store the key under
+that name. It is an ordinary config field, so the Loader applies it on reload — no
+restart and no editing of your shell profile.
 
 ### The page's own endpoints
 
@@ -145,24 +129,22 @@ while the client is open:
 | `/opencode-go/usage` | `GET` | the usage table for `?days=1`, `7`, or `30` |
 | `/opencode-go/subscription` | `GET` | the subscription's own quota, read from the service; `?refresh=1` bypasses the cache |
 
-Three properties are deliberate:
+How the surface is guarded:
 
 - **The fence comes first.** Every request goes through the harness's connection
   service, which owns the host/origin policy and the browser session. Without
   that service the fallback is a loopback authority, a `sec-fetch-site` that is
   not `cross-site`, and an `Origin` matching the authority — so a page on another
   host cannot read these endpoints, and a cross-site form post cannot write them.
-  A refused request gets a status and no body: an unauthenticated caller learns
-  nothing about the surface.
+  A refused request gets a status and no body.
 - **No secret ever travels back.** The key is written and reported as
   configured-or-not; nothing here returns its value, and `state` never carries it.
 - **A wrong method answers `405` with `Allow`**, an unknown path under the prefix
   answers `404`, and a body over 64 KiB answers `413` — the page can always tell
   a refusal it caused from a fault.
 
-The page itself is only mounted by a deployment that serves the web client.
-Without a `webServer`, the plugin is complete and this whole surface is absent,
-which is what the offline suites exercise by mounting nothing.
+The page is served only by a deployment that mounts a `webServer`; without one the
+plugin is complete and this whole surface is absent.
 
 ## Fetching the model list
 
@@ -172,17 +154,15 @@ demand, which is the one thing the page does that costs a request:
 
 - **What it reports** is what changed, counted over the *listing* rather than
   over the raw answer. A model the service stops listing but the built-in
-  catalog also knows stays offered, and saying it went away would describe a
-  change nobody sees.
+  catalog also knows stays offered, so it is not reported as a change.
 - **A failed read never costs the catalog.** The previous answer stays in place,
-  the page says why the read failed, and the models stay callable. Discovery
-  failing is not a reason for a working deployment to lose its models.
+  the page says why the read failed, and the models stay callable.
 - **The first read is the only awaited one.** Everything else — startup, the
   listing, the page's own load — is answered from memory or the cache file, so
   opening the page is not a request.
 
 `modelSource: config` has nothing to fetch: the catalog is exactly the entries
-the deployment wrote, and the control says so instead of pretending to read.
+the deployment wrote, and the control says so.
 
 ## Hiding models from the listing
 
@@ -203,27 +183,24 @@ config:
 An id the catalog does not list is kept rather than dropped, so hiding a model
 OpenCode has not published yet starts working the moment it appears; a startup
 warning names ids nothing in the catalog matches, which is usually a typo. The
-configuration page writes this field, and the two agree because both read the
-same listing decision.
+configuration page writes this field, and both sides read the same listing
+decision.
 
 ## Usage
 
-The usage section answers two different questions, and the page keeps them apart
-because they come from different places:
+The usage section answers two different questions, kept apart because they come
+from different places:
 
 | | |
 |---|---|
-| **Subscription quota** | The service's own metering, read from `GET {baseURL}/usage`: one bar per metered window — rolling, weekly, monthly — with the spent share in grey and the remaining share in pale green, both percentages as figures, and when the window resets. This is what answers "how much of the plan is left". |
+| **Subscription quota** | The service's own metering, read from `GET {baseURL}/usage`: one bar per metered window — rolling, weekly, monthly — with the spent share in grey and the remaining share in pale green, both percentages as figures, and when the window resets. |
 | **This route's counters** | What the plugin counted itself, below: totals, per model, per day. |
 
 The bars keep the service's own window names rather than mapping them onto "day,
-week, month": the shortest one is a rolling window that resets within hours
-rather than at midnight, so calling it a day would be a claim the service does
-not make. Each bar says when its window resets, which is the fact that matters
-for that one. Running out is the only thing this panel warns about, so past 80%
-the figure takes the warning colour and at 100% the error colour — the bar
-shortening is the primary signal, and the same numbers travel in
-`aria-valuetext` for a reader who cannot see the colour.
+week, month": the shortest one is a rolling window that resets within hours rather
+than at midnight. Each bar says when its window resets. Past 80% the figure takes
+the warning colour and at 100% the error colour, and the same numbers travel in
+`aria-valuetext`.
 
 The quota endpoint is not part of the published API — it is what the console
 calls — so the *shape* may move without notice. Every way it can be missing is
@@ -233,10 +210,10 @@ answers nothing at all. In all three cases the local counters stay on screen and
 the quota panel says which one happened. Opening the page reuses an answer for
 `subscriptionCacheSeconds`; only **Re-read quota** forces a fresh call.
 
-The counters below are the plugin's own, because nothing else can produce them:
-the harness reports tokens to whoever made the call, and only the adapter knows
-which model a token went to and which deployment paid for it. The page shows the
-result as totals, a per-model table, and a per-day series.
+The counters below are the plugin's own. The harness reports tokens to whoever
+made the call, and only the adapter knows which model a token went to and which
+deployment paid for it. The page shows the result as totals, a per-model table,
+and a per-day series.
 
 ```
 ~/.dsh/cache/opencode-go-usage.json
@@ -250,7 +227,7 @@ result as totals, a per-model table, and a per-day series.
 | Fact | How it is counted |
 |---|---|
 | **A call** | One per harness call, however many protocols it took: a request that fell back and then succeeded is one call, not two. |
-| **A failure** | A call that ended in an error, including one the provider refused before any stream. A model that only ever fails is exactly what this table is for. |
+| **A failure** | A call that ended in an error, including one the provider refused before any stream. |
 | **The model** | The id the harness asked for, so a variant appears under its own alias. |
 | **The day** | This machine's local calendar day, so a token spent at 23:00 belongs to the evening it was spent. |
 | **The window** | 1, 7, or 30 days. The page can ask for nothing else; a 30-day retention window is dropped from the file as it is written. |
@@ -259,10 +236,18 @@ result as totals, a per-model table, and a per-day series.
 | **Cache read / write** | What the service said it read from, and wrote to, its prompt cache. |
 | **Hit rate** | Cache read ÷ (uncached input + cache read) — the share of the prompt that came from cache. Shown as `—` when no call reported a cache figure at all. |
 
-### What the input column means, and why the cache columns need care
+A call whose stream the caller abandoned is not counted: this table is about what
+the route spent, not about an outcome nobody observed. Counting starts before the
+file is read, and the file is folded into what has been counted rather than
+replacing it, so the first call after a restart is not thrown away by the write
+that follows it. Every counter row is read through a default, so a field a newer
+build added is zero in a file an older one wrote instead of becoming `NaN` and
+poisoning everything written after it.
+
+### What the input column means
 
 The two service families disagree about what their prompt count contains, and the
-numbers above are only checkable if that disagreement is resolved the same way
+figures above are only checkable if that disagreement is resolved the same way
 every time. It is resolved the way the Harness resolves it: `inputTokens` is the
 **uncached** input — the Harness's own token meter reads exactly this field under
 the name `uncachedInputTokens`.
@@ -272,15 +257,11 @@ the name `uncachedInputTokens`.
 | OpenAI-shaped (`prompt_tokens_details`, `input_tokens_details`) | `prompt_tokens: 3689` with `cached_tokens: 3584` inside it | uncached input `105`, cache read `3584` |
 | Anthropic-shaped (`cache_read_input_tokens`, `cache_creation_input_tokens`) | `input_tokens: 4`, cache reported beside it | uncached input `4`, cache read `2048` |
 
-Both then add up the same way — uncached + output + read + write — which is what
-makes one total correct for both families, and what an earlier version got wrong:
-it passed the OpenAI prompt count through untouched *and* added the cached part
-on top. On a real cached call that reported 3689 prompt tokens of which 3584 were
-cached, the input column read 3689 instead of 105 and the hit rate came out at
-39% instead of 65%.
+Both then add up the same way — uncached + output + read + write — so one total
+formula is correct for both families.
 
-Two further consequences worth stating, because both showed up as wrong data
-rather than as an error:
+Two further consequences show up as **wrong data** rather than as an error, so
+they are worth knowing when the columns are used:
 
 - **`0%` and `—` are different claims.** A service that reports "nothing was
   cached" supports a hit rate of 0%; a service that reports no cache figure at
@@ -288,29 +269,18 @@ rather than as an error:
   the page can tell the two apart.
 - **The Messages protocol announces its cache figures once.** They arrive in
   `message_start`, and every later `message_delta` talks about output alone. The
-  two halves are merged field by field, so the cache figures survive; a merge
-  that rebuilt the object would report a cache hit of zero for every call.
+  two halves are merged field by field, so the cache figures survive.
 
-Three properties are deliberate:
+Three further properties of this data:
 
 - **It is a report, not a bill.** These are the figures the service reported to
   this client. The provider's own accounting of what a workspace spent is the
-  authority; a page that implied otherwise would be wrong about a number people
-  act on.
+  authority.
 - **Losing it is never a failure.** An unreadable file means no history yet, an
   unwritable one is one warning, and a call is never failed because its token
   count could not be saved.
 - **It is per deployment.** Two profiles, or two machines, keep their own
   counters. Nothing here is shared, and nothing is sent anywhere.
-
-A call whose stream the caller abandoned is not counted: this table is about what
-the route spent, and an outcome nobody observed is not a fact worth inventing.
-
-Counting starts before the file is read, and the file is folded into what has
-been counted rather than replacing it, so the first call after a restart is not
-thrown away by the write that follows it. Every counter row is read through a
-default, so a field a newer build added is zero in a file an older one wrote
-instead of becoming `NaN` and poisoning everything written after it.
 
 ## Model variants
 
@@ -333,13 +303,13 @@ config:
 | Key | Meaning |
 |---|---|
 | `model` | The model this varies. Must be a catalog id, and may not contain `@`. |
-| `name` | The variant's own name; `model@name` is the id it is offered under. The page leaves it optional: a name left blank becomes the thinking level the variant sets (then the protocol it leads with, then `default`), because that is what tells two presets of one model apart. |
+| `name` | The variant's own name; `model@name` is the id it is offered under. The page leaves it optional: a name left blank becomes the thinking level the variant sets (then the protocol it leads with, then `default`). |
 | `label` | Optional display name. |
 | `protocol` | Optional. The protocol a call through this variant opens with; the model's other protocols stay behind it as fallbacks. |
 | `effort` | Optional. The thinking level calls through this variant open with. The model must support reasoning, and must offer this level. |
 | `contextWindow`, `maxTokens` | Optional. What the variant advertises instead of the model's own figures. |
 
-Rules worth knowing before writing one:
+The remaining rules:
 
 - **A variant is a local alias.** The harness selects and reports
   `<model>@<name>`; the request on the wire still names `model`. Nothing about
@@ -347,24 +317,20 @@ Rules worth knowing before writing one:
 - **A variant inherits everything it does not restate**, including the base's
   capacity, modalities, reasoning ladder, and remaining protocols.
 - **A variant whose `model` the catalog does not list is not offered**, and one
-  startup warning names the ids. It would otherwise advertise capacities nothing
-  measured and fail at the far end of a call.
+  startup warning names the ids.
 - **A variant is a default, not a cage.** `effort` and `maxTokens` decide what a
   call opens with; a request that names its own values wins.
-- **Two contradictions are refused at startup** rather than absorbed, each by
-  name: an effort on a model that does not support reasoning, and an effort the
-  model does not offer.
+- **Two contradictions are refused at startup**, each by name: an effort on a
+  model that does not support reasoning, and an effort the model does not offer.
 - **An entry may carry only the keys above.** The page writes what it read plus
   your edits, and a key the config does not declare — a typo, or a field the
   snapshot happened to carry — is refused by name rather than written into
   `cordis.patch.yml`.
 
 Everything else — protocol shaping, timeouts, retry policy, cache paths — stays
-in `cordis.patch.yml`, where a machine-readable value lives next to the comment
-that explains it.
+in `cordis.patch.yml`.
 
-Two properties are worth stating because they decide what a deployment can
-expect:
+Two further properties of the configuration page:
 
 - **The page is optional in both directions.** It is served only when the
   deployment mounts a web server *and* registers a client half for this bundle.
@@ -417,12 +383,12 @@ page](models.md#capacity-and-modalities) declares `image`, and the adapter resol
 occurrence through the mounted attachment seam into a request part: a `data:` URL
 for Chat Completions and Responses, a base64 source for Messages.
 
-That declaration is deliberately conditional on the deployment — see
-`sendImages` above. A durable `ImageBlock` carries an attachment *reference*, and
-turning it into request bytes needs the `attachments` service, so a route that
-cannot resolve one reports text-only rather than declaring a capability it would
-fail to honour. The provider's own list is never lost: the resolved description
-names whatever the route cannot send.
+That declaration follows the deployment's condition — see `sendImages` above. A
+durable `ImageBlock` carries an attachment *reference*, and turning it into
+request bytes needs the `attachments` service, so a route that cannot resolve one
+reports text-only rather than declaring a capability it would fail to honour. The
+provider's own list is never lost: the resolved description names whatever the
+route cannot send.
 
 Override either half per model:
 

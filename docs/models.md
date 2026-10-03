@@ -2,10 +2,10 @@
 
 > Back to [README](../README.md).
 
-Everything on this page describes the model catalog: which wire protocol each
-model serves, which models are gated by a training-data policy, and what
-capacity and input modalities the catalog reports. All three come from the same
-two measured sources (`lib/model/catalog.js`, `lib/model/limits.js`).
+This page describes the model catalog: which wire protocol each model serves,
+which models are gated by a training-data policy, and what capacity and input
+modalities the catalog reports. All three come from the same two measured sources
+(`lib/model/catalog.js`, `lib/model/limits.js`).
 
 ## Protocol selection is per model
 
@@ -31,9 +31,9 @@ model by model:
 | `glm-5.3`, `glm-5.3-flash`, `glm-5.2`, `glm-5.1`, `kimi-k2.7-code`, `kimi-k2.6`, `mimo-v2.6-pro`, `mimo-v2.6-flash`, `mimo-v2.5-pro`, `mimo-v2.5`, `longcat-*`, `hy3`, `hy4-preview`, `omen-alpha` | chat-completions |
 | `muse-spark-1.3-contributor`, `muse-spark-1.2-contributor` | responses, and only while the workspace allows providers that train on request data (see [Models that train on request data](#models-that-train-on-request-data)) |
 
-Every id `GET /models` returns has a row in that table, so no served model has to
-discover its own protocol by failing first. Re-measure after a service change
-with the probe described in [Development](development.md#re-measuring-the-live-facts).
+Every id `GET /models` returns has a row in that table. Re-measure after a
+service change with the probe described in
+[Development](development.md#re-measuring-the-live-facts).
 
 Preference order is responses → chat-completions → anthropic. Pin a different
 one with `protocolOverrides`:
@@ -44,19 +44,21 @@ config:
     deepseek-v4-flash: chat-completions
 ```
 
-A model the catalog does not describe is handled by how unknown it actually is.
-An id the service lists but this plugin has never measured is recorded with the
-default protocol alone, because the service naming it is a fact this plugin
-lacks. An id that appears **nowhere** — new enough that even `GET /models` has
-not caught up, or reached through a gateway with no discovery — is the one case
-where the protocol is genuinely unknown, so it tries every protocol in order.
-You never have to wait for a plugin release to use a new model.
+A model the catalog does not describe falls into one of two cases:
+
+- **An id the service lists but this plugin has not measured**: it is recorded
+  with `defaultProtocol` alone (`chat-completions` unless configured otherwise),
+  with no fallback.
+- **An id that appears nowhere** — new enough that even `GET /models` has not
+  caught up, or reached through a gateway with no discovery: its protocol is
+  unknown, so it tries every protocol in order.
+
+Neither case needs a plugin release before the model can be used.
 
 ## Models that train on request data
 
-Two Go models — `muse-spark-1.3-contributor` and `muse-spark-1.2-contributor` —
-are cheap under a data policy rather than a price: their provider uses prompts and
-completions to train future models. The relay therefore gates them on a
+The providers of `muse-spark-1.3-contributor` and `muse-spark-1.2-contributor` use
+prompts and completions to train future models. The relay gates them on a
 **workspace** setting and refuses the call before the model is reached:
 
 ```json
@@ -71,22 +73,19 @@ enables **Allow models that train on request data**, every call to those ids fai
 (`https://opencode.ai/workspace` → the workspace → Go → Providers); on console
 builds that hide it from the sidebar, `…/settings/privacy` still reaches it.
 
-Three consequences shape what this adapter does, and none of them is "ask the
-service again":
+How the adapter handles that refusal:
 
-- **The refusal is named, not generalized.** It is reported as
-  `TRAINING_CONSENT_REQUIRED`, carrying the setting to enable and where to enable
-  it, instead of as `INVALID_REQUEST` (nothing about the request is wrong) or
-  `AUTH` (the credential is fine). No other protocol is tried: the gate is an
-  account policy, so a second request cannot answer differently.
+- **It is classified separately, and no other protocol is tried.** It is reported
+  as `TRAINING_CONSENT_REQUIRED`, carrying the setting to enable and where to
+  enable it, instead of as `INVALID_REQUEST` (nothing about the request is wrong)
+  or `AUTH` (the credential is fine). The gate is an account policy, so a second
+  request cannot answer differently.
 - **The model states what it needs while it is still being chosen.** A gated model
   carries the note in its listing and in its resolved metadata, so a selector can
   show the requirement before the first call rather than after a refused one.
-- **This plugin never grants the consent itself.** Whether prompts may train a
-  third party's model is the workspace owner's decision, so no header, body field,
-  or config switch here flips it; the adapter only reports it. It does log the
-  gated models once, when the catalog is assembled — earlier than the first
-  refusal.
+- **The plugin does not change the setting for a deployment.** No header, body
+  field, or config switch here flips it; the adapter only reports it. It does log
+  the gated models once, when the catalog is assembled.
 
 A deployment that cannot enable the setting — a workspace in a region the model is
 not offered in, or one route shared by several accounts — can keep those ids out
@@ -109,7 +108,7 @@ later needs no plugin change.
 {"id":"deepseek-v4.1-flash","object":"model","created":1790899718,"owned_by":"opencode"}
 ```
 
-No context window, no output cap, no modalities. The figures do exist, on the
+No context window, no output cap, no modalities. The figures exist on the
 catalogue OpenCode itself ships (`models.dev`), so `lib/model/limits.js` carries
 them as a **snapshot** rather than fetching them per request: a call that needs a
 context window must not wait on a third-party endpoint, and a deployment with no
@@ -141,11 +140,10 @@ The catalogue lists abilities no wire protocol here has a field for — `video`,
   harness models two and this adapter has a wire for two, so the resolved model
   declares `['text']` or `['text', 'image']`.
 
-The split is not cosmetic. The harness projects durable image blocks on the
-strength of the resolved list: a route that declares `image` is handed real image
-blocks and must resolve their bytes, while one that does not gets a text
-placeholder. A model whose abilities this route cannot carry therefore carries a
-note saying so:
+The split is observable: the harness projects durable image blocks on the strength
+of the resolved list — a route that declares `image` is handed real image blocks
+and must resolve their bytes, while one that does not gets a text placeholder. A
+model whose abilities this route cannot carry therefore carries a note saying so:
 
 ```
 "description": "the model also accepts video, audio, which no protocol on this route can send"
@@ -168,6 +166,6 @@ config:
 ```
 
 All three protocols carry images once declared: Chat Completions and Responses
-receive a `data:` URL part, Messages receives a base64 `source`. That is measured
-against the live service, not assumed — see
+receive a `data:` URL part, Messages receives a base64 `source`. This is measured
+against the live service and can be re-checked with the probes in
 [Development](development.md#re-measuring-the-live-facts).
