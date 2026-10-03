@@ -36,6 +36,48 @@ view, or read `Config` from the plugin for the authoritative list.
 | `healthCheck` | `off` | `startup` logs a credential + catalog report |
 | `retryPolicy` | normal, 5 retries | Provider-owned policy the retry executor applies |
 
+## Fast entries
+
+Usage is a question asked several times a day ("how much of the plan is left"),
+so it should not sit behind the Plugins page. Besides that page, the plugin hangs
+one entry in each of three shallow places, all reading the same facts:
+
+| Entry | Where | What it offers |
+|---|---|---|
+| **The quota capsule at the sidebar's foot** | Beside Settings, in `sidebar.footer.action` | How much of the shortest metered window is left, without a click. One row, two actions: the row opens the usage panel, the gear opens the plugin's configuration page. |
+| **The usage panel** | From that row, or the keyboard (`main`, id `opencode-go-usage`) | The whole picture: the subscription's three windows first, this route's counters (totals, by model, by day) under them, with *re-read quota* and a jump to the plugin's configuration page in its header. |
+| **A tab under Settings → Plugins** | `settings.plugins.tab` | The same two blocks as the panel, in the place a reader looks when they go to Settings. |
+
+Three properties of this set are deliberate:
+
+- **The capsule shows what is *left*, and it shows the *shortest* window** — the
+  rolling one, which resets in hours and therefore runs out first. The ring beside
+  it draws one arc per window, sized by that window's remaining share, and
+  coloured with the same thresholds the bars use (warning at 80%, error at 100%),
+  so the figure and the page it leads to say the same thing.
+- **The panel keeps no sidebar row of its own.** The panel and the capsule are two
+  views of one number, and a second sidebar entry holding it would be a second
+  door into one room — while every other row in that list is the host's. The panel
+  is entered from the capsule's row and left with the keyboard. For the same
+  reason the row is drawn to the host's own foot measurements (42px tall, 12px
+  radius, 14px type) and becomes the 36px round button the host's rail uses: a
+  control in that column that picked its own size reads as a foreign object.
+- **Every entry is optional.** The panel body, the capsule's click, and the
+  shortcut come from `layout` and `shortcuts`; the configuration entry comes from
+  the Plugins page's `pluginNavigation`. Where one is missing the entry is *not
+  rendered* rather than rendered inert: a deployment with no Plugins page shows
+  neither the gear nor the *Plugin settings* button, and one without the
+  `shortcuts` service or a selectable panel simply has no such command.
+
+The shortcut is rebindable in Settings → Shortcuts. It is `Ctrl/Cmd+U` on the
+desktop; the browser shell refuses a bare `primary+U`, so there it defaults to
+`Ctrl/Cmd+Alt+U` (Linux browsers can set their own).
+
+Opening the panel *does* read the service's quota, through the Host's
+`subscriptionCacheSeconds` cache; only *re-read quota* forces a fresh request. The
+capsule reads once when it mounts and never polls — a quota only moves when a
+request does.
+
 ## Graphical configuration
 
 The plugin ships a page in the Harness web client. Open the sidebar's
@@ -50,7 +92,7 @@ change often:
 | **Model visibility** | One switch per catalog model, written to `hiddenModels`. The page shows the whole catalog — including models this deployment already hides — because a listing that showed only what is listed could not offer a way back. |
 | **Model variants** | Named presets of one model, written to `modelVariants`, in an editable list: add a model, name it, then change or delete any row. |
 | **Fetch the model list** | Re-reads `GET /models` on demand and reports what appeared and what went away. |
-| **Usage** | Two things side by side: the service's own metered quota for the subscription, and the calls and tokens this plugin counted itself, per model and per day. |
+| **Usage** | Two things side by side: the service's own metered quota for the subscription, and the calls and tokens this plugin counted itself, per model and per day. The same block is the substance of the panel described under [fast entries](#fast-entries), so this page points at that one rather than implying it is the only door. |
 
 Writing an ordinary config field reloads that plugin row — the Loader reconciles
 it through the profile patch — so the page re-reads what the Host reports a beat

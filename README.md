@@ -37,6 +37,7 @@ page reaches the next call with no restart.
 | **Streaming** | SSE → `StreamChunk`, with usage, finish reason, and an idle watchdog |
 | **Failures** | Stable provider-neutral codes (`AUTH`, `RATE_LIMIT`, `QUOTA`, `CONTEXT_WINDOW_EXCEEDED`, …) |
 | **Configuration UI** | A page in the web client's Plugins list: API key, credential reference, model visibility, model variants, fetching the model list, usage |
+| **Fast entries** | A quota capsule at the sidebar's foot, a usage panel of its own (from that row, or the keyboard), and a usage page under Settings |
 | **Runtime dependencies** | none |
 
 ## Install
@@ -60,6 +61,21 @@ Either export `OPENCODE_GO_API_KEY` in the environment that launches DSH, or
 store it through the credentials seam — the web Models page writes it. The
 plugin resolves the reference per request, so both work and neither requires a
 restart.
+
+### See the usage at any time
+
+Usage should not require a walk through the Plugins page. The sidebar's foot
+carries the number at all times, and two more places carry the detail:
+
+| Entry | Where |
+|---|---|
+| **The quota capsule at the sidebar's foot** | Beside Settings. It shows how much of the shortest metered window is left, at a glance; the row opens the usage panel, and the gear beside it opens the configuration page above. |
+| **The usage panel** | From that row, or the keyboard (desktop `Ctrl/Cmd+U`): the subscription's three windows first, this route's counters under them, and a button in its header that goes straight to the plugin's configuration page. It keeps no sidebar row of its own — the capsule already holds that number, and one number wants one door. |
+| **Settings → Plugins → OpenCode Go usage** | A tab inside the settings panel, carrying the same content as the panel. |
+
+All three need the web client, the same as the configuration page; a deployment
+without one has none of them and is otherwise unchanged. See
+[Configuration](docs/configuration.md#fast-entries).
 
 ### Or use the plugin's own page
 

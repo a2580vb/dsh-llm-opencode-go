@@ -847,5 +847,249 @@ export default {
         }
       },
     },
+    {
+      name: 'the sidebar capsule answers the quota question without a click',
+      async run() {
+        // The whole point of the capsule: the number is on screen in the
+        // sidebar before anyone asks for it, and the shortest window — the one
+        // that runs out first — is the one it shows.
+        const page = await renderPage({ fetch: host() })
+        const capsule = page.surface('sidebar.footer.action')
+        const tree = await capsule.open()
+        equal(capsule.options.id, 'opencode-go-usage')
+        is(typeof capsule.options.label, 'function')
+        is(capsule.options.label(), 'OpenCode Go usage')
+        is(text(tree).replace(/\s+/g, ' ').trim(), 'OpenCode Go 92% left')
+
+        // The row takes its accessible name from that visible text rather than
+        // replacing it with an `aria-label`: a name a reader cannot see is one a
+        // speech user cannot match to the row in front of them.
+        const row = find(tree, (node) => node.type === 'button' && node.props.title !== undefined)
+        is(row.props['aria-label'], undefined)
+        ok(String(row.props.title).includes('92% left'), 'the tooltip names the window and the figure')
+
+        // One read, not forced: opening it must not spend a request inside the
+        // cache window the Host keeps for the answer.
+        equal(page.calls.map((call) => call.path), ['opencode-go/subscription'])
+      },
+    },
+    {
+      name: 'the capsule is drawn to the host foot\'s own measurements, rail variant included',
+      async run() {
+        // A footer row that picked its own height, radius, and type would read
+        // as a foreign object in a column whose every other row is host-owned,
+        // so the numbers are asserted rather than eyeballed.
+        const page = await renderPage({ fetch: host() })
+        const capsule = page.surface('sidebar.footer.action')
+        const wide = await capsule.open({ wide: true })
+        const row = find(wide, (node) => node.type === 'button' && node.props.title !== undefined)
+        is(row.props.style.height, '42px')
+        is(row.props.style.borderRadius, '12px')
+        is(row.props.style.border, 'none')
+        is(row.props.style.fontSize, '14px')
+        // The figure is pushed right and set in tabular figures, so a number
+        // going from 9% to 10% does not move the label beside it.
+        const figure = nodes(row).find(({ node }) => node.type === 'span' && node.props.style?.marginLeft === 'auto')
+        is(text(figure.node), '92% left')
+        is(figure.node.props.style.fontVariantNumeric, 'tabular-nums')
+        // Pointer feedback: the row has to look like the control it is.
+        is(typeof row.props.onPointerEnter, 'function')
+
+        // On the rail there is no room for words: the ring stands alone as the
+        // 36px circle the host's own rail uses, named for a screen reader
+        // because there is no label left to read.
+        const rail = await capsule.open({ wide: false })
+        const railButtons = nodes(rail).filter(({ node }) => node.type === 'button')
+        equal(railButtons.length, 1, 'no plugins page here, so the rail holds the ring alone')
+        is(railButtons[0].node.props.style.width, '36px')
+        is(railButtons[0].node.props.style.height, '36px')
+        is(railButtons[0].node.props.style.borderRadius, '50%')
+        is(railButtons[0].node.props['aria-label'], 'OpenCode Go usage')
+        is(text(rail).trim(), '', 'the rail draws no words')
+
+        // Where the plugins page does exist the rail stacks both circles, the
+        // way the host's rail stacks its own footer actions.
+        const wired = await renderPage({ fetch: host() })
+        wired.optional.set('pluginNavigation', { openBundle: () => {} })
+        const wiredRail = await wired.surface('sidebar.footer.action').open({ wide: false })
+        const stacked = nodes(wiredRail).filter(({ node }) => node.type === 'button')
+        equal(stacked.length, 2)
+        equal(stacked.map(({ node }) => node.props['aria-label']), [
+          'OpenCode Go usage',
+          'Open the plugin configuration page',
+        ])
+      },
+    },
+    {
+      name: 'the capsule opens the usage panel, and shows no settings entry without a plugins page',
+      async run() {
+        const page = await renderPage({ fetch: host() })
+        const capsule = page.surface('sidebar.footer.action')
+        const tree = await capsule.open()
+        // This deployment has no plugins page, so the gear is absent rather
+        // than present and inert.
+        is(nodes(tree).filter(({ node }) => node.type === 'button').length, 1)
+        // The shell supplies the opener; without it the capsule is still the
+        // quota readout, which is what it is for.
+        is(find(tree, (node) => node.type === 'button').props.onClick() === undefined, true)
+
+        const wired = await renderPage({ fetch: host() })
+        const opened = []
+        wired.optional.set('layout', { selectPanel: (id) => opened.push(id) })
+        const capsuleWired = wired.surface('sidebar.footer.action')
+        await capsuleWired.open()
+        await capsuleWired.click((node) => node.type === 'button' && node.props.title?.includes('click to see usage') === true)
+        equal(opened, ['opencode-go-usage'])
+      },
+    },
+    {
+      name: 'the usage panel carries the quota first and the counters under it',
+      async run() {
+        const page = await renderPage({ fetch: host() })
+        const panel = page.surface('main')
+        const tree = await panel.open()
+        equal(panel.options.key, 'opencode-go-usage')
+
+        // The same quota the configuration page shows, read from the same
+        // endpoint — and read on open, because the panel exists to answer this.
+        const bars = nodes(tree).filter(({ node }) => node.props?.role === 'progressbar')
+        equal(bars.map(({ node }) => node.props['aria-valuenow']), [8, 42, 91])
+        equal(page.calls.map((call) => call.path.split('?')[0]), ['opencode-go/subscription', 'opencode-go/usage'])
+        ok(text(tree).includes('Rolling'), 'the shortest window is named as the service names it')
+        ok(text(tree).includes('Resets'), 'each window says when it resets')
+        ok(!text(tree).includes('the service refused this key'), 'a working quota is not reported as a failure')
+
+        // The counters are the configuration page's own tables, in a lighter
+        // frame: every figure a reader came for is here.
+        ok(text(tree).includes('glm-5.3'), 'the per-model row is on the panel')
+        ok(text(tree).includes('20%'), 'the hit rate is computed, not echoed')
+        ok(text(tree).includes('This route\'s counters'), 'the local counters are their own section')
+      },
+    },
+    {
+      name: 'the panel says why there is no quota, without losing the counters',
+      async run() {
+        const page = await renderPage({ fetch: host({ subscription: { body: { ok: false, reason: 'unsupported' } } }) })
+        const panel = page.surface('main')
+        const tree = await panel.open()
+        ok(text(tree).includes('this service or gateway does not serve it'), text(tree).slice(0, 200))
+        // A deployment whose gateway does not meter a plan still knows what this
+        // route spent, so the counters stay.
+        ok(text(tree).includes('glm-5.3'), 'the counters survived the missing quota')
+      },
+    },
+    {
+      name: 'the panel re-reads the quota only when asked to',
+      async run() {
+        const page = await renderPage({ fetch: host() })
+        const panel = page.surface('main')
+        await panel.open()
+        await panel.click((node) => node.type === 'button' && text(node).trim() === 'Re-read quota')
+        const subscriptions = page.calls.filter((call) => call.path.startsWith('opencode-go/subscription'))
+        equal(subscriptions.map((call) => call.path), ['opencode-go/subscription', 'opencode-go/subscription?refresh=1'])
+      },
+    },
+    {
+      name: 'the panel offers a way through to the plugin configuration, and only where it exists',
+      async run() {
+        const page = await renderPage({ fetch: host() })
+        const bare = page.surface('main')
+        const bareTree = await bare.open()
+        is(nodes(bareTree).filter(({ node }) => text(node).trim() === 'Plugin settings').length, 0)
+        ok(text(bareTree).includes('This deployment has no plugins page'), 'the panel says why there is no entry')
+
+        const wired = await renderPage({ fetch: host() })
+        const opened = []
+        wired.optional.set('pluginNavigation', { openBundle: (name) => opened.push(name) })
+        const panel = wired.surface('main')
+        const tree = await panel.open()
+        await panel.click((node) => node.type === 'button' && text(node).trim() === 'Plugin settings')
+        equal(opened, ['dsh-opencode-go'])
+        // The capsule carries the same entry, so the reader who sees the number
+        // can reach the page that configures it without a detour.
+        const capsule = wired.surface('sidebar.footer.action')
+        const capsuleTree = await capsule.open()
+        await capsule.click((node) => node.type === 'button' && node.props['aria-label'] === 'Open the plugin configuration page')
+        equal(opened, ['dsh-opencode-go', 'dsh-opencode-go'])
+        ok(text(tree).includes('Plugins → dsh-opencode-go'), 'the entry names the path it takes')
+      },
+    },
+    {
+      name: 'the capsule ring draws one arc per window, at the edge it is given',
+      async run() {
+        const page = await renderPage({ fetch: host() })
+        const capsule = page.surface('sidebar.footer.action')
+        const tree = await capsule.open({ wide: true })
+
+        // The row's glyph is 16px; a ring that picked its own size sat larger
+        // than the controls beside it. It is also a block box inside a centering
+        // cell: an inline SVG sits on the row's text baseline and rides high.
+        const svg = find(tree, (node) => node.type === 'svg')
+        is(svg.props.width, 16)
+        is(svg.props.height, 16)
+        is(svg.props.viewBox, '0 0 16 16')
+        is(svg.props.style.display, 'block')
+
+        const arcs = nodes(tree).filter(({ node }) => node.type === 'circle' && node.props.strokeDasharray !== undefined)
+        equal(arcs.length, 3, 'one arc per metered window')
+        // The colours follow the same thresholds the bars in the panel use: 91%
+        // used is the warning state, not the error one, which is the state a
+        // window holds only once it is actually spent.
+        equal(arcs.map(({ node }) => node.props.stroke), [
+          'var(--dsw-alias-state-success-primary)',
+          'var(--dsw-alias-state-success-primary)',
+          'var(--dsw-alias-state-warn-primary)',
+        ])
+        // The arc is the share *left*, so a window at 91% used draws a ninth of
+        // its circumference rather than most of it.
+        const circumference = 2 * Math.PI * (16 / 2 - 1.8)
+        const dashed = Number(arcs[2].node.props.strokeDasharray.split(' ')[0])
+        ok(dashed < circumference * 0.2, `the spent window is nearly empty, got ${String(dashed)} of ${String(circumference)}`)
+        const idle = nodes(tree).filter(({ node }) => node.type === 'circle' && node.props.stroke === 'var(--dsw-alias-state-idle-primary)')
+        equal(idle.length, 1, 'the track is drawn under the arcs')
+
+        // A window at its limit has nothing left to draw, so only the track
+        // remains — and a window the service never reported looks the same, so
+        // "spent" is never confused with "unmeasured".
+        const spent = await renderPage({
+          fetch: host({
+            subscription: {
+              body: {
+                ...SUBSCRIPTION,
+                windows: [{ name: 'rolling', status: 'ok', percent: 100, resetsAt: '2026-01-16T00:00:00.000Z' }],
+              },
+            },
+          }),
+        })
+        const spentTree = await spent.surface('sidebar.footer.action').open({ wide: true })
+        equal(nodes(spentTree).filter(({ node }) => node.type === 'circle' && node.props.strokeDasharray !== undefined).length, 0)
+        equal(nodes(spentTree).filter(({ node }) => node.type === 'circle').length, 1)
+      },
+    },
+    {
+      name: 'the capsule reports a service it could not reach instead of an empty ring',
+      async run() {
+        const page = await renderPage({ fetch: host({ subscription: { body: { ok: false, reason: 'unreachable' } } }) })
+        const capsule = page.surface('sidebar.footer.action')
+        const tree = await capsule.open({ wide: true })
+        // No arcs, so the ring reads as "not measured" rather than "nothing
+        // left", and the figure says so rather than showing a zero.
+        equal(nodes(tree).filter(({ node }) => node.type === 'circle' && node.props.strokeDasharray !== undefined).length, 0)
+        equal(nodes(tree).filter(({ node }) => node.type === 'circle').length, 1)
+        ok(text(tree).includes('—'), 'the figure refuses to invent a number')
+      },
+    },
+    {
+      name: 'the settings tab renders the panel sections on its own',
+      async run() {
+        const page = await renderPage({ fetch: host() })
+        const tab = page.surface('settings.plugins.tab')
+        const tree = await tab.open()
+        equal(tab.options.label(), 'OpenCode Go usage')
+        equal(page.calls.map((call) => call.path.split('?')[0]), ['opencode-go/subscription', 'opencode-go/usage'])
+        equal(nodes(tree).filter(({ node }) => node.props?.role === 'progressbar').length, 3)
+        ok(text(tree).includes('glm-5.3'), 'the tab carries the counters too')
+      },
+    },
   ],
 }

@@ -52,15 +52,40 @@ function fakeReact() {
     createElement,
     Fragment: Symbol('Fragment'),
     useState: () => [undefined, () => {}],
+    useRef: () => ({ current: undefined }),
     useEffect: () => {},
     useCallback: (callback) => callback,
     useMemo: (factory) => factory(),
   }
 }
 
-/** A client context stand-in recording the page's registrations. */
-function fakeClientContext() {
-  const state = { dictionaries: [], slotQueries: [], registrations: [], effects: [] }
+/** A locale stand-in: the bundle registers a dictionary and binds its namespace. */
+function fakeLocale(state) {
+  const dictionaries = new Map()
+  return {
+    register: (ns, dicts) => {
+      state.dictionaries.push({ ns, dicts })
+      dictionaries.set(ns, dicts)
+      return () => {}
+    },
+    bind: (ns) => (key, params) => {
+      const template = dictionaries.get(ns)?.en?.[key] ?? key
+      if (params === undefined) return template
+      return template.replace(/\{(\w+)\}/g, (whole, name) => (name in params ? String(params[name]) : whole))
+    },
+  }
+}
+
+/**
+ * A client context stand-in recording the bundle's registrations.
+ *
+ * `services` answers `ctx.get`, which is how the bundle reaches the optional
+ * shell services (the shortcut registry, the panel controller, the plugins
+ * page's navigation). A test hands in a map to make one of them present, or
+ * nothing at all to exercise the profile that lacks them.
+ */
+function fakeClientContext(services = new Map()) {
+  const state = { dictionaries: [], slotQueries: [], registrations: [], effects: [], shortcuts: [] }
   return {
     state,
     ctx: {
@@ -69,12 +94,8 @@ function fakeClientContext() {
         state.effects.push(disposer)
         return () => disposer?.()
       },
-      locale: {
-        register: (ns, dicts) => {
-          state.dictionaries.push({ ns, dicts })
-          return () => {}
-        },
-      },
+      get: (key) => services.get(key),
+      locale: fakeLocale(state),
       slots: {
         inject: (key, callback) => {
           state.slotQueries.push(key)
@@ -88,6 +109,11 @@ function fakeClientContext() {
       },
     },
   }
+}
+
+/** The registered entry for one slot, by the slot's own name. */
+function entryFor(state, name) {
+  return state.registrations.find((registration) => registration.options.name === name)
 }
 
 export default {
@@ -128,14 +154,140 @@ export default {
         const { factory } = loadBundle()
         const { ctx, state } = fakeClientContext()
         factory(fakeRequire()).apply(ctx)
-        is(state.slotQueries.length, 1)
-        is(state.slotQueries[0], 'plugins.row.config')
-        is(state.registrations.length, 1)
-        const options = state.registrations[0].options
-        is(options.name, 'plugins.row.config')
-        is(options.key, `${manifest.name}#${rowId}`)
-        is(options.locale, 'opencodeGo')
-        is(typeof state.registrations[0].component, 'function')
+        ok(state.slotQueries.includes('plugins.row.config'), 'the row slot is filled')
+        const entry = entryFor(state, 'plugins.row.config')
+        is(entry.options.key, `${manifest.name}#${rowId}`)
+        is(entry.options.locale, 'opencodeGo')
+        is(typeof entry.component, 'function')
+      },
+    },
+    {
+      name: 'every entry the panel needs is registered, under one id',
+      run() {
+        // The quota row selects a central panel by id, and the main slot
+        // dispatches on the same string. Two ids that drifted apart would give a
+        // click that does nothing, which no type check and no build step would
+        // report.
+        const { factory } = loadBundle()
+        const { ctx, state } = fakeClientContext()
+        factory(fakeRequire()).apply(ctx)
+        const capsule = entryFor(state, 'sidebar.footer.action')
+        const panel = entryFor(state, 'main')
+        ok(capsule !== undefined, 'the sidebar foot holds the capsule')
+        ok(panel !== undefined, 'the central panel is registered')
+        is(panel.options.key, capsule.options.id)
+        is(typeof capsule.options.label, 'function')
+        for (const entry of [capsule, panel]) {
+          is(entry.options.locale, 'opencodeGo')
+          is(typeof entry.component, 'function')
+        }
+        // The settings tab reuses the same sections rather than re-fetching
+        // them, so it carries a component too.
+        ok(entryFor(state, 'settings.plugins.tab') !== undefined, 'the settings tab is registered')
+        // The sidebar keeps no row of ours: one number, one door. The panel is
+        // reached from the capsule and from the keyboard instead.
+        is(entryFor(state, 'sidebar.panellist'), undefined)
+      },
+    },
+    {
+      name: 'the shortcut is registered for every platform the shell accepts',
+      run() {
+        const { factory } = loadBundle()
+        const registered = []
+        const services = (commands) => new Map([['shortcuts', {
+          register: (command) => {
+            commands.push(command)
+            return () => {}
+          },
+        }]])
+        const commands = []
+        const { ctx } = fakeClientContext(services(commands))
+        factory(fakeRequire()).apply(ctx)
+        is(commands.length, 1)
+        const command = commands[0]
+        is(command.id, 'opencode-go.usage')
+        is(typeof command.label, 'function')
+        ok(Array.isArray(command.regions) && command.regions.length > 0, 'the command names the regions it answers in')
+        // The registry rejects reserved and browser-hostile bindings by throwing
+        // for the whole registration, so each declared default is checked here
+        // against the rules it enforces: a browser binding needs the primary
+        // modifier plus `alt` or `shift`, and a desktop binding needs a modifier
+        // at all.
+        const profiles = Object.keys(command.defaults)
+        ok(profiles.includes('desktop:macos') && profiles.includes('web:macos'), 'both runtimes are covered')
+        for (const [profile, binding] of Object.entries(command.defaults)) {
+          const modifiers = binding.modifiers ?? []
+          ok(modifiers.length > 0, `${profile} carries a modifier`)
+          ok(binding.code === 'KeyU', `${profile} binds the key this command documents`)
+          if (!profile.startsWith('web:')) continue
+          const shared = modifiers.filter((modifier) => modifier === 'primary' || modifier === 'alt' || modifier === 'shift')
+          ok(shared.length === modifiers.length && shared.length >= 2,
+            `${profile} is a binding the browser registry allows, got ${modifiers.join('+')}`)
+          ok(!modifiers.includes('meta') || modifiers.includes('primary'), `${profile} spells the platform modifier as primary`)
+        }
+
+        // Pressing it navigates, and where the shell has no panel controller it
+        // is blocked instead of throwing.
+        const opened = []
+        const withLayout = []
+        const layoutCtx = fakeClientContext(new Map([
+          ['shortcuts', { register: (command2) => { withLayout.push(command2); return () => {} } }],
+          ['layout', { selectPanel: (id) => opened.push(id) }],
+        ]))
+        factory(fakeRequire()).apply(layoutCtx.ctx)
+        is(withLayout.length, 1)
+        const resolution = withLayout[0].resolve({ modal: null, region: 'page' })
+        is(resolution.status, 'handled')
+        equal(opened, [entryFor(layoutCtx.state, 'main').options.key])
+
+        const withoutLayout = []
+        const bareCtx = fakeClientContext(new Map([
+          ['shortcuts', { register: (command2) => { withoutLayout.push(command2); return () => {} } }],
+        ]))
+        factory(fakeRequire()).apply(bareCtx.ctx)
+        is(withoutLayout[0].resolve({ modal: null, region: 'page' }).status, 'blocked')
+      },
+    },
+    {
+      name: 'the settings entry is offered only where there is a page to open',
+      run() {
+        // Without `pluginNavigation` the Plugins page is not mounted, so there
+        // is no configuration page to reach: the entry has to disappear rather
+        // than point at nothing.
+        const { factory } = loadBundle()
+        const plugin = factory(fakeRequire())
+        const bare = fakeClientContext()
+        plugin.apply(bare.ctx)
+        const barePanel = entryFor(bare.state, 'main')
+        is(JSON.stringify(Object.keys(barePanel.options.inject()).sort()), JSON.stringify(['t']))
+
+        const opened = []
+        const withPage = fakeClientContext(new Map([['pluginNavigation', { openBundle: (name) => opened.push(name) }]]))
+        plugin.apply(withPage.ctx)
+        const panel = entryFor(withPage.state, 'main')
+        const capsule = entryFor(withPage.state, 'sidebar.footer.action')
+        for (const entry of [panel, capsule]) {
+          const props = entry.options.inject()
+          is(typeof props.openSettings, 'function')
+          props.openSettings()
+        }
+        equal(opened, [manifest.name, manifest.name])
+      },
+    },
+    {
+      name: 'the panel capsule opens the panel rather than a copy of it',
+      run() {
+        const { factory } = loadBundle()
+        const opened = []
+        const layout = { selectPanel: (id) => opened.push(id) }
+        const { ctx, state } = fakeClientContext(new Map([['layout', layout]]))
+        factory(fakeRequire()).apply(ctx)
+        const props = entryFor(state, 'sidebar.footer.action').options.inject()
+        is(typeof props.openUsage, 'function')
+        is(props.openUsage(), true)
+        is(opened.length, 1)
+        // The capsule and the icon must name the panel the main slot answers to.
+        is(opened[0], entryFor(state, 'main').options.key)
       },
     },
     {
@@ -239,7 +391,7 @@ export default {
         const { factory } = loadBundle()
         const { ctx, state } = fakeClientContext()
         factory(fakeRequire()).apply(ctx)
-        const component = state.registrations[0].component
+        const component = entryFor(state, 'plugins.row.config').component
         const calls = []
         const originalFetch = globalThis.fetch
         globalThis.fetch = (...args) => {

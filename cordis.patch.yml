@@ -47,6 +47,13 @@
 # service's own subscription quota and what this route spent. See
 # docs/configuration.md#graphical-configuration. The page needs a web server and
 # is simply absent without one.
+#
+# Usage has three shallower entries besides that page, all reading the same
+# facts (docs/configuration.md#fast-entries): a quota capsule at the sidebar's
+# foot that opens a usage panel of its own (also Ctrl/Cmd+U on the desktop), and
+# a usage tab under Settings -> Plugins. Each is registered only where the shell
+# service behind it exists, so a deployment with no shortcuts registry or no
+# plugins page simply has fewer of them.
 - insert:
     - id: opencode-go
       name: dsh-opencode-go
