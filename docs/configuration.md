@@ -44,24 +44,36 @@ one entry in each of three shallow places, all reading the same facts:
 
 | Entry | Where | What it offers |
 |---|---|---|
-| **The quota capsule at the sidebar's foot** | Beside Settings, in `sidebar.footer.action` | How much of the shortest metered window is left, without a click. One row, two actions: the row opens the usage panel, the gear opens the plugin's configuration page. |
+| **The quota capsule at the sidebar's foot** | Beside Settings, in `sidebar.footer.action` | One group per metered window in a single row — ring, short tag, and what is left, separated by hairlines — without a click. Two actions: that row opens the usage panel, the gear opens the plugin's configuration page. |
 | **The usage panel** | From that row, or the keyboard (`main`, id `opencode-go-usage`) | The whole picture: the subscription's three windows first, this route's counters (totals, by model, by day) under them, with *re-read quota* and a jump to the plugin's configuration page in its header. |
 | **A tab under Settings → Plugins** | `settings.plugins.tab` | The same two blocks as the panel, in the place a reader looks when they go to Settings. |
 
 Three properties of this set are deliberate:
 
-- **The capsule shows what is *left*, and it shows the *shortest* window** — the
-  rolling one, which resets in hours and therefore runs out first. The ring beside
-  it draws one arc per window, sized by that window's remaining share, and
-  coloured with the same thresholds the bars use (warning at 80%, error at 100%),
-  so the figure and the page it leads to say the same thing.
+- **The foot lists every window it can name.** The three fail on different clocks:
+  the rolling window resets within hours, so it runs out first, but a weekly
+  window at 95% is the same bad news arriving more slowly — a single figure could
+  not show it at all. Each window is *one ring of its own* rather than three arcs
+  sharing a circle, because an arc has no room for a name: the reader would have
+  to know which arc was which window and read a length where a figure belongs.
+  The row reads `◉ 5H 92% │ ◉ 周 58% │ ◉ 月 9%`: the tag comes before the figure,
+  the figures are "% left" — the same direction the arcs are drawn — and they are
+  set in tabular figures so the row does not twitch as they move. The tags are two
+  characters because the spelled-out names do not fit the sidebar's 264px minimum
+  (all three groups need ~170px of the ~220px available); the full name still
+  travels in the tooltip and the accessible name. A window the service did not
+  report keeps its group, loses its arc, and prints a dash: "not measured" is not
+  "nothing left".
 - **The panel keeps no sidebar row of its own.** The panel and the capsule are two
   views of one number, and a second sidebar entry holding it would be a second
   door into one room — while every other row in that list is the host's. The panel
-  is entered from the capsule's row and left with the keyboard. For the same
-  reason the row is drawn to the host's own foot measurements (42px tall, 12px
-  radius, 14px type) and becomes the 36px round button the host's rail uses: a
-  control in that column that picked its own size reads as a foreign object.
+  is entered from the capsule's row and left with the keyboard. For the same reason
+  the row is drawn to the host's own foot measurements (the host row's 42px and
+  12px radius), spread across its width with `space-between` so the three groups
+  use the whole sidebar rather than huddling at one end. Collapsed to the rail it
+  becomes the 36px round button the host's rail uses, showing the rolling window
+  alone — a 36px column has no room for a "which window is this" label, and three
+  unnamed rings would be three identical circles.
 - **Every entry is optional.** The panel body, the capsule's click, and the
   shortcut come from `layout` and `shortcuts`; the configuration entry comes from
   the Plugins page's `pluginNavigation`. Where one is missing the entry is *not

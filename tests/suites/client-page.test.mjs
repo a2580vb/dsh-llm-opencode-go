@@ -848,25 +848,40 @@ export default {
       },
     },
     {
-      name: 'the sidebar capsule answers the quota question without a click',
+      name: 'the sidebar capsule answers the quota question without a click, for every window',
       async run() {
-        // The whole point of the capsule: the number is on screen in the
-        // sidebar before anyone asks for it, and the shortest window — the one
-        // that runs out first — is the one it shows.
+        // The whole point of the capsule: the numbers are on screen in the
+        // sidebar before anyone asks for them. All three windows, because they
+        // fail on different clocks — a weekly window at 95% is the same bad news
+        // arriving more slowly, and a single figure could not show it.
         const page = await renderPage({ fetch: host() })
         const capsule = page.surface('sidebar.footer.action')
         const tree = await capsule.open()
         equal(capsule.options.id, 'opencode-go-usage')
         is(typeof capsule.options.label, 'function')
         is(capsule.options.label(), 'OpenCode Go usage')
-        is(text(tree).replace(/\s+/g, ' ').trim(), 'OpenCode Go 92% left')
+        // Left, not used — the ring states the same fact, and a figure whose
+        // direction disagreed with its glyph would be worse than either alone.
+        const visible = text(tree).replace(/\s+/g, ' ').trim()
+        is(visible, '5H 92% Wk 58% Mo 9%')
+        // One group per window, in a row rather than in stacked lines.
+        const groups = nodes(tree).filter(({ node }) => node.props?.style?.gap === '4px')
+        equal(groups.length, 3, 'one group per window')
+        is(find(tree, (node) => node.type === 'button' && node.props.title !== undefined).props.style.flexDirection, undefined,
+          'the row is horizontal, so it needs no direction of its own')
 
-        // The row takes its accessible name from that visible text rather than
-        // replacing it with an `aria-label`: a name a reader cannot see is one a
-        // speech user cannot match to the row in front of them.
+        // The visible text is abbreviated, so the accessible name is the one that
+        // spells it out — and it has to contain every visible tag and figure, or a
+        // speech user could not name the row they can see (WCAG 2.5.3).
         const row = find(tree, (node) => node.type === 'button' && node.props.title !== undefined)
-        is(row.props['aria-label'], undefined)
-        ok(String(row.props.title).includes('92% left'), 'the tooltip names the window and the figure')
+        const name = String(row.props['aria-label'])
+        for (const token of visible.split(' ')) {
+          ok(name.includes(token), `the accessible name carries the visible "${token}": ${name}`)
+        }
+        for (const full of ['Rolling', 'Weekly', 'Monthly']) {
+          ok(name.includes(full), `the accessible name also spells out "${full}"`)
+        }
+        ok(String(row.props.title).includes('click to see usage'), 'the tooltip says what a click does')
 
         // One read, not forced: opening it must not spend a request inside the
         // cache window the Host keeps for the answer.
@@ -886,25 +901,26 @@ export default {
         is(row.props.style.height, '42px')
         is(row.props.style.borderRadius, '12px')
         is(row.props.style.border, 'none')
-        is(row.props.style.fontSize, '14px')
-        // The figure is pushed right and set in tabular figures, so a number
-        // going from 9% to 10% does not move the label beside it.
-        const figure = nodes(row).find(({ node }) => node.type === 'span' && node.props.style?.marginLeft === 'auto')
-        is(text(figure.node), '92% left')
-        is(figure.node.props.style.fontVariantNumeric, 'tabular-nums')
+        is(row.props.style.alignItems, 'center')
+        // The three groups are spread across the row and separated by a hairline
+        // each, rather than run together into one string of digits.
+        is(row.props.style.justifyContent, 'space-between')
+        equal(nodes(row).filter(({ node }) => node.props?.style?.width === '1px').length, 2, 'a divider between each pair')
+        const figures = nodes(row).filter(({ node }) => node.props?.style?.fontVariantNumeric === 'tabular-nums')
+        equal(figures.map(({ node }) => text(node)), ['92%', '58%', '9%'])
         // Pointer feedback: the row has to look like the control it is.
         is(typeof row.props.onPointerEnter, 'function')
 
-        // On the rail there is no room for words: the ring stands alone as the
-        // 36px circle the host's own rail uses, named for a screen reader
-        // because there is no label left to read.
+        // On the rail there is no room for words, and three unnamed rings would be
+        // three identical circles: it carries the rolling window alone, named for a
+        // screen reader because there is no label left to read.
         const rail = await capsule.open({ wide: false })
         const railButtons = nodes(rail).filter(({ node }) => node.type === 'button')
         equal(railButtons.length, 1, 'no plugins page here, so the rail holds the ring alone')
         is(railButtons[0].node.props.style.width, '36px')
         is(railButtons[0].node.props.style.height, '36px')
         is(railButtons[0].node.props.style.borderRadius, '50%')
-        is(railButtons[0].node.props['aria-label'], 'OpenCode Go usage')
+        ok(String(railButtons[0].node.props['aria-label']).includes('Rolling'), 'the rail names the window it shows')
         is(text(rail).trim(), '', 'the rail draws no words')
 
         // Where the plugins page does exist the rail stacks both circles, the
@@ -914,10 +930,8 @@ export default {
         const wiredRail = await wired.surface('sidebar.footer.action').open({ wide: false })
         const stacked = nodes(wiredRail).filter(({ node }) => node.type === 'button')
         equal(stacked.length, 2)
-        equal(stacked.map(({ node }) => node.props['aria-label']), [
-          'OpenCode Go usage',
-          'Open the plugin configuration page',
-        ])
+        is(stacked[1].node.props['aria-label'], 'Open the plugin configuration page')
+        ok(String(stacked[0].node.props['aria-label']).includes('Rolling'), 'the rail still names the window it shows')
       },
     },
     {
@@ -1015,23 +1029,40 @@ export default {
       },
     },
     {
-      name: 'the capsule ring draws one arc per window, at the edge it is given',
+      name: 'one ring per window, each sized by what that window has left',
       async run() {
         const page = await renderPage({ fetch: host() })
         const capsule = page.surface('sidebar.footer.action')
         const tree = await capsule.open({ wide: true })
 
-        // The row's glyph is 16px; a ring that picked its own size sat larger
-        // than the controls beside it. It is also a block box inside a centering
-        // cell: an inline SVG sits on the row's text baseline and rides high.
-        const svg = find(tree, (node) => node.type === 'svg')
-        is(svg.props.width, 16)
-        is(svg.props.height, 16)
-        is(svg.props.viewBox, '0 0 16 16')
-        is(svg.props.style.display, 'block')
+        // Three rings, one per window — not three arcs sharing a circle. An arc
+        // inside a shared glyph has no room for a name, which is the whole reason
+        // the foot lists windows instead of drawing a single pie chart.
+        const rings = nodes(tree).filter(({ node }) => node.type === 'svg')
+        equal(rings.length, 3, 'one ring per window')
+        for (const { node } of rings) {
+          is(node.props.width, 12)
+          is(node.props.height, 12)
+          is(node.props.viewBox, '0 0 12 12')
+          // A block box, not an inline one: an inline SVG sits on its line's text
+          // baseline and rides high beside the label.
+          is(node.props.style.display, 'block')
+        }
 
+        // One track and one arc per ring, and the arc is the share *left*: the
+        // rolling window at 8% used draws nearly the whole circle, and the monthly
+        // one at 91% draws a ninth.
+        const circumference = 2 * Math.PI * (12 / 2 - 1.5)
         const arcs = nodes(tree).filter(({ node }) => node.type === 'circle' && node.props.strokeDasharray !== undefined)
         equal(arcs.length, 3, 'one arc per metered window')
+        const drawn = arcs.map(({ node }) => Number(node.props.strokeDasharray.split(' ')[0]) / circumference)
+        ok(drawn[0] > 0.85, `the rolling window is nearly full, got ${String(drawn[0])}`)
+        ok(drawn[1] > 0.5 && drawn[1] < 0.65, `the weekly window is over half, got ${String(drawn[1])}`)
+        ok(drawn[2] < 0.15, `the monthly window is nearly spent, got ${String(drawn[2])}`)
+        for (const { node } of arcs) {
+          is(node.props.transform, 'rotate(-90 6 6)', 'every arc starts at the top')
+          is(String(node.props.stroke).startsWith('var(--dsw-alias-'), true, `a theme token, got ${String(node.props.stroke)}`)
+        }
         // The colours follow the same thresholds the bars in the panel use: 91%
         // used is the warning state, not the error one, which is the state a
         // window holds only once it is actually spent.
@@ -1040,17 +1071,12 @@ export default {
           'var(--dsw-alias-state-success-primary)',
           'var(--dsw-alias-state-warn-primary)',
         ])
-        // The arc is the share *left*, so a window at 91% used draws a ninth of
-        // its circumference rather than most of it.
-        const circumference = 2 * Math.PI * (16 / 2 - 1.8)
-        const dashed = Number(arcs[2].node.props.strokeDasharray.split(' ')[0])
-        ok(dashed < circumference * 0.2, `the spent window is nearly empty, got ${String(dashed)} of ${String(circumference)}`)
-        const idle = nodes(tree).filter(({ node }) => node.type === 'circle' && node.props.stroke === 'var(--dsw-alias-state-idle-primary)')
-        equal(idle.length, 1, 'the track is drawn under the arcs')
+        const tracks = nodes(tree).filter(({ node }) => node.type === 'circle' && node.props.stroke === 'var(--dsw-alias-state-idle-primary)')
+        equal(tracks.length, 3, 'a track under each arc')
 
-        // A window at its limit has nothing left to draw, so only the track
-        // remains — and a window the service never reported looks the same, so
-        // "spent" is never confused with "unmeasured".
+        // A spent window has nothing left to draw, so its ring keeps the track
+        // and loses the arc: the same shape an unreported window takes, which is
+        // why the figure beside each ring is what says which case it is.
         const spent = await renderPage({
           fetch: host({
             subscription: {
@@ -1063,7 +1089,11 @@ export default {
         })
         const spentTree = await spent.surface('sidebar.footer.action').open({ wide: true })
         equal(nodes(spentTree).filter(({ node }) => node.type === 'circle' && node.props.strokeDasharray !== undefined).length, 0)
-        equal(nodes(spentTree).filter(({ node }) => node.type === 'circle').length, 1)
+        equal(nodes(spentTree).filter(({ node }) => node.type === 'circle').length, 3, 'every window keeps its track')
+        // The figure is on the span, not on the text node inside it: filtering the
+        // text nodes and then asking them for a style finds nothing at all.
+        const spentFigures = nodes(spentTree).filter(({ node }) => node.props?.style?.fontVariantNumeric === 'tabular-nums')
+        equal(spentFigures.map(({ node }) => text(node)), ['0%', '—', '—'], 'a spent window says zero, an unreported one says nothing')
       },
     },
     {
@@ -1072,11 +1102,14 @@ export default {
         const page = await renderPage({ fetch: host({ subscription: { body: { ok: false, reason: 'unreachable' } } }) })
         const capsule = page.surface('sidebar.footer.action')
         const tree = await capsule.open({ wide: true })
-        // No arcs, so the ring reads as "not measured" rather than "nothing
-        // left", and the figure says so rather than showing a zero.
+        // Bare tracks, so the rings read as "not measured" rather than "nothing
+        // left", and the figures say so rather than showing three zeroes.
         equal(nodes(tree).filter(({ node }) => node.type === 'circle' && node.props.strokeDasharray !== undefined).length, 0)
-        equal(nodes(tree).filter(({ node }) => node.type === 'circle').length, 1)
-        ok(text(tree).includes('—'), 'the figure refuses to invent a number')
+        equal(nodes(tree).filter(({ node }) => node.type === 'circle').length, 3)
+        const figures = nodes(tree).filter(({ node }) => node.props?.style?.fontVariantNumeric === 'tabular-nums')
+        equal(figures.map(({ node }) => text(node)), ['—', '—', '—'], 'the figures refuse to invent numbers')
+        // The window tags stay: the reader can still see which windows exist.
+        for (const tag of ['5H', 'Wk', 'Mo']) ok(text(tree).includes(tag), `${tag} is still named`)
       },
     },
     {
