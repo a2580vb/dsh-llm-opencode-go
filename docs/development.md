@@ -17,15 +17,15 @@ plugin, how to re-measure the live facts, and how the code is laid out.
 ## Verification
 
 ```sh
-npm test            # 338 offline checks: config, SSE framing, catalog, all three protocols, adapter, plugin body, the settings bridge, the client bundle, the display metadata and release coherence
+npm test            # 344 offline checks: config, SSE framing, catalog, all three protocols, adapter, plugin body, the settings bridge, the client bundle, the display metadata and release coherence
 npm run test:cordis # 43 checks mounting the plugin on the harness's own cordis
 npm run test:live   # the live suite; needs OC_KEY
 ```
 
-The count above is restated in both README badges, in this page, and in its
-Chinese counterpart, so a new case moves it in four files. `release` is the suite
-that keeps a version bump honest: it reads the manifest and fails on any place
-that still states the version a release left behind.
+The count above is restated in both README badges, in this page, in its Chinese
+counterpart, and in both changelog files, so a new case moves it in six files.
+`release` is the suite that keeps a version bump honest: it reads the manifest and
+fails on any place that still states the version a release left behind.
 
 `npm test` runs offline and needs no credential. The protocol suites replay
 response bodies **captured from the live service** (`tests/golden/`), so they

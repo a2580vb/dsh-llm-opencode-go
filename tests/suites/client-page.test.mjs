@@ -318,6 +318,60 @@ export default {
       },
     },
     {
+      name: 'a model that trains on the conversation says so, in warning colour',
+      async run() {
+        // The gate is a data-policy fact about the conversation rather than a
+        // property of the model, so the badge says what becomes of the
+        // conversation and wears the warning colour — not the neutral grey the
+        // model's own facts wear beside it.
+        const gated = {
+          ...CATALOG,
+          counts: { ...CATALOG.counts, total: 4, listed: 3 },
+          models: [...CATALOG.models, {
+            id: 'muse-spark-1.3-contributor',
+            name: 'Muse Spark 1.3 Contributor',
+            hidden: false,
+            trainingGated: true,
+            protocols: ['anthropic-messages'],
+          }],
+        }
+        const page = await renderPage({ fetch: host({ models: { body: gated } }) })
+        const tree = await page.open()
+
+        const badge = nodes(tree)
+          .find(({ node }) => node.type === 'span' && text(node).trim() === 'conversations used for training')
+        ok(badge !== undefined, 'the gated model says what becomes of the conversation')
+        ok(
+          text(badge.path[badge.path.length - 1]).includes('muse-spark-1.3-contributor'),
+          'and says it on that model\'s own row',
+        )
+
+        const style = badge.node.props.style
+        ok(String(style.color).includes('state-warn'), `the badge warns: ${String(style.color)}`)
+        // A tint rather than the full-strength colour: the badge sits in a row of
+        // that model's own facts and must not shout them down.
+        const fill = String(style.background)
+        ok(fill.includes('color-mix') && fill.includes('state-warn'), `the fill is a pale warning: ${fill}`)
+        for (const [name, value] of [['text', String(style.color)], ['fill', fill]]) {
+          ok(!/#[0-9a-f]{3,6}\b|rgba?\(/i.test(value), `${name} is a theme token, not a literal: ${value}`)
+        }
+
+        // Only that one badge warns. Two warnings in one row are decoration, and
+        // the facts about the model itself keep the neutral colour they had.
+        const others = nodes(tree)
+          .filter(({ node }) => node.type === 'span' && ['hidden', 'reasoning'].includes(text(node).trim()))
+        equal(others.length, 2, 'the neutral badges are both still rendered')
+        for (const { node } of others) {
+          is(node.props.style.color, 'var(--dsw-alias-label-secondary)', 'a neutral badge kept its colour')
+        }
+
+        // The sentence the Chinese page shows, pinned by name: it is the one
+        // that says the conversations go to training.
+        const zh = await renderPage({ fetch: host({ models: { body: gated } }), locale: 'zh' })
+        ok(text(await zh.open()).includes('模型对话会用于训练'), 'the Chinese badge says it in the reader\'s words')
+      },
+    },
+    {
       name: 'hiding models writes the visibility list and re-reads the row',
       async run() {
         const page = await renderPage({ fetch: host() })
@@ -399,6 +453,9 @@ export default {
       async run() {
         const page = await renderPage({ fetch: host() })
         await page.open()
+        // The row's fields are behind its edit control, so the reader opens it
+        // before there is anything to type into.
+        await page.click((node) => node.type === 'button' && node.props['aria-label'] === 'Edit variant glm-5.3@fast')
         // The Host reports a variant with an `id`, because that is what the
         // model list offers. Echoing it back on save would write a key the
         // config does not declare into the profile patch.
@@ -408,6 +465,108 @@ export default {
         equal(JSON.parse(written.init.body), {
           set: { modelVariants: [{ model: 'glm-5.3', name: 'fast', contextWindow: 200_000 }] },
         })
+      },
+    },
+    {
+      name: 'a variant row keeps its fields behind an edit control, and open while it is renamed',
+      async run() {
+        const page = await renderPage({ fetch: host() })
+        await page.open()
+        const row = () => find(page.tree(), (node) => node.type === 'section' && text(node).includes('Model variants'))
+        // The fields a row owns are the ones labelled with its own id, which
+        // keeps the add form's two boxes out of the count.
+        const owned = (id) => nodes(row())
+          .map(({ node }) => node.props?.['aria-label'])
+          .filter((label) => typeof label === 'string' && label.startsWith(`${id} `))
+          .sort()
+        const button = (label) => nodes(row()).find(({ node }) => (
+          node.type === 'button' && node.props?.['aria-label'] === label
+        ))?.node
+
+        // A declared variant opens shut: a list of presets rather than a wall of
+        // boxes. The six fields are the row's whole substance, so the row head
+        // carries the one control that reveals them.
+        equal(owned('glm-5.3@fast'), [], 'the declared row starts with no fields on screen')
+        ok(button('Edit variant glm-5.3@fast') !== undefined, 'and offers the control that opens it')
+        is(button('Edit variant glm-5.3@fast').props['aria-expanded'], false)
+
+        await page.click((node) => node.type === 'button' && node.props['aria-label'] === 'Edit variant glm-5.3@fast')
+        equal(owned('glm-5.3@fast'), [
+          'glm-5.3@fast Context window',
+          'glm-5.3@fast Default thinking level',
+          'glm-5.3@fast Display name',
+          'glm-5.3@fast Output cap',
+          'glm-5.3@fast Protocol first',
+          'glm-5.3@fast Variant name',
+        ].sort(), 'the six fields appeared for the row that asked for them')
+        ok(button('Finish editing variant glm-5.3@fast') !== undefined, 'the control now offers the way back')
+        is(button('Finish editing variant glm-5.3@fast').props['aria-expanded'], true)
+
+        // Renaming is the case a row's identity has to survive: the name is half
+        // of the id, so a row keyed by its id would be rebuilt on the first
+        // keystroke — and shut in the reader's face.
+        await page.change((node) => node.props['aria-label'] === 'glm-5.3@fast Variant name', 'fastest')
+        equal(owned('glm-5.3@fast'), [], 'the field no longer answers to the name it had')
+        ok(owned('glm-5.3@fastest').length > 0, 'the row is still open, under its new name')
+
+        await page.click((node) => node.type === 'button' && node.props['aria-label'] === 'Finish editing variant glm-5.3@fastest')
+        equal(owned('glm-5.3@fastest'), [], 'the second press puts the fields away again')
+      },
+    },
+    {
+      name: 'a variant added from the form arrives with its fields open',
+      async run() {
+        const page = await renderPage({ fetch: host({ models: { body: { ...CATALOG, variants: [] } } }) })
+        await page.open()
+        await page.change((node) => node.type === 'select' && node.props['aria-label'] === 'Model', 'glm-5.3')
+        await page.change((node) => node.type === 'input' && node.props['aria-label'] === 'Variant name', 'slow')
+        await page.click((node) => node.type === 'button' && text(node).trim() === 'Add variant')
+        // The row lands where the reader is looking, so the cap and window it
+        // was just created to carry are one keystroke away rather than a click.
+        for (const field of ['Context window', 'Output cap']) {
+          ok(
+            nodes(page.tree()).some(({ node }) => node.props?.['aria-label'] === `glm-5.3@slow ${field}`),
+            `the new row is open, with its ${field} field`,
+          )
+        }
+      },
+    },
+    {
+      name: 'the add form keeps its fields together, with the name rules under them',
+      async run() {
+        // The two name rules — what a blank name becomes, and what a name may
+        // hold — used to sit between the form's two rows, which drew a line
+        // through it: the fields read as two groups rather than one form. They
+        // go under it now, where a footnote belongs.
+        const page = await renderPage({ fetch: host({ models: { body: { ...CATALOG, variants: [] } } }) })
+        await page.open()
+        // A model with a thinking ladder, so the form shows all five of its
+        // fields rather than four.
+        await page.change((node) => node.type === 'select' && node.props['aria-label'] === 'Model', 'glm-5.3')
+
+        const section = find(page.tree(), (node) => node.type === 'section' && text(node).includes('Model variants'))
+        const flat = nodes(section).map(({ node }) => node)
+        const at = (predicate) => flat.findIndex(predicate)
+        const field = (label) => at((node) => (node.type === 'input' || node.type === 'select')
+          && node.props?.['aria-label'] === label)
+        const note = (opening) => at((node) => node.type === 'p' && text(node).startsWith(opening))
+
+        const fields = ['Model', 'Variant name', 'Display name', 'Protocol first', 'Default thinking level']
+          .map(field)
+        const control = at((node) => node.type === 'button' && text(node).trim() === 'Add variant')
+        ok(fields.every((index) => index >= 0), 'every field of the add form is on screen')
+        ok(control >= 0, 'and the control that submits it')
+
+        for (const [what, index] of [
+          ['the note about a blank name', note('Leave the name blank and it becomes')],
+          ['the name rule', note('A variant name may hold letters')],
+        ]) {
+          ok(index >= 0, `${what} is on screen`)
+          // Strictly after every field and the button: a note that lands between
+          // two fields is what split the form in the first place.
+          const after = [...fields, control].every((position) => position < index)
+          ok(after, `${what} sits under the whole form, not inside it`)
+        }
       },
     },
     {
@@ -815,8 +974,9 @@ export default {
         // The convention that makes the arithmetic checkable is stated, not left
         // for the reader to infer from numbers that look inconsistent.
         const said = text(section).replace(/\s+/g, ' ')
-        ok(said.includes('Uncached input" counts only the part of the prompt'), said.slice(0, 200))
         ok(said.includes('Hit rate = cache read ÷ (uncached input + cache read)'), 'the formula is on the page')
+        ok(said.includes('shows "—".'), 'and so is what a missing figure looks like')
+        is(said.includes('counts only the part of the prompt'), false, 'the column note is gone')
 
         // The same numbers, this time from a service that reported them as zero.
         const reported = await renderPage({
@@ -825,6 +985,53 @@ export default {
         const reportedTree = await reported.open()
         const reportedSection = find(reportedTree, (node) => node.type === 'section' && text(node).includes('Usage'))
         is(rows(tables(reportedSection)[0])[1][7], '0%', 'a reported zero is a measurement')
+      },
+    },
+    {
+      name: 'the panel and the settings tab carry the configuration page\'s usage copy',
+      async run() {
+        // One dictionary feeds all three surfaces, so a sentence edited for one
+        // is edited for the rest — and this case is what keeps that true. It
+        // pins the sentences where the panel and the tab show them, and refuses
+        // the retired ones everywhere, because "the configuration page was
+        // updated and the panel still says the old thing" is exactly how these
+        // two blocks drifted apart before.
+        const page = await renderPage({ fetch: host() })
+        const flat = (tree) => text(tree).replace(/\s+/g, ' ')
+        const config = flat(await page.open())
+        const panel = flat(await page.surface('main').open())
+        const tab = flat(await page.surface('settings.plugins.tab').open())
+
+        const shared = [
+          'Calls and tokens recorded locally, grouped by this machine\'s calendar day and kept for 30 days.'
+          + ' It counts this plugin\'s route only; the model provider\'s billing may differ.',
+          'Hit rate = cache read ÷ (uncached input + cache read). A service that never reported a cache figure shows "—".',
+          'Read at ',
+        ]
+        for (const sentence of shared) {
+          for (const [where, surface] of [['the configuration page', config], ['the panel', panel], ['the settings tab', tab]]) {
+            ok(surface.includes(sentence), `${where} carries "${sentence.slice(0, 48)}…"`)
+          }
+        }
+
+        // The pointer to the panel belongs where the reader is not yet in it.
+        ok(config.includes('The keyboard shortcut Ctrl/Cmd+U opens the usage panel.'), 'the configuration page names the shortcut')
+
+        // Copy that was taken out stays out, on every surface: a retired
+        // sentence that survives on one of them is the bug this guards.
+        const retired = [
+          'counts only the part of the prompt',
+          'rather than a 0%',
+          'asking again forces a fresh read',
+          'Both of these also have a page of their own',
+          'one model\'s second set of settings',
+          'It is a local alias',
+        ]
+        for (const phrase of retired) {
+          for (const [where, surface] of [['the configuration page', config], ['the panel', panel], ['the settings tab', tab]]) {
+            is(surface.includes(phrase), false, `${where} no longer says "${phrase}"`)
+          }
+        }
       },
     },
     {

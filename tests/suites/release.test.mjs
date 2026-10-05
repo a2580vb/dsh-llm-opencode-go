@@ -11,15 +11,17 @@
  * These cases make a version bump self-checking: change `package.json`, and every
  * other place that has to move with it is named here.
  *
- * The changelog is deliberately absent: its headings are history, so the 0.1.0
- * entry has to keep saying 0.1.0 after the project moves on.
+ * The changelog is deliberately absent from the version cases: its headings are
+ * history, so the 0.1.0 entry has to keep saying 0.1.0 after the project moves on.
+ * It does get a case of its own — the notes ship in two languages, and those two
+ * have to keep saying the same thing.
  */
 
 import { readFile } from 'node:fs/promises'
 
 import { PLUGIN_VERSION } from '../../lib/config.js'
 import { PLUGIN_IDENTITY } from '../../lib/error/errors.js'
-import { is } from '../helpers.mjs'
+import { equal, is } from '../helpers.mjs'
 
 const read = (path) => readFile(new URL(`../../${path}`, import.meta.url), 'utf8')
 
@@ -76,6 +78,30 @@ export default {
         for (const path of ['docs/development.md', 'docs/development.zh-CN.md']) {
           is(statedVersion(path, await read(path), shape), version, `${path} states a stale version`)
         }
+      },
+    },
+    {
+      name: 'the changelog ships in both languages, in step',
+      async run() {
+        // The notes are the first thing a release, and the plugin market's
+        // change link, put in front of a reader — and half of those readers read
+        // the Chinese one. Two files that stopped matching would tell two
+        // different stories about one release, so the pair is held here: the same
+        // heading sequence, and an entry under each one.
+        const paths = ['CHANGELOG.md', 'CHANGELOG.zh-CN.md']
+        const texts = await Promise.all(paths.map((path) => read(path)))
+        for (const [index, text] of texts.entries()) {
+          is(text.includes(paths[1 - index]), true, `${paths[index]} points at the other language`)
+        }
+        const shape = (text) => ({
+          headings: text.split('\n').filter((line) => /^#{2,3} /.test(line)).map((line) => line.trim()),
+          entries: text.split('\n').filter((line) => line.startsWith('- ')).length,
+        })
+        const [en, zh] = texts.map(shape)
+        equal(zh.headings, en.headings, 'the two changelogs carry the same sections')
+        // Version headings are history, so the count of entries is what keeps the
+        // two sides honest: a note added to one file alone shows up here.
+        is(zh.entries, en.entries, 'the two changelogs carry the same number of entries')
       },
     },
     {

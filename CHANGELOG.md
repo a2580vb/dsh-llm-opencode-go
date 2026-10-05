@@ -1,39 +1,33 @@
 # Changelog
 
+> Chinese version: [CHANGELOG.zh-CN.md](CHANGELOG.zh-CN.md).
+
 Releases carry the notes that appear on the GitHub release and, through it, on the
-plugin market's **What changed** link. Keep the newest section at the top and give
-every released version one.
+plugin market's **What changed** link. Keep the newest section at the top, give
+every released version one, and keep each entry to a line if it fits.
 
 ## Unreleased
 
 ### Added
 
-- **The package card in Chinese.** The Plugins page and the Settings plugin
-  inventory describe a package in the interface's own language, and the sentence
-  they showed here was the manifest's English one. `locale/zh.json` now carries
-  it in Simplified Chinese and `locale/en.json` restates the English sentence;
-  the manifest exports and publishes both (`./locale/*.json`, `files`). The
-  Harness reads these files without activating the plugin, and a client whose
-  language has no file falls back to the manifest — which is what npm and the
-  plugin registry keep showing. A `display metadata` suite holds the pair
-  together: the English file must restate the manifest, the Chinese one must be
-  Chinese, and both must keep the technical names the sentence promises.
+- **The package card in Chinese.** `locale/zh.json` and `locale/en.json` ship with
+  the package; the Harness reads them without activating the plugin, and a
+  language with no file falls back to the manifest.
 
 ### Changed
 
-- **One re-read control, beside the quota it re-reads.** The usage panel drew
-  *re-read quota* twice — in its header and again inside the quota block under
-  the section's title — so the same action read as two, in two positions. The
-  quota block now carries no control of its own: the button sits in the
-  "Subscription quota" heading row on all three surfaces, and the panel header
-  keeps only the way through to the plugin's configuration page.
-- **The usage copy is gone.** The paragraph about the percentages and the
-  counters coming from different places, the quota block's own title line, and
-  the inline sentence spelling out the path to the plugin's configuration page
-  are removed. The blocks, their labels, and their controls say it instead.
-- 338 offline checks, up from 331.
-- Both development pages now name all four files that restate the check count,
-  rather than three.
+- **A pass over the panel's copy and layout.** Shorter sentences, shared by the
+  configuration page, the usage panel and the settings tab; *re-read quota* moved
+  beside the heading it belongs to.
+- **Model variants: fields fold away.** A row's fields sit behind its **Edit**
+  control, and the add form keeps its fields together with the name rules under
+  them.
+- **The training-gate badge** now reads *conversations used for training*, in the
+  warning colour.
+- **The credential-reference hint** now says what it sets.
+- **The changelog ships in English and Chinese**, held in step by a case.
+- 344 offline checks, up from 331.
+- Both development pages name all six files that restate the check count.
 
 ## 0.1.1 — 2026-10-05
 

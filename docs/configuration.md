@@ -87,7 +87,7 @@ change often:
 | **API key** | Stored write-only through the credential seam under `apiKeyEnv`. The page reports whether it is configured, where it comes from, and whether it can be replaced — never the value. |
 | **Credential reference** | Which `apiKeyEnv` the key is stored under. Editable, so a name other than the one the launching environment supplies can be used. |
 | **Model visibility** | One switch per catalog model, written to `hiddenModels`. The page shows the whole catalog, including models this deployment already hides. |
-| **Model variants** | Named presets of one model, written to `modelVariants`, in an editable list: add a model, name it, then change or delete any row. |
+| **Model variants** | Named presets of one model, written to `modelVariants`, in an editable list: add a model, name it, then open any row's **Edit** to change its fields, or **Remove** to drop it. |
 | **Fetch the model list** | Re-reads `GET /models` on demand and reports what appeared and what went away. |
 | **Usage** | Two things side by side: the service's own metered quota for the subscription, and the calls and tokens this plugin counted itself, per model and per day. This is the same block the panel under [fast entries](#fast-entries) carries. |
 
