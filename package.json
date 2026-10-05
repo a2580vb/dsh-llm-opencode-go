@@ -1,6 +1,6 @@
 {
   "name": "dsh-llm-opencode-go",
-  "version": "0.1.1",
+  "version": "0.2.0",
   "description": "DeepSeek Harness LLM adapter for OpenCode Go (opencode.ai/zen): /models discovery with cache, three wire protocols (OpenAI Responses, OpenAI-compatible Chat Completions, Anthropic Messages), tool calling, reasoning mapping, streaming, and the required x-opencode-session affinity header.",
   "type": "module",
   "main": "lib/index.js",

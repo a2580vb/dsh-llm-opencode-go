@@ -8,7 +8,7 @@
 
 | | |
 |---|---|
-| **版本** | 0.1.1（包名 `dsh-llm-opencode-go`） |
+| **版本** | 0.2.0（包名 `dsh-llm-opencode-go`） |
 | **协议映射** | 对线上服务逐模型实测，写在 `lib/model/catalog.js` |
 | **容量与模态** | 来自 OpenCode 目录（`models.dev`）的快照，日期记在 `lib/model/limits.js` 的 `CAPABILITY_SOURCE`（当前为 `models.dev/opencode-go@2026-10-02`） |
 | **已知限制** | 见[可靠性](reliability.zh-CN.md#限制)与[模型](models.zh-CN.md) |
