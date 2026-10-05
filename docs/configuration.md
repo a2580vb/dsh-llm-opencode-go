@@ -81,6 +81,16 @@ Every surface draws the same answer — the capsule, the panel, the settings tab
 and the configuration page — so a re-read on one of them moves the numbers on all
 of them. The capsule reads once when it mounts and never polls.
 
+This route's own counters are shared the same way, with one difference worth
+knowing: what the surfaces share is **the table for a window**, not the window.
+Three surfaces draw those tables — the configuration page's usage section, the
+panel, and the settings tab — and a read publishes to all of them at once, but
+**each surface keeps its own window**: opening 30 days on the panel asks a
+different question from the one the settings tab is showing, and neither moves the
+other. A surface reads its window when it mounts, when the reader switches the
+window, and when the reader presses *refresh usage*; two surfaces asking for the
+same window at the same moment spend one request between them.
+
 ## Graphical configuration
 
 The plugin ships a page in the Harness web client. It opens from two places, both

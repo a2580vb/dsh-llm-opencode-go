@@ -110,6 +110,18 @@ const figures = (tree) => nodes(tree)
   .filter(({ node }) => node.props?.style?.fontVariantNumeric === 'tabular-nums')
   .map(({ node }) => text(node))
 
+/**
+ * The calls figure of the first counters table inside a section.
+ *
+ * The three surfaces that draw the counters frame them differently, so a case
+ * finds the block by a word its heading carries and reads the totals row.
+ */
+const countersTotal = (tree, sectionText) => {
+  const section = find(tree, (node) => node.type === 'section' && text(node).includes(sectionText))
+  const [totals] = tables(section)
+  return rows(totals)[1]?.[1]
+}
+
 export default {
   name: 'client page',
   cases: [
@@ -118,14 +130,17 @@ export default {
       async run() {
         const page = await renderPage({ fetch: host() })
         await page.open()
+        // The counters are the one read that lands last, and deliberately: their
+        // section is drawn only once the page knows it has a row to configure,
+        // and it reads its own window when it mounts.
         equal(page.calls.map((call) => call.path.split('?')[0]), [
           'opencode-go/state',
           'opencode-go/models',
-          'opencode-go/usage',
           // The provider's own quota is read once on open. It is not forced,
           // so opening the page does not spend a request inside the cache
           // window the Host keeps for it.
           'opencode-go/subscription',
+          'opencode-go/usage',
         ])
         // The window is explicit and is the default one, so the page never
         // depends on the Host guessing what it meant.
@@ -282,6 +297,11 @@ export default {
         await page.click((node) => node.type === 'button' && text(node).trim() === 'Today')
         await page.click((node) => node.type === 'button' && text(node).trim() === 'Refresh usage')
         equal(windowsAsked(page.calls), [7, 1, 1])
+        // Pressing the window already showing is the other way a reader
+        // re-reads it, and the one the shared store cannot infer: the window
+        // they are on is by definition not a dependency change.
+        await page.click((node) => node.type === 'button' && text(node).trim() === 'Today')
+        equal(windowsAsked(page.calls), [7, 1, 1, 1])
       },
     },
     {
@@ -1315,6 +1335,108 @@ export default {
       },
     },
     {
+      name: 'one read of a window is the table every surface showing it draws',
+      async run() {
+        // The counters are drawn by three surfaces in three separate React trees,
+        // and each of them used to hold its own copy: *Refresh usage* on the panel
+        // moved the panel and left the page and the settings tab on the numbers
+        // they had read when they mounted. What is shared is the answer for a
+        // window, whichever surface asked for it.
+        let reads = 0
+        const base = host()
+        const page = await renderPage({
+          fetch: async (path, init) => {
+            const answer = await base(path, init)
+            if (!String(path).startsWith('opencode-go/usage')) return answer
+            // A distinguishable figure per read, so a stale table is visible.
+            reads += 1
+            return { ...answer, body: { ...answer.body, totals: { ...answer.body.totals, requests: reads * 10 } } }
+          },
+        })
+        const panel = page.surface('main')
+        const tab = page.surface('settings.plugins.tab')
+        await page.open()
+        await panel.open()
+        await tab.open()
+
+        const shown = () => [
+          countersTotal(page.tree(), 'Usage'),
+          countersTotal(panel.tree(), 'counters'),
+          countersTotal(tab.tree(), 'counters'),
+        ]
+
+        // Three mounts, three reads, one answer: the last read is what all three
+        // are showing, so no two surfaces disagree before anything is pressed.
+        equal(reads, 3)
+        equal(shown(), ['30', '30', '30'])
+
+        await panel.click((node) => node.type === 'button' && text(node).trim() === 'Refresh usage')
+
+        equal(reads, 4)
+        equal(shown(), ['40', '40', '40'])
+      },
+    },
+    {
+      name: 'the window a reader opens belongs to the surface, not to the page',
+      async run() {
+        // A window is a question, not a fact: the reader who opens 30 days on the
+        // panel has asked something the settings tab is not asking, so the two
+        // tables are different answers rather than two copies of one. Sharing the
+        // answer must not flatten that.
+        const page = await renderPage({ fetch: host() })
+        const panel = page.surface('main')
+        const tab = page.surface('settings.plugins.tab')
+        await page.open()
+        await panel.open()
+        await tab.open()
+
+        await panel.click((node) => node.type === 'button' && text(node).trim() === '30 days')
+
+        equal(windowsAsked(page.calls), [7, 7, 7, 30], 'the panel asked for its own window')
+        is(button(panel.tree(), '30 days').props.style.background, 'var(--dsw-alias-brand-primary)')
+        // The other two surfaces are still on 7 days, and still say so.
+        for (const [where, tree] of [['the configuration page', page.tree()], ['the settings tab', tab.tree()]]) {
+          is(button(tree, '7 days').props.style.background, 'var(--dsw-alias-brand-primary)', where)
+          is(button(tree, '30 days').props.style.background, 'var(--dsw-alias-bg-layer-2)', where)
+        }
+      },
+    },
+    {
+      name: 'two surfaces opening the same window at once share the one read',
+      async run() {
+        // A busy session can switch surfaces within one beat, and the counters are
+        // the same report for both. The read is held open here until the test
+        // releases it, which is what a slow bridge looks like to a burst.
+        let release
+        const gate = new Promise((resolve) => {
+          release = resolve
+        })
+        const base = host()
+        const page = await renderPage({
+          fetch: async (path, init) => {
+            if (String(path).startsWith('opencode-go/usage')) await gate
+            return base(path, init)
+          },
+        })
+        const panel = page.surface('main')
+        await panel.open()
+        const tab = page.surface('settings.plugins.tab')
+        await tab.open()
+        const asked = () => page.calls.filter((call) => call.path.startsWith('opencode-go/usage')).length
+
+        equal(asked(), 1, 'one request for both surfaces')
+        ok(text(panel.tree()).includes('Loading'), 'and the surfaces say they are waiting')
+        ok(text(tab.tree()).includes('Loading'), 'the second one included')
+
+        release()
+        await page.update()
+
+        equal(asked(), 1, 'the answer already on its way is the one both show')
+        equal(countersTotal(panel.tree(), 'counters'), '4')
+        equal(countersTotal(tab.tree(), 'counters'), '4')
+      },
+    },
+    {
       name: 'the re-read control sits with the quota label, once per surface',
       async run() {
         // The same action used to be drawn twice on the panel — once in the
@@ -1518,8 +1640,8 @@ export default {
         equal(page.calls.map((call) => call.path.split('?')[0]), [
           'opencode-go/state',
           'opencode-go/models',
-          'opencode-go/usage',
           'opencode-go/subscription',
+          'opencode-go/usage',
         ])
 
         // The fields are fields, not a readout: the reader who came to Settings
