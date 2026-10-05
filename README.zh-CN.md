@@ -4,7 +4,7 @@
 
 [![npm 版本](https://img.shields.io/npm/v/dsh-llm-opencode-go)](https://www.npmjs.com/package/dsh-llm-opencode-go)
 [![npm 下载量](https://img.shields.io/npm/dm/dsh-llm-opencode-go)](https://www.npmjs.com/package/dsh-llm-opencode-go)
-[![离线检查](https://img.shields.io/badge/offline_checks-345-brightgreen)](docs/development.zh-CN.md)
+[![离线检查](https://img.shields.io/badge/offline_checks-347-brightgreen)](docs/development.zh-CN.md)
 [![ci](https://github.com/a2580vb/dsh-llm-opencode-go/actions/workflows/ci.yml/badge.svg)](https://github.com/a2580vb/dsh-llm-opencode-go/actions/workflows/ci.yml)
 [![许可证](https://img.shields.io/badge/license-MIT-blue)](LICENSE)
 
@@ -69,7 +69,7 @@ dsh-llm-opencode-go: provider "opencode-go" ready at https://opencode.ai/zen/go/
 | 入口 | 位置 |
 |---|---|
 | **侧边栏底部的额度胶囊** | Settings 旁边。一行三组——`◉ 5H 92% │ ◉ 周 58% │ ◉ 月 9%`——不点击即可见；点这一行打开用量面板，点右边的齿轮打开插件配置页。 |
-| **用量面板** | 从胶囊那一行点开，或用快捷键（桌面端 `Ctrl/Cmd+U`）：订阅的三个窗口在上，本路由的计数在下，右上角有直达插件配置页的按钮。 |
+| **用量面板** | 从胶囊那一行点开，或用快捷键（桌面端 `Ctrl/Cmd+U`）：订阅的三个窗口在上，本路由的计数在下，标题行在滚动时留在原处——上面有直达插件配置页的按钮和回到对话的 **×**。 |
 | **设置 → Plugins → OpenCode Go 用量** | 设置面板里的一个页签，内容与用量面板相同。 |
 
 三者都需要 Web 客户端；没有 Web 客户端的部署里这三者都不存在，插件其余部分不变。详见

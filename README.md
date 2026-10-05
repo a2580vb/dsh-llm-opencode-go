@@ -4,7 +4,7 @@
 
 [![npm version](https://img.shields.io/npm/v/dsh-llm-opencode-go)](https://www.npmjs.com/package/dsh-llm-opencode-go)
 [![npm downloads](https://img.shields.io/npm/dm/dsh-llm-opencode-go)](https://www.npmjs.com/package/dsh-llm-opencode-go)
-[![offline checks](https://img.shields.io/badge/offline_checks-345-brightgreen)](docs/development.md#verification)
+[![offline checks](https://img.shields.io/badge/offline_checks-347-brightgreen)](docs/development.md#verification)
 [![ci](https://github.com/a2580vb/dsh-llm-opencode-go/actions/workflows/ci.yml/badge.svg)](https://github.com/a2580vb/dsh-llm-opencode-go/actions/workflows/ci.yml)
 [![license](https://img.shields.io/badge/license-MIT-blue)](LICENSE)
 
@@ -76,7 +76,7 @@ Usage has three entries, all reading the same facts:
 | Entry | Where |
 |---|---|
 | **The quota capsule at the sidebar's foot** | Beside Settings. One row, three groups — `◉ 5H 92% │ ◉ 周 58% │ ◉ 月 9%` — visible without a click; that row opens the usage panel, and the gear beside it opens the plugin's configuration page. |
-| **The usage panel** | From that row, or the keyboard (desktop `Ctrl/Cmd+U`): the subscription's three windows first, this route's counters under them, and a button in its header that goes straight to the plugin's configuration page. |
+| **The usage panel** | From that row, or the keyboard (desktop `Ctrl/Cmd+U`): the subscription's three windows first, this route's counters under them, and a header that stays on screen as they scroll — the way to the plugin's configuration page, and an **×** back to the conversation. |
 | **Settings → Plugins → OpenCode Go usage** | A tab inside the settings panel, carrying the same content as the panel. |
 
 All three need the web client; a deployment without one has none of them and is

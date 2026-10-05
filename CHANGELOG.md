@@ -13,6 +13,8 @@ every released version one, and keep each entry to a line if it fits.
 - **The package card in Chinese.** `locale/zh.json` and `locale/en.json` ship with
   the package; the Harness reads them without activating the plugin, and a
   language with no file falls back to the manifest.
+- **The usage panel can be dismissed.** Its title row is pinned to the top of the
+  scroll and carries a **×** that returns to the Conversation.
 
 ### Changed
 
@@ -27,7 +29,7 @@ every released version one, and keep each entry to a line if it fits.
 - **The credential-reference hint** now says what it sets.
 - **The changelog ships in English and Chinese**, and both files go into the
   published package, held in step by a case.
-- 345 offline checks, up from 331.
+- 347 offline checks, up from 331.
 - Both development pages name all six files that restate the check count.
 
 ## 0.1.1 — 2026-10-05

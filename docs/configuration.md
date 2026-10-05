@@ -43,15 +43,16 @@ Usage has three entries, all reading the same facts:
 | Entry | Where | What it offers |
 |---|---|---|
 | **The quota capsule at the sidebar's foot** | Beside Settings, in `sidebar.footer.action` | One group per metered window in a single row — ring, short tag, and what is left, separated by hairlines — without a click. That row opens the usage panel, and the gear beside it opens the plugin's configuration page. |
-| **The usage panel** | From that row, or the keyboard (`main`, id `opencode-go-usage`) | The subscription's three windows first, this route's counters (totals, by model, by day) under them; *re-read quota* sits beside the "Subscription quota" heading, and the jump to the plugin's configuration page in the header. |
+| **The usage panel** | From that row, or the keyboard (`main`, id `opencode-go-usage`) | The subscription's three windows first, this route's counters (totals, by model, by day) under them; its header stays pinned to the top of the scroll and carries the jump to the plugin's configuration page and an **×** back to the Conversation; *re-read quota* sits beside the "Subscription quota" heading. |
 | **A tab under Settings → Plugins** | `settings.plugins.tab` | The same two blocks as the panel. |
 
-All three are optional. The panel body, the capsule's click, and the shortcut come
-from `layout` and `shortcuts`; the configuration entry comes from the Plugins
-page's `pluginNavigation`. Where one of those is missing the entry is *not
-rendered* rather than rendered inert: a deployment with no Plugins page shows
-neither the gear nor the *Plugin settings* button, and one without the `shortcuts`
-service or a selectable panel simply has no such command.
+All three are optional. The panel body, the capsule's click, the shortcut, and the
+panel's own way out all come from `layout` and `shortcuts`; the configuration entry
+comes from the Plugins page's `pluginNavigation`. Where one of those is missing the
+entry is *not rendered* rather than rendered inert: a deployment with no Plugins
+page shows neither the gear nor the *Plugin settings* button, and one without the
+`shortcuts` service or a selectable panel simply has no such command — and, having
+no panel to leave, no × to leave it with.
 
 The capsule itself:
 

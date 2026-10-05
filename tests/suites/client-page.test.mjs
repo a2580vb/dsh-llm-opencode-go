@@ -1262,6 +1262,60 @@ export default {
       },
     },
     {
+      name: 'the panel\'s title row is pinned, and it carries the way out',
+      async run() {
+        const page = await renderPage({ fetch: host() })
+        const opened = []
+        page.optional.set('layout', { selectPanel: (id) => opened.push(id) })
+        const panel = page.surface('main')
+        const tree = await panel.open()
+
+        // The header is pinned — and pinned against the column that scrolls,
+        // which is the only thing that can hold it: a sticky row in a box that
+        // does not scroll sits exactly where it was put.
+        const pinned = nodes(tree).find(({ node }) => node.props?.style?.position === 'sticky')
+        ok(pinned !== undefined, 'the header row is pinned')
+        is(pinned.node.props.style.top, 0)
+        ok(pinned.path.some((ancestor) => ancestor.props?.style?.overflowY === 'auto'),
+          'the row is pinned against the scrolling column, not against a still box')
+
+        // Pinned means painted: the tables pass beneath the row, and a
+        // transparent one would let them show through the title.
+        ok(String(pinned.node.props.style.background).startsWith('var(--dsw-alias-'),
+          `the row covers what it pins over, got ${String(pinned.node.props.style.background)}`)
+        // The column's own headroom moved onto the row, so the title still has
+        // its 28px once the row has taken hold against the scrollport's edge.
+        is(pinned.node.props.style.paddingTop, '28px')
+        const scroller = find(tree, (node) => node.props?.style?.overflowY === 'auto')
+        is(scroller.props.style.padding, '0 clamp(24px, 4vw, 48px) 48px', 'and only onto the row')
+
+        // The row is where the dismissal lives, and it leaves the panel the way
+        // the shell spells leaving one: the Conversation is the null panel.
+        const close = nodes(tree)
+          .find(({ node }) => node.type === 'button' && node.props['aria-label'] === 'Close the panel')
+        ok(close !== undefined, 'the row carries the dismissal')
+        ok(close.path.some((ancestor) => ancestor.props?.style?.position === 'sticky'),
+          'the dismissal travels with the pinned row')
+        is(text(close.node).trim(), '', 'the × is drawn, not typed')
+        equal(nodes(close.node).filter(({ node }) => node.type === 'line').length, 2, 'drawn as two strokes')
+        await panel.click((node) => node.type === 'button' && node.props['aria-label'] === 'Close the panel')
+        equal(opened, [null], 'the dismissal selects the Conversation')
+      },
+    },
+    {
+      name: 'the dismissal is offered only where the shell can dismiss a panel',
+      async run() {
+        // No panel controller, nothing to select: the panel keeps its title row
+        // and loses the ×, the same rule the settings entry follows.
+        const page = await renderPage({ fetch: host() })
+        const tree = await page.surface('main').open()
+        is(nodes(tree)
+          .filter(({ node }) => node.type === 'button' && node.props['aria-label'] === 'Close the panel').length, 0)
+        is(nodes(tree).filter(({ node }) => node.props?.style?.position === 'sticky').length, 1,
+          'the title row is pinned whether or not it can be dismissed')
+      },
+    },
+    {
       name: 'one ring per window, each sized by what that window has left',
       async run() {
         const page = await renderPage({ fetch: host() })
