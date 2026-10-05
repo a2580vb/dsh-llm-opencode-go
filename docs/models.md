@@ -166,6 +166,10 @@ config:
 ```
 
 All three protocols carry images once declared: Chat Completions and Responses
-receive a `data:` URL part, Messages receives a base64 `source`. This is measured
+receive a `data:` URL part, Messages receives a base64 `source`. An image reaches
+the model by either route — attached to a turn, or returned by a tool — because
+`read_image` answers with text and the image itself, and that image is sent inside
+the tool result (the tool message's `content` parts, the `function_call_output`
+item's `output` parts, or the `tool_result` block's `content`). This is measured
 against the live service and can be re-checked with the probes in
 [Development](development.md#re-measuring-the-live-facts).

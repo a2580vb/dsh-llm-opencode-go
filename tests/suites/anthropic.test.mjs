@@ -2,7 +2,7 @@
 
 import * as anthropic from '../../lib/protocol/anthropic-messages.js'
 import { equal, is, ok } from '../helpers.mjs'
-import { assemble, failureOf, finishChunk, fixture, usageChunk } from './_protocol-harness.mjs'
+import { IMAGE_BLOCK, assemble, failureOf, finishChunk, fixture, imageParts, usageChunk } from './_protocol-harness.mjs'
 
 export default {
   name: 'protocol/anthropic',
@@ -86,6 +86,82 @@ export default {
         is(call.arguments, '{"city": "Paris"}')
         equal(finish, { kind: 'tool-calls' })
         is(finishChunk(chunks).replayState.response.stopReason, 'tool_use')
+      },
+    },
+    {
+      name: 'a tool result that carries an image sends it inside tool_result',
+      async run() {
+        // Messages takes `tool_result.content` as a string or a list of blocks,
+        // and the list is what carries `read_image`'s answer to the model.
+        const { imageSource } = imageParts()
+        const wire = await anthropic.prepare({
+          request: {
+            messages: [
+              { role: 'assistant', content: [{ type: 'tool-call', id: 'c1', name: 'read_image', arguments: '{}' }] },
+              { role: 'tool', toolCallId: 'c1', content: [{ type: 'text', text: '<type>image</type>' }, IMAGE_BLOCK] },
+            ],
+          },
+          model: { id: 'm', maxTokens: 4096 },
+          replayReasoning: false,
+          images: true,
+          imageSource,
+        })
+        equal(wire.body.messages[1].content, [{
+          type: 'tool_result',
+          tool_use_id: 'c1',
+          content: [
+            { type: 'text', text: '<type>image</type>' },
+            { type: 'image', source: { type: 'base64', media_type: 'image/png', data: 'iVBORw0KGgo=' } },
+          ],
+        }])
+        // A failed read keeps its `is_error` beside the image it did produce.
+        const failed = await anthropic.prepare({
+          request: {
+            messages: [
+              { role: 'assistant', content: [{ type: 'tool-call', id: 'c1', name: 'read_image', arguments: '{}' }] },
+              { role: 'tool', toolCallId: 'c1', isError: true, content: [{ type: 'text', text: 'partial' }, IMAGE_BLOCK] },
+            ],
+          },
+          model: { id: 'm', maxTokens: 4096 },
+          replayReasoning: false,
+          images: true,
+          imageSource,
+        })
+        is(failed.body.messages[1].content[0].is_error, true)
+        is(Array.isArray(failed.body.messages[1].content[0].content), true)
+      },
+    },
+    {
+      name: 'a tool result with text alone stays the plain string, and a text-only route says why not',
+      async run() {
+        const { imageSource } = imageParts()
+        const wire = await anthropic.prepare({
+          request: {
+            messages: [
+              { role: 'assistant', content: [{ type: 'tool-call', id: 'c1', name: 'get_weather', arguments: '{}' }] },
+              { role: 'tool', toolCallId: 'c1', content: [{ type: 'text', text: '18C' }] },
+            ],
+          },
+          model: { id: 'm', maxTokens: 4096 },
+          replayReasoning: false,
+          images: true,
+          imageSource,
+        })
+        equal(wire.body.messages[1].content, [{ type: 'tool_result', tool_use_id: 'c1', content: '18C' }])
+
+        const gated = await anthropic.prepare({
+          request: {
+            messages: [
+              { role: 'assistant', content: [{ type: 'tool-call', id: 'c1', name: 'read_image', arguments: '{}' }] },
+              { role: 'tool', toolCallId: 'c1', content: [{ type: 'text', text: 'read it' }, IMAGE_BLOCK] },
+            ],
+          },
+          model: { id: 'm', maxTokens: 4096 },
+          replayReasoning: false,
+          images: false,
+        })
+        const content = String(gated.body.messages[1].content[0].content)
+        ok(content.includes('read it') && content.includes('shot.png') && content.includes('not sent'), content)
       },
     },
     {

@@ -13,6 +13,7 @@ import { fileURLToPath } from 'node:url'
 
 import { BlockAssembler } from '@deepseek-ai/dsh-llm'
 
+import { ImageResolver, anthropicSourceFactory, dataUrlFactory } from '../../lib/model/images.js'
 import { bodyFromString } from '../../lib/stream/sse.js'
 import { is, ok } from '../helpers.mjs'
 
@@ -21,6 +22,23 @@ const goldenDir = join(dirname(fileURLToPath(import.meta.url)), '..', 'golden')
 /** Read one captured response body. */
 export async function fixture(name) {
   return readFile(join(goldenDir, name), 'utf8')
+}
+
+/** The one image block a `read_image` result carries, occurrence included. */
+export const IMAGE_BLOCK = Object.freeze({
+  type: 'image',
+  attachment: Object.freeze({ attachmentId: 'att-1', mediaType: 'image/png', name: 'shot.png' }),
+})
+
+/** Eight bytes standing in for the resolved request image. */
+const IMAGE_BYTES = new Uint8Array([137, 80, 78, 71, 13, 10, 26, 10])
+
+/** The two factories an image-capable route hands its converter. */
+export function imageParts() {
+  const resolver = new ImageResolver({
+    attachments: { readImageRequest: async () => ({ data: IMAGE_BYTES, mediaType: 'image/png', width: 8, height: 8 }) },
+  })
+  return { imageUrl: dataUrlFactory(resolver), imageSource: anthropicSourceFactory(resolver), resolver }
 }
 
 /** Run one translator and assemble its chunks the way the agent loop does. */

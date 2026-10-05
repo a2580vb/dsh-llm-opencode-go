@@ -2,7 +2,7 @@
 
 import * as chat from '../../lib/protocol/chat-completions.js'
 import { equal, is, ok } from '../helpers.mjs'
-import { assemble, failureOf, finishChunk, fixture, usageChunk } from './_protocol-harness.mjs'
+import { IMAGE_BLOCK, assemble, failureOf, finishChunk, fixture, imageParts, usageChunk } from './_protocol-harness.mjs'
 
 export default {
   name: 'protocol/chat-completions',
@@ -41,6 +41,80 @@ export default {
         ok(deltas.length >= 2, 'arguments arrived as more than one delta')
         // The cache-read figure is reported beside input tokens, not subtracted.
         is(usageChunk(chunks).usage.cacheReadTokens, 256)
+      },
+    },
+    {
+      name: 'a tool result that carries an image sends the image, not a placeholder',
+      async run() {
+        // `read_image` answers with an envelope and the image itself. Sending only
+        // the text left the model reading a description of a picture it could not
+        // see — the one thing that tool exists to prevent.
+        const { imageUrl } = imageParts()
+        const wire = await chat.prepare({
+          request: {
+            messages: [
+              { role: 'assistant', content: [{ type: 'tool-call', id: 'c1', name: 'read_image', arguments: '{"file_path":"a.png"}' }] },
+              {
+                role: 'tool',
+                toolCallId: 'c1',
+                content: [{ type: 'text', text: '<type>image</type>' }, IMAGE_BLOCK],
+              },
+            ],
+          },
+          model: { id: 'm' },
+          images: true,
+          imageUrl,
+        })
+        // The image rides the tool message's own content parts, which is the shape
+        // the live service accepts — the same parts a user turn uses.
+        equal(wire.body.messages[1], {
+          role: 'tool',
+          tool_call_id: 'c1',
+          content: [
+            { type: 'text', text: '<type>image</type>' },
+            { type: 'image_url', image_url: { url: 'data:image/png;base64,iVBORw0KGgo=' } },
+          ],
+        })
+        // Nothing about the pairing changed, so the turn still answers the call.
+        is(wire.body.messages[0].tool_calls[0].id, 'c1')
+      },
+    },
+    {
+      name: 'a tool result with text alone stays the plain string every wire takes',
+      async run() {
+        const { imageUrl } = imageParts()
+        const wire = await chat.prepare({
+          request: {
+            messages: [
+              { role: 'assistant', content: [{ type: 'tool-call', id: 'c1', name: 'get_weather', arguments: '{}' }] },
+              { role: 'tool', toolCallId: 'c1', content: [{ type: 'text', text: '18C' }] },
+            ],
+          },
+          model: { id: 'm' },
+          images: true,
+          imageUrl,
+        })
+        equal(wire.body.messages[1], { role: 'tool', tool_call_id: 'c1', content: '18C' })
+      },
+    },
+    {
+      name: 'a route that cannot take images says so in the tool result, rather than dropping it',
+      async run() {
+        const wire = await chat.prepare({
+          request: {
+            messages: [
+              { role: 'assistant', content: [{ type: 'tool-call', id: 'c1', name: 'read_image', arguments: '{}' }] },
+              { role: 'tool', toolCallId: 'c1', content: [{ type: 'text', text: 'read it' }, IMAGE_BLOCK] },
+            ],
+          },
+          model: { id: 'm' },
+          images: false,
+        })
+        // A text-only route still carries the fact that an image was there: a
+        // silent omission would read to the model as a tool that returned nothing.
+        ok(String(wire.body.messages[1].content).includes('read it'), 'the envelope survives')
+        ok(String(wire.body.messages[1].content).includes('shot.png'), 'and the image is named')
+        ok(String(wire.body.messages[1].content).includes('not sent'), 'with the reason it is missing')
       },
     },
     {

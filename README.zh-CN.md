@@ -4,7 +4,7 @@
 
 [![npm 版本](https://img.shields.io/npm/v/dsh-llm-opencode-go)](https://www.npmjs.com/package/dsh-llm-opencode-go)
 [![npm 下载量](https://img.shields.io/npm/dm/dsh-llm-opencode-go)](https://www.npmjs.com/package/dsh-llm-opencode-go)
-[![离线检查](https://img.shields.io/badge/offline_checks-351-brightgreen)](docs/development.zh-CN.md)
+[![离线检查](https://img.shields.io/badge/offline_checks-358-brightgreen)](docs/development.zh-CN.md)
 [![ci](https://github.com/a2580vb/dsh-llm-opencode-go/actions/workflows/ci.yml/badge.svg)](https://github.com/a2580vb/dsh-llm-opencode-go/actions/workflows/ci.yml)
 [![许可证](https://img.shields.io/badge/license-MIT-blue)](LICENSE)
 

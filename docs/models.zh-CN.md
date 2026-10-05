@@ -142,4 +142,7 @@ config:
 ```
 
 声明之后三种协议都能携带图片：Chat Completions 与 Responses 收到 `data:` URL 部件，Messages 收到
-base64 `source`。这是对线上实测的结论，可用[开发](development.zh-CN.md#重新实测线上事实)里的探针复核。
+base64 `source`。图片经两条路进到模型——贴/附在某一轮里，或由工具返回：`read_image` 的返回就是一段
+文字加图片本身，而这张图片是**放在工具结果里**发出去的（tool 消息的 `content` 部件、`function_call_output`
+的 `output` 部件、`tool_result` 的 `content`）。这是对线上实测的结论，可用
+[开发](development.zh-CN.md#重新实测线上事实)里的探针复核。

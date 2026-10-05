@@ -2,7 +2,7 @@
 
 import * as responses from '../../lib/protocol/responses.js'
 import { equal, is, ok } from '../helpers.mjs'
-import { assemble, failureOf, finishChunk, fixture, usageChunk } from './_protocol-harness.mjs'
+import { IMAGE_BLOCK, assemble, failureOf, finishChunk, fixture, imageParts, usageChunk } from './_protocol-harness.mjs'
 
 export default {
   name: 'protocol/responses',
@@ -73,6 +73,62 @@ export default {
           { type: 'function_call', call_id: 'c1', name: 'get_weather', arguments: '{"city":"Paris"}' },
           { type: 'function_call_output', call_id: 'c1', output: '18C' },
         ])
+      },
+    },
+    {
+      name: 'a tool result that carries an image sends it inside function_call_output',
+      async run() {
+        // The item's `output` takes a string or a list of input parts, and the
+        // list is what carries `read_image`'s answer to the model.
+        const { imageUrl } = imageParts()
+        const wire = await responses.prepare({
+          request: {
+            messages: [
+              { role: 'assistant', content: [{ type: 'tool-call', id: 'c1', name: 'read_image', arguments: '{}' }] },
+              { role: 'tool', toolCallId: 'c1', content: [{ type: 'text', text: '<type>image</type>' }, IMAGE_BLOCK] },
+            ],
+          },
+          model: { id: 'm' },
+          images: true,
+          imageUrl,
+        })
+        equal(wire.body.input, [
+          { type: 'function_call', call_id: 'c1', name: 'read_image', arguments: '{}' },
+          {
+            type: 'function_call_output',
+            call_id: 'c1',
+            output: [
+              { type: 'input_text', text: '<type>image</type>' },
+              { type: 'input_image', image_url: 'data:image/png;base64,iVBORw0KGgo=' },
+            ],
+          },
+        ])
+      },
+    },
+    {
+      name: 'a tool result with text alone stays the plain string, and a text-only route says why not',
+      async run() {
+        const { imageUrl } = imageParts()
+        const messages = [
+          { role: 'assistant', content: [{ type: 'tool-call', id: 'c1', name: 'get_weather', arguments: '{}' }] },
+          { role: 'tool', toolCallId: 'c1', content: [{ type: 'text', text: '18C' }] },
+        ]
+        const wire = await responses.prepare({ request: { messages }, model: { id: 'm' }, images: true, imageUrl })
+        equal(wire.body.input[1], { type: 'function_call_output', call_id: 'c1', output: '18C' })
+
+        // Without image input the result still names the image it could not carry.
+        const gated = await responses.prepare({
+          request: {
+            messages: [
+              { role: 'assistant', content: [{ type: 'tool-call', id: 'c1', name: 'read_image', arguments: '{}' }] },
+              { role: 'tool', toolCallId: 'c1', content: [{ type: 'text', text: 'read it' }, IMAGE_BLOCK] },
+            ],
+          },
+          model: { id: 'm' },
+          images: false,
+        })
+        const output = String(gated.body.input[1].output)
+        ok(output.includes('read it') && output.includes('shot.png') && output.includes('not sent'), output)
       },
     },
     {

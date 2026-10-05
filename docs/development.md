@@ -17,7 +17,7 @@ plugin, how to re-measure the live facts, and how the code is laid out.
 ## Verification
 
 ```sh
-npm test            # 351 offline checks: config, SSE framing, catalog, all three protocols, adapter, plugin body, the settings bridge, the client bundle, the display metadata and release coherence
+npm test            # 358 offline checks: config, SSE framing, catalog, all three protocols, adapter, plugin body, the settings bridge, the client bundle, the display metadata and release coherence
 npm run test:cordis # 43 checks mounting the plugin on the harness's own cordis
 npm run test:live   # the live suite; needs OC_KEY
 ```
@@ -116,11 +116,15 @@ node scripts/snapshot-models.mjs [--write]                      # capacity snaps
 ```
 
 `probe-protocols.mjs` answers `served=[…]` per model, which is what
-`FALLBACK_MODELS` is written from. `probe-image.mjs` posts a generated PNG over
-each protocol and checks the model can actually read it; its image is written to
-`.live-cache/probe-image.png` (untracked scratch). `snapshot-models.mjs` prints
-what changed since the snapshot was taken — `new`, `changed`, `gone` — and
-rewrites the two tables with `--write`.
+`FALLBACK_MODELS` is written from. `probe-image.mjs` posts a PNG over each
+protocol and checks the model can actually read it — twice per protocol, once
+with the image in a user turn and once with it inside a tool result, because
+those are two different shapes and only the second one carries what `read_image`
+answers with. Point it at any picture with `OC_IMAGE=path/to.png` (the default,
+`.live-cache/probe-image.png`, is untracked scratch) and read the printed answer
+against what the picture holds. `snapshot-models.mjs` prints what changed since
+the snapshot was taken — `new`, `changed`, `gone` — and rewrites the two tables
+with `--write`.
 
 ## Architecture
 
