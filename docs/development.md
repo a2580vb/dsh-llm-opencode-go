@@ -9,7 +9,7 @@ plugin, how to re-measure the live facts, and how the code is laid out.
 
 | | |
 |---|---|
-| **Version** | 0.2.0 (package `dsh-llm-opencode-go`) |
+| **Version** | 0.2.1 (package `dsh-llm-opencode-go`) |
 | **Protocol map** | Measured per model against the live service; kept in `lib/model/catalog.js` |
 | **Capacity and modalities** | A snapshot of the OpenCode catalogue (`models.dev`), dated in `CAPABILITY_SOURCE` in `lib/model/limits.js` (currently `models.dev/opencode-go@2026-10-02`) |
 | **Known limits** | See [Reliability](reliability.md#limits) and [Models](models.md) |
