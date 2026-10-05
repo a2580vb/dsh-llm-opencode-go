@@ -13,3 +13,9 @@ pnpm-lock.yaml
 # never part of the plugin. The screenshots it refers to live in assets/,
 # which is committed.
 promotion/
+# A local orientation note: this checkout's paths, the current check count, and
+# the rules a change tends to run into. It goes stale on every commit, and the
+# committed README, docs/ and CHANGELOG are the facts that ship — so it stays
+# out of the history rather than in it. The name is the ecosystem's convention,
+# which is also why a tool may read it without being asked.
+AGENTS.md
