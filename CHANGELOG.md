@@ -15,6 +15,8 @@ every released version one, and keep each entry to a line if it fits.
   language with no file falls back to the manifest.
 - **The usage panel can be dismissed.** Its title row is pinned to the top of the
   scroll and carries a **×** that returns to the Conversation.
+- **The configuration page sits in Settings.** It is a row of Settings' own
+  navigation, beside the pages the shell ships.
 
 ### Changed
 
@@ -29,7 +31,7 @@ every released version one, and keep each entry to a line if it fits.
 - **The credential-reference hint** now says what it sets.
 - **The changelog ships in English and Chinese**, and both files go into the
   published package, held in step by a case.
-- 347 offline checks, up from 331.
+- 349 offline checks, up from 331.
 - Both development pages name all six files that restate the check count.
 
 ## 0.1.1 — 2026-10-05

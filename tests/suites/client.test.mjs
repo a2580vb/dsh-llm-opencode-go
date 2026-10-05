@@ -190,6 +190,30 @@ export default {
       },
     },
     {
+      name: 'the settings navigation carries the plugin\'s page, under an id of its own',
+      run() {
+        // Settings renders one nav row per entry and dispatches by id, so an id
+        // that collided with a shipped page would take over that page's cell
+        // rather than add a row beside it.
+        const { factory } = loadBundle()
+        const { ctx, state } = fakeClientContext()
+        factory(fakeRequire()).apply(ctx)
+        const section = entryFor(state, 'settings.section')
+        ok(section !== undefined, 'the plugin contributes a Settings page')
+        is(section.options.id, 'opencode-go')
+        is(section.options.locale, 'opencodeGo')
+        ok(typeof section.options.label === 'function', 'it names itself through the shared dictionary')
+        ok(typeof section.options.order === 'number', 'and takes a place in the navigation')
+
+        // The configuration page is one component under both doors: the row on
+        // the Plugins page and this nav row. A second copy of it is what would
+        // let an edit reach only one of them.
+        const row = entryFor(state, 'plugins.row.config')
+        is(section.component, row.component,
+          'the Settings page renders the page the Plugins row does, not a copy of it')
+      },
+    },
+    {
       name: 'the shortcut is registered for every platform the shell accepts',
       run() {
         const { factory } = loadBundle()

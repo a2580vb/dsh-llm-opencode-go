@@ -1400,6 +1400,35 @@ export default {
       },
     },
     {
+      name: 'the settings navigation carries the plugin\'s own configuration page',
+      async run() {
+        const page = await renderPage({ fetch: host() })
+        const section = page.surface('settings.section')
+        const tree = await section.open()
+
+        // The same page the Plugins row renders, as a row of Settings' own
+        // navigation. Every endpoint the configuration page needs is read here
+        // too — a second component that fetched a subset would look right and
+        // edit nothing.
+        equal(section.options.label(), 'OpenCode Go settings')
+        equal(page.calls.map((call) => call.path.split('?')[0]), [
+          'opencode-go/state',
+          'opencode-go/models',
+          'opencode-go/usage',
+          'opencode-go/subscription',
+        ])
+
+        // The fields are fields, not a readout: the reader who came to Settings
+        // to configure this plugin can type here.
+        const said = text(tree).replace(/\s+/g, ' ')
+        for (const heading of ['Connection', 'API key', 'Model visibility', 'Model variants', 'Usage']) {
+          ok(said.includes(heading), `the page carries its ${heading} section`)
+        }
+        ok(nodes(tree).some(({ node }) => node.type === 'input'), 'the API key field is editable here')
+        ok(nodes(tree).filter(({ node }) => node.type === 'button').length > 0, 'and so are its controls')
+      },
+    },
+    {
       name: 'the settings tab renders the panel sections on its own',
       async run() {
         const page = await renderPage({ fetch: host() })

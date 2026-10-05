@@ -44,15 +44,18 @@ Usage has three entries, all reading the same facts:
 |---|---|---|
 | **The quota capsule at the sidebar's foot** | Beside Settings, in `sidebar.footer.action` | One group per metered window in a single row — ring, short tag, and what is left, separated by hairlines — without a click. That row opens the usage panel, and the gear beside it opens the plugin's configuration page. |
 | **The usage panel** | From that row, or the keyboard (`main`, id `opencode-go-usage`) | The subscription's three windows first, this route's counters (totals, by model, by day) under them; its header stays pinned to the top of the scroll and carries the jump to the plugin's configuration page and an **×** back to the Conversation; *re-read quota* sits beside the "Subscription quota" heading. |
-| **A tab under Settings → Plugins** | `settings.plugins.tab` | The same two blocks as the panel. |
+| **A tab under Settings → Plugins** | `settings.plugins.tab`, id `opencode-go-usage` | The same two blocks as the panel. |
+| **A row in Settings' navigation** | `settings.section`, id `opencode-go` | The [configuration page](#graphical-configuration) itself, after the pages the shell ships. |
 
-All three are optional. The panel body, the capsule's click, the shortcut, and the
+All four are optional. The panel body, the capsule's click, the shortcut, and the
 panel's own way out all come from `layout` and `shortcuts`; the configuration entry
 comes from the Plugins page's `pluginNavigation`. Where one of those is missing the
 entry is *not rendered* rather than rendered inert: a deployment with no Plugins
 page shows neither the gear nor the *Plugin settings* button, and one without the
 `shortcuts` service or a selectable panel simply has no such command — and, having
-no panel to leave, no × to leave it with.
+no panel to leave, no × to leave it with. The Settings page is the exception: it
+needs nothing but the web client's own Settings panel, which is also what renders
+it.
 
 The capsule itself:
 
@@ -78,10 +81,11 @@ capsule reads once when it mounts and never polls.
 
 ## Graphical configuration
 
-The plugin ships a page in the Harness web client. Open the sidebar's
-**Plugins** page, open the `dsh-llm-opencode-go` bundle, and press **Configure** on
-the `opencode-go` row. The page covers the facts that are per-deployment and
-change often:
+The plugin ships a page in the Harness web client. It opens from two places, both
+rendering the same page: a row of Settings' own navigation (**OpenCode Go
+settings**, beside the pages the shell ships), or the sidebar's **Plugins** page,
+where the `dsh-llm-opencode-go` bundle's `opencode-go` row has a **Configure**
+control. The page covers the facts that are per-deployment and change often:
 
 | | |
 |---|---|

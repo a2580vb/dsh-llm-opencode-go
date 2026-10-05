@@ -4,7 +4,7 @@
 
 [![npm 版本](https://img.shields.io/npm/v/dsh-llm-opencode-go)](https://www.npmjs.com/package/dsh-llm-opencode-go)
 [![npm 下载量](https://img.shields.io/npm/dm/dsh-llm-opencode-go)](https://www.npmjs.com/package/dsh-llm-opencode-go)
-[![离线检查](https://img.shields.io/badge/offline_checks-347-brightgreen)](docs/development.zh-CN.md)
+[![离线检查](https://img.shields.io/badge/offline_checks-349-brightgreen)](docs/development.zh-CN.md)
 [![ci](https://github.com/a2580vb/dsh-llm-opencode-go/actions/workflows/ci.yml/badge.svg)](https://github.com/a2580vb/dsh-llm-opencode-go/actions/workflows/ci.yml)
 [![许可证](https://img.shields.io/badge/license-MIT-blue)](LICENSE)
 
@@ -39,7 +39,7 @@
 | **推理** | 按协议映射思考等级，包含 Anthropic thinking budget |
 | **流式** | SSE → `StreamChunk`，带 usage、结束原因和空闲看门狗 |
 | **失败** | 稳定的 provider 无关错误码（`AUTH`、`RATE_LIMIT`、`QUOTA`、`CONTEXT_WINDOW_EXCEEDED` 等） |
-| **图形化配置** | Web 客户端 Plugins 列表里的独立页面：API 密钥、凭据引用、模型可见性、模型变体、获取模型列表、用量 |
+| **图形化配置** | Web 客户端里的一页，设置导航里有自己的一行，Plugins 页上本插件的行上也有配置控件：API 密钥、凭据引用、模型可见性、模型变体、获取模型列表、用量 |
 | **快速入口** | 侧边栏底部的额度胶囊（每个窗口一枚环：`5H / 周 / 月`，各自显示剩余）、一个独立的用量面板（从该处或快捷键打开）、设置里的一个用量页 |
 | **运行环境** | Node.js ≥ 20；无运行时依赖 |
 
@@ -70,7 +70,7 @@ dsh-llm-opencode-go: provider "opencode-go" ready at https://opencode.ai/zen/go/
 |---|---|
 | **侧边栏底部的额度胶囊** | Settings 旁边。一行三组——`◉ 5H 92% │ ◉ 周 58% │ ◉ 月 9%`——不点击即可见；点这一行打开用量面板，点右边的齿轮打开插件配置页。 |
 | **用量面板** | 从胶囊那一行点开，或用快捷键（桌面端 `Ctrl/Cmd+U`）：订阅的三个窗口在上，本路由的计数在下，标题行在滚动时留在原处——上面有直达插件配置页的按钮和回到对话的 **×**。 |
-| **设置 → Plugins → OpenCode Go 用量** | 设置面板里的一个页签，内容与用量面板相同。 |
+| **设置 → 内置插件** | 一个页签，内容与用量面板相同。 |
 
 三者都需要 Web 客户端；没有 Web 客户端的部署里这三者都不存在，插件其余部分不变。详见
 [配置](docs/configuration.zh-CN.md#快速入口)。
@@ -89,8 +89,9 @@ config:
 
 配置文件里读取的永远只是变量**名**，不是它的值。
 
-**用 Web 界面改。** 侧边栏的 **Plugins** 页列出 `dsh-llm-opencode-go` 组合包，其中 `opencode-go`
-行上有 **配置**（Configure）控件，打开插件自己的页面：API 密钥、密钥所在的凭据引用、目录里每个
+**用 Web 界面改。** 设置里有一行自己的 **OpenCode Go 设置**，排在 Harness 自带的那些页面之后；
+侧边栏的 **Plugins** 页也能到同一页——`dsh-llm-opencode-go` 组合包中 `opencode-go` 行上有
+**配置**（Configure）控件。两扇门打开的都是插件自己的页面：API 密钥、密钥所在的凭据引用、目录里每个
 模型一个的「是否在选择器中出现」开关、模型变体、一个重新读取服务端模型列表的控件，以及这条路由
 花掉了多少。密钥写进凭据存储，不写进 `cordis.patch.yml`；这一页只有提供 Web 客户端的部署才会
 挂载。详见[配置](docs/configuration.zh-CN.md#图形化配置)。

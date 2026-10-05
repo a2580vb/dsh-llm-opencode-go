@@ -4,7 +4,7 @@
 
 [![npm version](https://img.shields.io/npm/v/dsh-llm-opencode-go)](https://www.npmjs.com/package/dsh-llm-opencode-go)
 [![npm downloads](https://img.shields.io/npm/dm/dsh-llm-opencode-go)](https://www.npmjs.com/package/dsh-llm-opencode-go)
-[![offline checks](https://img.shields.io/badge/offline_checks-347-brightgreen)](docs/development.md#verification)
+[![offline checks](https://img.shields.io/badge/offline_checks-349-brightgreen)](docs/development.md#verification)
 [![ci](https://github.com/a2580vb/dsh-llm-opencode-go/actions/workflows/ci.yml/badge.svg)](https://github.com/a2580vb/dsh-llm-opencode-go/actions/workflows/ci.yml)
 [![license](https://img.shields.io/badge/license-MIT-blue)](LICENSE)
 
@@ -44,7 +44,7 @@ restart.
 | **Reasoning** | Per-protocol effort mapping, including Anthropic thinking budgets |
 | **Streaming** | SSE → `StreamChunk`, with usage, finish reason, and an idle watchdog |
 | **Failures** | Stable provider-neutral codes (`AUTH`, `RATE_LIMIT`, `QUOTA`, `CONTEXT_WINDOW_EXCEEDED`, …) |
-| **Configuration UI** | A page in the web client's Plugins list: API key, credential reference, model visibility, model variants, fetching the model list, usage |
+| **Configuration UI** | One page in the web client, with a row in Settings' own navigation and a Configure control on the plugin's row: API key, credential reference, model visibility, model variants, fetching the model list, usage |
 | **Fast entries** | A quota capsule at the sidebar's foot (one ring per window — `5H / Wk / Mo` — with what is left of each), a usage panel of its own (from that row, or the keyboard), and a usage page under Settings |
 | **Runtime** | Node.js ≥ 20; no runtime dependencies |
 
@@ -77,7 +77,7 @@ Usage has three entries, all reading the same facts:
 |---|---|
 | **The quota capsule at the sidebar's foot** | Beside Settings. One row, three groups — `◉ 5H 92% │ ◉ 周 58% │ ◉ 月 9%` — visible without a click; that row opens the usage panel, and the gear beside it opens the plugin's configuration page. |
 | **The usage panel** | From that row, or the keyboard (desktop `Ctrl/Cmd+U`): the subscription's three windows first, this route's counters under them, and a header that stays on screen as they scroll — the way to the plugin's configuration page, and an **×** back to the conversation. |
-| **Settings → Plugins → OpenCode Go usage** | A tab inside the settings panel, carrying the same content as the panel. |
+| **Settings → Built-in plugins** | A tab carrying the same content as the panel. |
 
 All three need the web client; a deployment without one has none of them and is
 otherwise unchanged. See [Configuration](docs/configuration.md#fast-entries).
@@ -98,14 +98,15 @@ config:
 
 The value is never read from the config file itself, only the variable *name*.
 
-**Or configure it from the web client.** The sidebar's **Plugins** page lists the
-`dsh-llm-opencode-go` bundle, and its `opencode-go` row has a **Configure**
-control that opens the plugin's own page: the API key, the credential reference
-it is stored under, one switch per catalog model for what the picker offers, the
-model variants, a control that re-reads the service's model list, and what this
-route has spent. The key is written to the credential store, never to
-`cordis.patch.yml`, and the page is mounted only by a deployment that serves the
-web client. See
+**Or configure it from the web client.** Settings carries an **OpenCode Go
+settings** row of its own, beside the pages the shell ships, and the same page is
+behind the sidebar's **Plugins** page: the `dsh-llm-opencode-go` bundle's
+`opencode-go` row has a **Configure** control. Either door opens the plugin's own
+page: the API key, the credential reference it is stored under, one switch per
+catalog model for what the picker offers, the model variants, a control that
+re-reads the service's model list, and what this route has spent. The key is
+written to the credential store, never to `cordis.patch.yml`, and the page is
+mounted only by a deployment that serves the web client. See
 [Configuration](docs/configuration.md#graphical-configuration).
 
 ## Docs
