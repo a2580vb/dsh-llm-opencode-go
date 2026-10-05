@@ -17,7 +17,7 @@ Messages 端点使用自己的一套请求头：它会以 `AuthError: Missing AP
 每个请求还会带上：
 
 ```http
-User-Agent: dsh-opencode-go/0.1.0
+User-Agent: dsh-opencode-go/0.1.1
 x-opencode-session: <每个会话一个稳定 id>
 x-opencode-client: dsh-opencode-go
 ```

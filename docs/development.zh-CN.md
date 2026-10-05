@@ -8,7 +8,7 @@
 
 | | |
 |---|---|
-| **版本** | 0.1.0（包名 `dsh-llm-opencode-go`） |
+| **版本** | 0.1.1（包名 `dsh-llm-opencode-go`） |
 | **协议映射** | 对线上服务逐模型实测，写在 `lib/model/catalog.js` |
 | **容量与模态** | 来自 OpenCode 目录（`models.dev`）的快照，日期记在 `lib/model/limits.js` 的 `CAPABILITY_SOURCE`（当前为 `models.dev/opencode-go@2026-10-02`） |
 | **已知限制** | 见[可靠性](reliability.zh-CN.md#限制)与[模型](models.zh-CN.md) |
@@ -16,10 +16,14 @@
 ## 验证
 
 ```sh
-npm test            # 326 项离线检查：配置、SSE 分帧、目录、三种协议、适配器、插件本体、配置桥接与客户端 bundle
+npm test            # 331 项离线检查：配置、SSE 分帧、目录、三种协议、适配器、插件本体、配置桥接、客户端 bundle 与版本一致性
 npm run test:cordis # 43 项检查，把插件挂到 Harness 自己的 cordis 上
 npm run test:live   # 对线上服务的实测套件；需要 OC_KEY
 ```
+
+上面这个数字在两个 README 的徽章里也各写了一次，因此新增一个用例要改三个文件。
+`release` 是那个让版本升级保持诚实的套件：它读 manifest，任何还写着旧版本号的地方
+都会失败。
 
 `npm test` 离线运行，不需要凭据。协议套件回放的是**从线上服务抓取**的响应体
 （`tests/golden/`），所以一旦某个翻译器不再与 OpenCode Go 实际发送的内容一致，它们就会失败。

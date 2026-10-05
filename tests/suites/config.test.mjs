@@ -12,6 +12,11 @@ import {
 } from '../../lib/config.js'
 import { equal, is, ok, rejectsWith } from '../helpers.mjs'
 
+// The version these cases expect comes from the manifest, so a release moves it
+// in one place rather than in every assertion. `release.test.mjs` covers the
+// places the manifest cannot reach by itself.
+const { version } = JSON.parse(await readFile(new URL('../../package.json', import.meta.url), 'utf8'))
+
 export default {
   name: 'config',
   cases: [
@@ -217,21 +222,21 @@ export default {
       name: 'the User-Agent leads with the plugin identity',
       run() {
         const config = resolveConfig({})
-        is(userAgentValue(config), 'dsh-opencode-go/0.1.0')
+        is(userAgentValue(config), `dsh-opencode-go/${version}`)
       },
     },
     {
       name: 'a configured attribution appends the harness identity instead of replacing it',
       run() {
         const config = resolveConfig({ attribution: 'deepseek-harness/0.2.0-rc.2' })
-        is(userAgentValue(config), 'dsh-opencode-go/0.1.0 deepseek-harness/0.2.0-rc.2')
+        is(userAgentValue(config), `dsh-opencode-go/${version} deepseek-harness/0.2.0-rc.2`)
       },
     },
     {
       name: 'a renamed product token still leads the User-Agent',
       run() {
         const config = resolveConfig({ userAgentProduct: 'acme-client' })
-        is(userAgentValue(config), 'acme-client/0.1.0')
+        is(userAgentValue(config), `acme-client/${version}`)
       },
     },
     {
@@ -247,7 +252,7 @@ export default {
       name: 'the User-Agent is resolved once on the snapshot',
       run() {
         const config = resolveConfig({ attribution: 'deepseek-harness/0.2.0' })
-        is(config.userAgent, 'dsh-opencode-go/0.1.0 deepseek-harness/0.2.0')
+        is(config.userAgent, `dsh-opencode-go/${version} deepseek-harness/0.2.0`)
         is(config.userAgent, userAgentValue(config), 'the snapshot and the helper agree')
       },
     },
@@ -262,11 +267,8 @@ export default {
     },
     {
       name: 'the reported version matches package.json',
-      async run() {
-        const manifest = JSON.parse(
-          await readFile(new URL('../../package.json', import.meta.url), 'utf8'),
-        )
-        is(PLUGIN_VERSION, manifest.version, 'PLUGIN_VERSION drifted from the manifest')
+      run() {
+        is(PLUGIN_VERSION, version, 'PLUGIN_VERSION drifted from the manifest')
       },
     },
   ],

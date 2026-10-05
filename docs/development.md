@@ -9,7 +9,7 @@ plugin, how to re-measure the live facts, and how the code is laid out.
 
 | | |
 |---|---|
-| **Version** | 0.1.0 (package `dsh-llm-opencode-go`) |
+| **Version** | 0.1.1 (package `dsh-llm-opencode-go`) |
 | **Protocol map** | Measured per model against the live service; kept in `lib/model/catalog.js` |
 | **Capacity and modalities** | A snapshot of the OpenCode catalogue (`models.dev`), dated in `CAPABILITY_SOURCE` in `lib/model/limits.js` (currently `models.dev/opencode-go@2026-10-02`) |
 | **Known limits** | See [Reliability](reliability.md#limits) and [Models](models.md) |
@@ -17,10 +17,15 @@ plugin, how to re-measure the live facts, and how the code is laid out.
 ## Verification
 
 ```sh
-npm test            # 326 offline checks: config, SSE framing, catalog, all three protocols, adapter, plugin body, the settings bridge and the client bundle
+npm test            # 331 offline checks: config, SSE framing, catalog, all three protocols, adapter, plugin body, the settings bridge, the client bundle and release coherence
 npm run test:cordis # 43 checks mounting the plugin on the harness's own cordis
 npm run test:live   # the live suite; needs OC_KEY
 ```
+
+The count above is restated in both README badges, so a new case moves it in three
+files. `release` is the suite that keeps a version bump honest: it reads the
+manifest and fails on any place that still states the version a release left
+behind.
 
 `npm test` runs offline and needs no credential. The protocol suites replay
 response bodies **captured from the live service** (`tests/golden/`), so they

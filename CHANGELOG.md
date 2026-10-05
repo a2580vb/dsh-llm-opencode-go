@@ -4,6 +4,39 @@ Releases carry the notes that appear on the GitHub release and, through it, on t
 plugin market's **What changed** link. Keep the newest section at the top and give
 every released version one.
 
+## 0.1.1 — 2026-10-05
+
+Documentation and test-infrastructure release. The adapter's behaviour is unchanged
+from 0.1.0.
+
+### Fixed
+
+- **The version the configuration page shows.** `PLUGIN_IDENTITY.version` restates
+  the package version and is handed to the web client, and nothing checked it
+  against the manifest — a release that moved `package.json` and missed this
+  constant would have shown the reader a version that was never published. It
+  reads correctly now, and a test keeps it that way.
+
+### Added
+
+- **A `release` suite, so a version bump is self-checking.** The version is stated
+  in nine places across the shipped surface. The suite reads the manifest and
+  fails, naming the file, on any place still stating the version a release left
+  behind: the two constants the plugin reports, the lock file, the development
+  page's status table, and the `User-Agent` example in the protocol page.
+- **CI**, on every push and pull request: the offline suite on Node 20, 22 and 24
+  on Linux and on Node 22 on Windows. It needs no credential and spends no quota,
+  which is why the cordis and live suites are not in it.
+
+### Changed
+
+- The version expectations in the `config` suite are derived from the manifest
+  rather than written out, so a bump no longer edits four assertions by hand.
+- Both READMEs carry badges: npm version, npm downloads, the offline check count,
+  CI and license. The `awesome · DSH plugin` badge is absent on purpose — it would
+  claim a listing this package does not have yet.
+- 331 offline checks, up from 326.
+
 ## 0.1.0 — 2026-10-03
 
 First release, published to npm as `dsh-llm-opencode-go`.
