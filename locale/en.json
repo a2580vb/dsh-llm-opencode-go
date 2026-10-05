@@ -1,0 +1,5 @@
+{
+  "meta": {
+    "description": "DeepSeek Harness LLM adapter for OpenCode Go (opencode.ai/zen): /models discovery with cache, three wire protocols (OpenAI Responses, OpenAI-compatible Chat Completions, Anthropic Messages), tool calling, reasoning mapping, streaming, and the required x-opencode-session affinity header."
+  }
+}

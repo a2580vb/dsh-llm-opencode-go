@@ -96,6 +96,13 @@ it through the profile patch — after which the page re-reads what the Host
 reports, and says so when the read back fails. The key is the exception: it goes
 to the credential store and applies to the next request.
 
+The card this bundle gets in that list, and the header of the `opencode-go` row's
+own page, carry the one-line description the package declares in
+`locale/en.json` and `locale/zh.json`. The Harness reads those files without
+activating the plugin, and the client resolves the one matching the interface
+language; with neither file, both fall back to the manifest's `description` — the
+sentence npm and the plugin registry show.
+
 ### Where the key comes from, and when "Clear" is unavailable
 
 The credential seam layers a reference, most trusted first:

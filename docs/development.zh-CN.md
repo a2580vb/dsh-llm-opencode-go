@@ -16,12 +16,13 @@
 ## 验证
 
 ```sh
-npm test            # 331 项离线检查：配置、SSE 分帧、目录、三种协议、适配器、插件本体、配置桥接、客户端 bundle 与版本一致性
+npm test            # 337 项离线检查：配置、SSE 分帧、目录、三种协议、适配器、插件本体、配置桥接、客户端 bundle、显示元数据与版本一致性
 npm run test:cordis # 43 项检查，把插件挂到 Harness 自己的 cordis 上
 npm run test:live   # 对线上服务的实测套件；需要 OC_KEY
 ```
 
-上面这个数字在两个 README 的徽章里也各写了一次，因此新增一个用例要改三个文件。
+上面这个数字在两个 README 的徽章里各写了一次，本页与它的中文版各写了一次，因此新增一个用例要改
+四个文件。
 `release` 是那个让版本升级保持诚实的套件：它读 manifest，任何还写着旧版本号的地方
 都会失败。
 
@@ -130,7 +131,14 @@ scripts/
 ├── snapshot-models.mjs       从目录刷新 lib/model/limits.js
 ├── probe-protocols.mjs       实测每个在服务的模型接受哪些协议
 └── probe-image.mjs           实测每种协议的图片请求形状
+
+locale/
+├── en.json                   Plugins 页读的显示元数据
+└── zh.json                   同一句话的简体中文
 ```
+
+`locale/` 是唯一一处 Harness **不激活插件**就会读的随包表面：组合包卡片与 `opencode-go` 行页面上
+的那句话就是它，按客户端当前的语言取用（英文同时也来自 manifest，npm 与插件目录里显示的就是那一份）。
 
 增加第四种协议意味着在 `protocol/` 下加一个新文件、在 transport map 里加一个条目。配置页也是同样
 的切法：`ui/bridge.js` 拥有 Host 事实与写入路径，`client.js` 拥有渲染，两者在 `ui/bridge.js` 里的

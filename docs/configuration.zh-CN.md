@@ -84,6 +84,10 @@ Plugins 页的 `pluginNavigation` 提供。任何一个缺失时，对应的入�
 写一个普通配置字段会重载该插件行——Loader 会通过 profile patch 完成一次 reconcile——页面随后重新
 读取 Host 报告的现状，读不回来时它会直说。密钥是例外：它写进凭据存储，下一次请求就生效。
 
+这个组合包在该列表里的卡片、以及 `opencode-go` 行自己那一页的抬头，写着本包在 `locale/en.json` 与
+`locale/zh.json` 里声明的单行描述。Harness 不激活插件就读这两个文件，客户端按当前的界面语言取其中
+一份；两份都不在时回落到 manifest 的 `description`——npm 与插件目录里显示的正是那一句。
+
 ### 密钥来自哪一层，以及「清除密钥」何时不可用
 
 凭据接缝对同一个引用分层，可信度从高到低：

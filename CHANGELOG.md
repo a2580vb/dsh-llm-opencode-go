@@ -4,6 +4,27 @@ Releases carry the notes that appear on the GitHub release and, through it, on t
 plugin market's **What changed** link. Keep the newest section at the top and give
 every released version one.
 
+## Unreleased
+
+### Added
+
+- **The package card in Chinese.** The Plugins page and the Settings plugin
+  inventory describe a package in the interface's own language, and the sentence
+  they showed here was the manifest's English one. `locale/zh.json` now carries
+  it in Simplified Chinese and `locale/en.json` restates the English sentence;
+  the manifest exports and publishes both (`./locale/*.json`, `files`). The
+  Harness reads these files without activating the plugin, and a client whose
+  language has no file falls back to the manifest — which is what npm and the
+  plugin registry keep showing. A `display metadata` suite holds the pair
+  together: the English file must restate the manifest, the Chinese one must be
+  Chinese, and both must keep the technical names the sentence promises.
+
+### Changed
+
+- 337 offline checks, up from 331.
+- Both development pages now name all four files that restate the check count,
+  rather than three.
+
 ## 0.1.1 — 2026-10-05
 
 Documentation and test-infrastructure release. The adapter's behaviour is unchanged

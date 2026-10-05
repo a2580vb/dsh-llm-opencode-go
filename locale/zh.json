@@ -1,0 +1,5 @@
+{
+  "meta": {
+    "description": "把 OpenCode Go（opencode.ai/zen）接入 DeepSeek Harness 的 LLM 适配器：带缓存的 /models 模型发现、三种线格式（OpenAI Responses、OpenAI 兼容的 Chat Completions、Anthropic Messages）、工具调用、推理映射、流式输出，以及服务要求的 x-opencode-session 会话亲和头。"
+  }
+}
