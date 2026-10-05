@@ -13,15 +13,15 @@
  *
  * The changelog is deliberately absent from the version cases: its headings are
  * history, so the 0.1.0 entry has to keep saying 0.1.0 after the project moves on.
- * It does get a case of its own — the notes ship in two languages, and those two
- * have to keep saying the same thing.
+ * It does get cases of its own — the notes ship in two languages, and the two have
+ * to keep saying the same thing.
  */
 
 import { readFile } from 'node:fs/promises'
 
 import { PLUGIN_VERSION } from '../../lib/config.js'
 import { PLUGIN_IDENTITY } from '../../lib/error/errors.js'
-import { equal, is } from '../helpers.mjs'
+import { equal, is, ok } from '../helpers.mjs'
 
 const read = (path) => readFile(new URL(`../../${path}`, import.meta.url), 'utf8')
 
@@ -102,6 +102,22 @@ export default {
         // Version headings are history, so the count of entries is what keeps the
         // two sides honest: a note added to one file alone shows up here.
         is(zh.entries, en.entries, 'the two changelogs carry the same number of entries')
+      },
+    },
+    {
+      name: 'a publish carries the changelog, in both languages',
+      async run() {
+        // `files` is an allowlist, so a note the repository holds and the
+        // allowlist omits is a note the installed copy does not have. The
+        // package already ships its READMEs and its docs; the notes that say
+        // what each release changed are the same kind of thing, and a reader
+        // who unpacks the tarball offline should be able to read them.
+        for (const path of ['CHANGELOG.md', 'CHANGELOG.zh-CN.md']) {
+          is(manifest.files.includes(path), true, `files must publish ${path}`)
+          // Naming a file that is not there publishes nothing, silently.
+          const text = await read(path)
+          ok(text.length > 0, `${path} exists and is not empty`)
+        }
       },
     },
     {

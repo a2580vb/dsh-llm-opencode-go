@@ -25,8 +25,9 @@ every released version one, and keep each entry to a line if it fits.
 - **The training-gate badge** now reads *conversations used for training*, in the
   warning colour.
 - **The credential-reference hint** now says what it sets.
-- **The changelog ships in English and Chinese**, held in step by a case.
-- 344 offline checks, up from 331.
+- **The changelog ships in English and Chinese**, and both files go into the
+  published package, held in step by a case.
+- 345 offline checks, up from 331.
 - Both development pages name all six files that restate the check count.
 
 ## 0.1.1 — 2026-10-05
