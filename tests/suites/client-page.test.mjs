@@ -1004,6 +1004,32 @@ export default {
       },
     },
     {
+      name: 'the re-read control sits with the quota label, once per surface',
+      async run() {
+        // The same action used to be drawn twice on the panel — once in the
+        // header and once inside the quota block — which reads as two different
+        // actions. It belongs with the label it acts on, and there is one of it.
+        const page = await renderPage({ fetch: host() })
+        const trees = [
+          ['the configuration page', await page.open()],
+          ['the usage panel', await page.surface('main').open()],
+          ['the settings tab', await page.surface('settings.plugins.tab').open()],
+        ]
+        for (const [where, tree] of trees) {
+          const reRead = nodes(tree)
+            .filter(({ node }) => node.type === 'button' && text(node).trim() === 'Re-read quota')
+          equal(reRead.length, 1, `${where}: one re-read control`)
+          // Siblings, not merely both present: the row is the label's own, so a
+          // reader finds the control where the block is named.
+          const row = reRead[0].path[reRead[0].path.length - 1]
+          ok(
+            (row.children ?? []).some((child) => text(child).trim() === 'Subscription quota'),
+            `${where}: the control shares its row with the quota label`,
+          )
+        }
+      },
+    },
+    {
       name: 'the panel offers a way through to the plugin configuration, and only where it exists',
       async run() {
         const page = await renderPage({ fetch: host() })
@@ -1025,7 +1051,7 @@ export default {
         const capsuleTree = await capsule.open()
         await capsule.click((node) => node.type === 'button' && node.props['aria-label'] === 'Open the plugin configuration page')
         equal(opened, ['dsh-llm-opencode-go', 'dsh-llm-opencode-go'])
-        ok(text(tree).includes('Plugins → dsh-llm-opencode-go'), 'the entry names the path it takes')
+        is(text(tree).includes('Plugins →'), false, 'the entry no longer spells out the path in prose')
       },
     },
     {

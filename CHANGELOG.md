@@ -21,7 +21,17 @@ every released version one.
 
 ### Changed
 
-- 337 offline checks, up from 331.
+- **One re-read control, beside the quota it re-reads.** The usage panel drew
+  *re-read quota* twice — in its header and again inside the quota block under
+  the section's title — so the same action read as two, in two positions. The
+  quota block now carries no control of its own: the button sits in the
+  "Subscription quota" heading row on all three surfaces, and the panel header
+  keeps only the way through to the plugin's configuration page.
+- **The usage copy is gone.** The paragraph about the percentages and the
+  counters coming from different places, the quota block's own title line, and
+  the inline sentence spelling out the path to the plugin's configuration page
+  are removed. The blocks, their labels, and their controls say it instead.
+- 338 offline checks, up from 331.
 - Both development pages now name all four files that restate the check count,
   rather than three.
 

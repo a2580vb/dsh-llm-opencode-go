@@ -43,7 +43,7 @@ Usage has three entries, all reading the same facts:
 | Entry | Where | What it offers |
 |---|---|---|
 | **The quota capsule at the sidebar's foot** | Beside Settings, in `sidebar.footer.action` | One group per metered window in a single row — ring, short tag, and what is left, separated by hairlines — without a click. That row opens the usage panel, and the gear beside it opens the plugin's configuration page. |
-| **The usage panel** | From that row, or the keyboard (`main`, id `opencode-go-usage`) | The subscription's three windows first, this route's counters (totals, by model, by day) under them, with *re-read quota* and a jump to the plugin's configuration page in its header. |
+| **The usage panel** | From that row, or the keyboard (`main`, id `opencode-go-usage`) | The subscription's three windows first, this route's counters (totals, by model, by day) under them; *re-read quota* sits beside the "Subscription quota" heading, and the jump to the plugin's configuration page in the header. |
 | **A tab under Settings → Plugins** | `settings.plugins.tab` | The same two blocks as the panel. |
 
 All three are optional. The panel body, the capsule's click, and the shortcut come
