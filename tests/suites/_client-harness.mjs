@@ -77,6 +77,42 @@ export async function renderPage({ fetch: fetchImpl, locale = 'en' } = {}) {
   const calls = []
   const locales = localeStore()
 
+  /**
+   * A clock the suite drives, because the page's behaviour is partly *when*.
+   *
+   * The bundle schedules two very different kinds of timer: a sub-second beat
+   * after a write, which is a scheduling detail no case asserts, and intervals
+   * measured in tens of seconds or minutes — the quota's own schedule — which
+   * are the whole thing a case is checking. So delays up to
+   * {@link IMMEDIATE_DELAY_MS} still run themselves, as they always have, and
+   * anything longer waits for the case to move the clock with `advance`.
+   */
+  const clock = { value: Date.parse('2026-01-15T12:00:00.000Z'), nextId: 1, timers: new Map() }
+
+  /** Delays at or under this many milliseconds still run on their own. */
+  const IMMEDIATE_DELAY_MS = 1_000
+
+  /** The `Date` the bundle sees: real behaviour, this clock's `now`. */
+  class HarnessDate extends Date {
+    static now() {
+      return clock.value
+    }
+  }
+
+  const runTimer = (id) => {
+    const timer = clock.timers.get(id)
+    if (timer === undefined) return
+    clock.timers.delete(id)
+    timer.callback(...timer.args)
+  }
+
+  /** Fire every timer due at or before the clock's current time. */
+  const fireDue = () => {
+    for (const [id, timer] of [...clock.timers].sort((left, right) => left[1].due - right[1].due)) {
+      if (timer.due <= clock.value) runTimer(id)
+    }
+  }
+
   /** The module loader facade and the one fetch every surface shares. */
   const registrations = []
   const sandbox = {
@@ -90,12 +126,23 @@ export async function renderPage({ fetch: fetchImpl, locale = 'en' } = {}) {
         json: async () => answer.body,
       }
     },
-    // The page waits a beat after a write for the plugin row to reload. That
-    // beat is a scheduling detail rather than something to assert, so in a test
-    // it is instantaneous: the re-reads a save triggers still happen, in order,
-    // without the suite sleeping through them.
-    setTimeout: (callback) => setImmediate(callback),
-    clearTimeout: () => {},
+    setTimeout: (callback, delay = 0, ...args) => {
+      if (delay <= IMMEDIATE_DELAY_MS) {
+        setImmediate(callback, ...args)
+        return 0
+      }
+      const id = clock.nextId
+      clock.nextId += 1
+      clock.timers.set(id, { callback, args, due: clock.value + delay })
+      return id
+    },
+    // A no-op here is what a schedule cannot survive: the store rearms its own
+    // interval on every answer, and a cancel it could not perform would leave the
+    // previous one to fire into the new one.
+    clearTimeout: (id) => {
+      clock.timers.delete(id)
+    },
+    Date: HarnessDate,
     console,
   }
   vm.runInNewContext(`(function () { ${CLIENT_SOURCE} })()`, sandbox, { filename: 'lib/client.js' })
@@ -277,6 +324,9 @@ export async function renderPage({ fetch: fetchImpl, locale = 'en' } = {}) {
    */
   async function drain() {
     for (let pass = 0; pass < 50; pass += 1) {
+      // The immediate work first: a timer a surface set inline, and the promise
+      // chain it starts, both land before the next pass.
+      fireDue()
       const working = drivers.filter((surface) => (
         surface.started && (surface.store.dirty || surface.store.pending.length > 0)
       ))
@@ -290,6 +340,36 @@ export async function renderPage({ fetch: fetchImpl, locale = 'en' } = {}) {
       ))
       if (working.length === 0 && !pending) break
     }
+  }
+
+  /**
+   * Move the clock forward, running whatever the page scheduled on the way.
+   *
+   * The loop jumps to the next timer that is due rather than stepping: a schedule
+   * whose intervals are tens of seconds would otherwise be walked a tick at a
+   * time, and a case that advances half an hour would spend its life in this
+   * function. Each firing happens *at* the time it was due, so a timer that
+   * schedules its successor is walked one interval at a time and the count of
+   * reads is exact rather than approximate.
+   *
+   * @param {number} milliseconds - how far to move.
+   * @returns {Promise<void>} resolves once every surface has been re-rendered.
+   */
+  async function advance(milliseconds) {
+    const target = clock.value + milliseconds
+    for (let guard = 0; guard < 10_000; guard += 1) {
+      const due = [...clock.timers.entries()]
+        .filter(([, timer]) => timer.due <= target)
+        .sort((left, right) => left[1].due - right[1].due)[0]
+      if (due === undefined) break
+      const [id, timer] = due
+      clock.value = Math.max(clock.value, timer.due)
+      runTimer(id)
+      await drain()
+    }
+    clock.value = target
+    fireDue()
+    await drain()
   }
 
   /** A case's handle on one surface: render it, drive it, read what it shows. */
@@ -314,6 +394,29 @@ export async function renderPage({ fetch: fetchImpl, locale = 'en' } = {}) {
     async update() {
       surface.store.dirty = false
       if (surface.started) renderSurface(surface)
+      await drain()
+      return surface.tree
+    },
+    /**
+     * Take this surface off screen, running the effects that were cleaning up.
+     *
+     * A surface's unmount is where it stops holding whatever it was holding — the
+     * quota's clock, for one — and a harness that could only mount would never
+     * exercise that half of the pair. The hook store goes with it, as React's
+     * does: a later `open` is a fresh mount with fresh state rather than a
+     * resumed one, which is the difference between a panel being reopened and a
+     * panel never having closed.
+     */
+    async close() {
+      if (!surface.started) return surface.tree
+      for (const slot of surface.store.hooks) {
+        slot?.cleanup?.()
+        if (slot !== undefined && slot !== null) delete slot.cleanup
+      }
+      surface.store.hooks.length = 0
+      surface.store.pending.length = 0
+      surface.store.dirty = false
+      surface.started = false
       await drain()
       return surface.tree
     },
@@ -378,6 +481,15 @@ export async function renderPage({ fetch: fetchImpl, locale = 'en' } = {}) {
     async update() {
       return page.update()
     },
+    /**
+     * Move the page's clock forward, running what it scheduled on the way.
+     *
+     * This is how a case asks what the quota schedule *does*: the intervals are
+     * tens of seconds to minutes, and nothing that long runs by itself.
+     */
+    advance,
+    /** The page's clock, for a case that needs to read it. */
+    clock,
     /** Fire one event at the first node matching `predicate`, then settle. */
     async dispatch(handlerName, predicate, event = {}) {
       return page.dispatch(handlerName, predicate, event)

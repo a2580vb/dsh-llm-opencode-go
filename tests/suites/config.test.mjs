@@ -38,6 +38,42 @@ export default {
       },
     },
     {
+      name: 'the quota schedule\'s two intervals default, and the ceiling never falls under the floor',
+      run() {
+        // The page's own schedule is bounded by these, and a ceiling below the
+        // floor bounds nothing: no interval satisfies both. The ceiling is the one
+        // that gives way, because an answer left stale for longer than the reader
+        // asked is the failure it exists to prevent, while a check costs one round
+        // trip to a route on this machine.
+        const bare = resolveConfig(undefined)
+        is(bare.subscriptionMinIntervalSeconds, 30)
+        is(bare.subscriptionMaxIntervalSeconds, 1_800)
+
+        const configured = resolveConfig({ subscriptionMinIntervalSeconds: 10, subscriptionMaxIntervalSeconds: 120 })
+        is(configured.subscriptionMinIntervalSeconds, 10)
+        is(configured.subscriptionMaxIntervalSeconds, 120)
+
+        const crossed = resolveConfig({ subscriptionMinIntervalSeconds: 600, subscriptionMaxIntervalSeconds: 30 })
+        is(crossed.subscriptionMinIntervalSeconds, 600)
+        is(crossed.subscriptionMaxIntervalSeconds, 600)
+
+        // Zero is not "off" here: an interval of nothing is a poll, and a poll is
+        // the thing this schedule exists to replace.
+        for (const value of [0, -1, 'soon']) {
+          for (const field of ['subscriptionMinIntervalSeconds', 'subscriptionMaxIntervalSeconds']) {
+            let thrown
+            try {
+              resolveConfig({ [field]: value })
+            } catch (error) {
+              thrown = error
+            }
+            ok(thrown !== undefined, `${field}: ${String(value)} was refused`)
+            ok(String(thrown?.message).includes(field), `${field} was named`)
+          }
+        }
+      },
+    },
+    {
       name: 'hideTrainingModels is a declared boolean, or refused by name',
       run: async () => {
         is(resolveConfig({ hideTrainingModels: true }).hideTrainingModels, true)

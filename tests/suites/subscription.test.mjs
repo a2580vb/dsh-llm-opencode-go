@@ -15,6 +15,8 @@
 
 import {
   SUBSCRIPTION_CACHE_MS,
+  SUBSCRIPTION_MAX_INTERVAL_SECONDS,
+  SUBSCRIPTION_MIN_INTERVAL_SECONDS,
   SUBSCRIPTION_PATH,
   SubscriptionReader,
   parseSubscription,
@@ -122,6 +124,73 @@ export default {
         await reader.read()
         await reader.read()
         is(requests.length, 1)
+      },
+    },
+    {
+      name: 'a call spent after an answer is what makes that answer old',
+      async run() {
+        // The quota moves only when a call is made, and the reader is the one
+        // place that knows a call was — so it is the one place that can say an
+        // answer has gone stale without asking the service. The page reads that
+        // as the difference between checking cheaply and reading blindly.
+        const { reader, clock } = readerUnderTest({ subscriptionCacheSeconds: 3_600 })
+        await reader.read()
+        is(reader.status().activity, false, 'a fresh answer with quiet traffic is current')
+
+        clock.value += 60_000
+        reader.noteActivity()
+        // Inside the cache lifetime, so a read would have been served from the
+        // cache and told the page nothing: the activity flag is the only thing
+        // that can carry this fact inside that window.
+        const cached = await reader.read()
+        is(cached.cached, true)
+        is(reader.status().activity, true, 'a call after the read is what ages it')
+
+        // The next read is stamped later than the activity, so it is current
+        // again — which is what stops the page reading forever.
+        clock.value += 60_000
+        await reader.read({ force: true })
+        is(reader.status().activity, false)
+      },
+    },
+    {
+      name: 'the pacing facts travel on every answer, and the probe reads none of them from the wire',
+      async run() {
+        const { reader, requests, clock } = readerUnderTest({
+          subscriptionMinIntervalSeconds: 15,
+          subscriptionMaxIntervalSeconds: 120,
+        })
+        const answer = await reader.read()
+        is(answer.minIntervalSeconds, 15)
+        is(answer.maxIntervalSeconds, 120)
+        // The probe is memory: asking it is not a request, whatever it answers.
+        const before = requests.length
+        const status = reader.status()
+        equal(status, { activity: false, minIntervalSeconds: 15, maxIntervalSeconds: 120 })
+        is(requests.length, before, 'the probe never touches the network')
+        clock.value += 1_000
+        reader.noteActivity()
+        is(reader.status().activity, true)
+        is(requests.length, before, 'still not a request')
+      },
+    },
+    {
+      name: 'the two intervals have defaults of their own, and they are the configured ones',
+      async run() {
+        // The Host's defaults are what a deployment gets without saying anything,
+        // and they are what a page falls back to before its first answer. The
+        // reader reports what it was configured with; the clamp that keeps the
+        // pair satisfiable lives in `resolveConfig`, where every other default
+        // and validation lives.
+        const { reader } = readerUnderTest()
+        is(reader.minIntervalSeconds, SUBSCRIPTION_MIN_INTERVAL_SECONDS)
+        is(reader.maxIntervalSeconds, SUBSCRIPTION_MAX_INTERVAL_SECONDS)
+        is(SUBSCRIPTION_MIN_INTERVAL_SECONDS, 30)
+        is(SUBSCRIPTION_MAX_INTERVAL_SECONDS, 1_800)
+
+        const configured = readerUnderTest({ subscriptionMinIntervalSeconds: 5, subscriptionMaxIntervalSeconds: 90 }).reader
+        is(configured.minIntervalSeconds, 5)
+        is(configured.maxIntervalSeconds, 90)
       },
     },
     {

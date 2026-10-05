@@ -84,7 +84,14 @@ const SUBSCRIPTION = {
     if (name === 'opencode-go/config') return { body: { ok: true, config: { override: {} } }, ...overrides.config }
     if (name === 'opencode-go/credential') return { body: { ok: true }, ...overrides.credential }
     if (name === 'opencode-go/refresh') return { body: { ok: true, discovered: 3, added: [], removed: [], catalog: CATALOG }, ...overrides.refresh }
-    if (name === 'opencode-go/subscription') return { body: { ...SUBSCRIPTION, cached: query === 'refresh=1' ? false : true }, ...overrides.subscription }
+    if (name === 'opencode-go/subscription') {
+      return { body: { ...SUBSCRIPTION, minIntervalSeconds: 30, maxIntervalSeconds: 1_800, cached: query === 'refresh=1' ? false : true }, ...overrides.subscription }
+    }
+    // The probe the page's schedule asks instead of reading: in memory on the
+    // Host, and false unless a case says something was spent.
+    if (name === 'opencode-go/activity') {
+      return { body: { ok: true, activity: false, minIntervalSeconds: 30, maxIntervalSeconds: 1_800 }, ...overrides.activity }
+    }
     throw new Error(`the page called an endpoint the Host does not serve: ${name}`)
   }
 }
@@ -130,16 +137,17 @@ export default {
       async run() {
         const page = await renderPage({ fetch: host() })
         await page.open()
-        // The counters are the one read that lands last, and deliberately: their
-        // section is drawn only once the page knows it has a row to configure,
-        // and it reads its own window when it mounts.
+        // Every endpoint, and the order they start in: the quota's read is armed
+        // by the hook that draws it, so it leaves before the page's own effect
+        // — and the counters are read by their section, which is drawn only once
+        // the page knows it has a row to configure.
         equal(page.calls.map((call) => call.path.split('?')[0]), [
-          'opencode-go/state',
-          'opencode-go/models',
           // The provider's own quota is read once on open. It is not forced,
           // so opening the page does not spend a request inside the cache
           // window the Host keeps for it.
           'opencode-go/subscription',
+          'opencode-go/state',
+          'opencode-go/models',
           'opencode-go/usage',
         ])
         // The window is explicit and is the default one, so the page never
@@ -1437,6 +1445,107 @@ export default {
       },
     },
     {
+      name: 'a quiet page waits out the ceiling, and an active one the floor',
+      async run() {
+        // The schedule is the reason this store exists, and it is the one thing no
+        // single render can show: a page on a fixed timer spends round trips on an
+        // answer that has not moved, while a page that reads once goes stale while
+        // the session runs. Every floor the page asks a question that costs
+        // nothing — has anything been spent? — and reads the quota only when the
+        // answer is yes, or when the answer on file has reached the ceiling.
+        let spent = false
+        const base = host()
+        // The Host stamps each answer with its own clock, as it does in life; the
+        // fixture's fixed stamp sits in this clock's future, and an answer that
+        // never ages would make the ceiling untestable.
+        let page
+        page = await renderPage({
+          fetch: async (path, init) => {
+            if (String(path) === 'opencode-go/activity') {
+              return { body: { ok: true, activity: spent, minIntervalSeconds: 30, maxIntervalSeconds: 1_800 } }
+            }
+            const answer = await base(path, init)
+            if (String(path).startsWith('opencode-go/subscription')) {
+              return { ...answer, body: { ...answer.body, fetchedAt: page.clock.value } }
+            }
+            return answer
+          },
+        })
+        const reads = () => page.calls.filter((call) => call.path === 'opencode-go/subscription').length
+        const checks = () => page.calls.filter((call) => call.path === 'opencode-go/activity').length
+        await page.surface('sidebar.footer.action').open({ wide: true })
+        equal(reads(), 1, 'mounting reads once')
+
+        // Nothing has been spent: the checks run on the floor, but the answer is
+        // trusted, so a minute of an idle session costs no quota reads at all.
+        await page.advance(60_000)
+        is(checks() >= 1, true, `the page does check on the floor: ${String(checks())}`)
+        equal(reads(), 1, 'and an idle page does not read the quota')
+
+        // Past the ceiling, the answer is old enough to distrust whatever the
+        // route has been doing, and that is the read the ceiling is for.
+        await page.advance(1_800_000)
+        is(reads() >= 2, true, `the ceiling is where a quiet answer is checked again: ${String(reads())}`)
+      },
+    },
+    {
+      name: 'a check that finds activity reads at the floor, not before',
+      async run() {
+        // A running session finishes calls every few seconds, and the whole point
+        // of the floor is that none of them becomes a read of its own.
+        let spent = false
+        const base = host()
+        const page = await renderPage({
+          fetch: async (path, init) => {
+            if (String(path) === 'opencode-go/activity') {
+              return { body: { ok: true, activity: spent, minIntervalSeconds: 30, maxIntervalSeconds: 1_800 } }
+            }
+            return base(path, init)
+          },
+        })
+        const reads = () => page.calls.filter((call) => call.path === 'opencode-go/subscription').length
+        await page.surface('sidebar.footer.action').open({ wide: true })
+        equal(reads(), 1)
+
+        spent = true
+        await page.advance(29_000)
+        equal(reads(), 1, 'the floor is not crossed early')
+        await page.advance(2_000)
+        equal(reads(), 2, 'and once it is, a page that knows the plan moved reads')
+
+        // Ten minutes of a busy session at a 30-second floor: one read per floor
+        // and no more, which is the bound the floor exists to state.
+        await page.advance(600_000)
+        const total = reads()
+        is(total <= 23, true, `one read per floor, not a burst: ${String(total)} in ten minutes`)
+        is(total >= 20, true, `and it does keep reading: ${String(total)}`)
+      },
+    },
+    {
+      name: 'the schedule runs only while a surface is showing the quota',
+      async run() {
+        // A closed panel is not a reason to spend a round trip, and the capsule is
+        // not always in the sidebar. The store counts its mounted surfaces, so the
+        // clock stops with the last of them and starts again with the next.
+        const page = await renderPage({ fetch: host() })
+        const capsule = page.surface('sidebar.footer.action')
+        await capsule.open({ wide: true })
+        const reads = () => page.calls.filter((call) => call.path.startsWith('opencode-go/')).length
+
+        const atMount = reads()
+        equal(page.calls.filter((call) => call.path === 'opencode-go/subscription').length, 1)
+        // The effect that arms the clock is the one that unmounts it again: this
+        // is what a surface going away looks like to the store.
+        await capsule.close()
+        await page.advance(3_600_000)
+        equal(reads(), atMount, 'an hour with nothing on screen costs nothing')
+
+        const tree = await capsule.open({ wide: true })
+        equal(page.calls.filter((call) => call.path === 'opencode-go/subscription').length, 2, 'and the next surface reads on arrival')
+        is(figures(tree).join(' ').includes('92%'), true, 'showing the answer it just read')
+      },
+    },
+    {
       name: 'the re-read control sits with the quota label, once per surface',
       async run() {
         // The same action used to be drawn twice on the panel — once in the
@@ -1638,9 +1747,9 @@ export default {
         // edit nothing.
         equal(section.options.label(), 'OpenCode Go settings')
         equal(page.calls.map((call) => call.path.split('?')[0]), [
+          'opencode-go/subscription',
           'opencode-go/state',
           'opencode-go/models',
-          'opencode-go/subscription',
           'opencode-go/usage',
         ])
 

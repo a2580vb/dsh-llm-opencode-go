@@ -17,7 +17,7 @@ plugin, how to re-measure the live facts, and how the code is laid out.
 ## Verification
 
 ```sh
-npm test            # 361 offline checks: config, SSE framing, catalog, all three protocols, adapter, plugin body, the settings bridge, the client bundle, the display metadata and release coherence
+npm test            # 370 offline checks: config, SSE framing, catalog, all three protocols, adapter, plugin body, the settings bridge, the client bundle, the display metadata and release coherence
 npm run test:cordis # 43 checks mounting the plugin on the harness's own cordis
 npm run test:live   # the live suite; needs OC_KEY
 ```
@@ -61,6 +61,13 @@ The suites that cover the configuration page run offline as well:
   browser's module loader memoizes a package, and gives each registered slot a
   hook store of its own — which is what lets a case watch one surface's read
   reach the other one drawing the same fact.
+- The page's **clock is the suite's**. Delays the page would wait at most a
+  second for — the beat after a write — still run themselves, and anything longer
+  waits for `page.advance(ms)`, which walks the scheduled work in due order so a
+  case can ask what the quota schedule does at thirty seconds, at half an hour, or
+  over ten minutes of a busy session. `page.surface(name).close()` is the other
+  half of that: it unmounts a surface, so a case can watch what stops when the
+  last one goes.
 
 Two checks in the page suite are **structural**, and they double as rules for new
 code — a stylesheet here is a plain object, not CSS, so a mistake is easy to write

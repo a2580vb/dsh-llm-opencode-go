@@ -171,6 +171,7 @@ function adapterWith(script, overrides = {}) {
     resolveApiKey: async () => 'sk-test-value',
     cache,
     usage: overrides.usage,
+    subscription: overrides.subscription,
     attachments: () => overrides.attachments,
     discover: (provider) => adapter.listModels(provider),
     logger,
@@ -483,6 +484,46 @@ export default {
         is(record.usage.inputTokens, 5)
         is(record.usage.outputTokens, 2)
         is(record.usage.totalTokens, 7)
+      },
+    },
+    {
+      name: 'a finished call is what tells the quota reader that the plan may have moved',
+      async run() {
+        // The quota moves only when a call is made, and this is the one place that
+        // knows a call was made. Nothing is read here — the reader only marks the
+        // time — but it is the fact a page's schedule is built on, so it has to be
+        // reported by the same moment the counters are.
+        const notes = []
+        const { adapter } = adapterWith([{ body: CHAT_BODY }], {
+          usage: new RecordingUsage(),
+          subscription: { noteActivity: () => notes.push('spent') },
+        })
+        await collect(adapter, {
+          provider: 'opencode-go',
+          model: 'glm-5.3',
+          messages: [userMessage('hi')],
+          sessionId: 'activity-session',
+        })
+        equal(notes, ['spent'])
+
+        // A call whose outcome nobody observed is not counted as a call, and it is
+        // not evidence that the plan moved either: the same rule holds for both.
+        const abandoned = []
+        const { adapter: other } = adapterWith([{ body: CHAT_BODY }], {
+          usage: new RecordingUsage(),
+          subscription: { noteActivity: () => abandoned.push('spent') },
+        })
+        const controller = new AbortController()
+        const stream = collect(other, {
+          provider: 'opencode-go',
+          model: 'glm-5.3',
+          messages: [userMessage('hi')],
+          sessionId: 'abandoned-session',
+          signal: controller.signal,
+        })
+        controller.abort()
+        await stream.catch(() => undefined)
+        equal(abandoned, [], 'an abandoned call is not evidence of anything')
       },
     },
     {

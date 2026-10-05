@@ -228,12 +228,17 @@ export function bridgeUnderTest(overrides = {}) {
       ok: true,
       cached: false,
       fetchedAt: 1_700_000_000_000,
+      minIntervalSeconds: 30,
+      maxIntervalSeconds: 1_800,
       windows: [
         { name: 'rolling', status: 'ok', percent: 8, resetsAt: '2026-01-16T00:00:00.000Z' },
         { name: 'weekly', status: 'ok', percent: 8, resetsAt: '2026-01-19T00:00:00.000Z' },
         { name: 'monthly', status: 'ok', percent: 13, resetsAt: '2026-02-01T00:00:00.000Z' },
       ],
     })),
+    subscriptionStatus: 'subscriptionStatus' in overrides
+      ? overrides.subscriptionStatus
+      : () => ({ activity: false, minIntervalSeconds: 30, maxIntervalSeconds: 1_800 }),
     logger: { info: (...args) => logs.push(args.join(' ')), warn: (...args) => logs.push(args.join(' ')) },
     // Optional collaborators the page reads when a deployment has them. Absent
     // means "this composition does not mount one", which is a shape the page

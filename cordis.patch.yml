@@ -39,6 +39,11 @@
 #   subscriptionCacheSeconds
 #                      how long the page reuses one subscription-quota answer
 #                      before asking GET {baseURL}/usage again (default: 60)
+#   subscriptionMinIntervalSeconds / subscriptionMaxIntervalSeconds
+#                      how the page paces its own quota checks (defaults: 30 and
+#                      1800). It checks at the floor while calls are being made
+#                      and at the ceiling while they are not, asking a memory-only
+#                      endpoint in between so that neither is a poll.
 #
 # The plugin also ships a page for the Web client: the sidebar's Plugins page
 # lists this bundle, and the opencode-go row's Configure control opens it. It

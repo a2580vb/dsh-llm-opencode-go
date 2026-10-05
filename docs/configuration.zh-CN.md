@@ -19,6 +19,8 @@
 | `modelsCachePath` | `~/.dsh/cache/opencode-go-models.json` | 缓存文件；路径不可写时只告警 |
 | `usagePath` | `~/.dsh/cache/opencode-go-usage.json` | 用量计数所在文件；路径不可写时只告警 |
 | `subscriptionCacheSeconds` | `60` | 页面复用一次订阅额度结果多久之后再去问服务 |
+| `subscriptionMinIntervalSeconds` | `30` | 页面自己两次额度检查之间最短等待（见[快速入口](#快速入口)） |
+| `subscriptionMaxIntervalSeconds` | `1800` | 无论这条路由多空闲，一份额度答案最长多久必须重新检查 |
 | `models` | `[]` | 提示性目录条目；当 `modelSource: config` 时它就是整个目录 |
 | `modelOverrides` | `{}` | 重塑某一个目录模型，而不必重述其余的 |
 | `protocolOverrides` | `{}` | `{"<模型 id>": "<协议>"}` 简写 |
@@ -68,7 +70,17 @@
 
 打开其中任一面都会读一次服务端的额度，但复用 Host 上 `subscriptionCacheSeconds` 的缓存；只有
 「重新读取额度」才会强制重问一次服务。四个面——胶囊、用量面板、设置页签、配置页——画的是同一份
-答案，因此在任何一处重新读取，四处一起更新。胶囊在挂载时读一次，之后不轮询。
+答案，因此在任何一处重新读取，四处一起更新。
+
+胶囊让这些数字保持新鲜，但不轮询服务。额度只在真的发生调用时才变，所以页面的节奏由「有没有调用」
+驱动：每隔 `subscriptionMinIntervalSeconds`（默认 30 秒，且只在有面挂着时）问一次
+`GET /opencode-go/activity`——这个问题由 Host 在内存里回答，绝不访问服务——只有在它说「确实花过」
+时才去读额度，或者当手上这份答案已经到达 `subscriptionMaxIntervalSeconds`（默认 1800 秒）时读一次。
+后一条界覆盖的是本进程看不见的花费：另一台机器、另一段会话。
+
+于是：正在干活的会话最多每个「底」读一次额度，空闲的最多每个「顶」读一次，面板关掉则完全不花。
+两个字段都必须为正——间隔为 0 就成了这套机制要取代的轮询——而「顶」小于「底」时会被抬到「底」，
+因为不存在同时满足两者的间隔。
 
 本路由自己的计数表同样共享，但有一处值得知道的区别：共享的是**某个窗口的那张表**，不是窗口本身。
 画这些表的有三个面——配置页的用量区、用量面板、设置页签——一次读取会同时推给三者，但**每个面各自
@@ -126,6 +138,7 @@
 | `/opencode-go/refresh` | `POST` | 重新读取 `GET /models` 并报告变化 |
 | `/opencode-go/usage` | `GET` | `?days=1`、`7`、`30` 对应的用量表 |
 | `/opencode-go/subscription` | `GET` | 从服务读取的订阅额度；`?refresh=1` 绕过缓存 |
+| `/opencode-go/activity` | `GET` | 这份额度答案是否已经过时——只在内存里判断，绝不访问服务 |
 
 访问规则：
 

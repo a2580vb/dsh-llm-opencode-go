@@ -920,6 +920,36 @@ export default {
       },
     },
     {
+      name: 'GET activity answers from memory, and never spends a service read',
+      async run() {
+        // The page checks this on its floor, which makes it the most-asked route
+        // here by a wide margin — and the whole point of it is that asking is
+        // free. If it ever reached the service, the schedule it serves would be
+        // the poll it exists to avoid.
+        let asks = 0
+        let service = 0
+        const { instance } = bridgeUnderTest({
+          subscriptionStatus: () => ({ activity: asks > 0, minIntervalSeconds: 30, maxIntervalSeconds: 1_800 }),
+          subscription: async () => {
+            service += 1
+            return { ok: true, cached: false, fetchedAt: 1_700_000_000_000, windows: [] }
+          },
+        })
+        const quiet = await call(instance, local({ url: UI_ROUTES.activity }))
+        is(quiet.captured.statusCode, 200)
+        equal(quiet.json, { ok: true, status: 200, activity: false, minIntervalSeconds: 30, maxIntervalSeconds: 1_800 })
+
+        asks += 1
+        const spent = await call(instance, local({ url: UI_ROUTES.activity }))
+        is(spent.json.activity, true, 'the page learns that a read would be worth making')
+        is(service, 0, 'and learns it without making one')
+
+        const wrongMethod = await call(instance, local({ method: 'POST', url: UI_ROUTES.activity }))
+        is(wrongMethod.captured.statusCode, 405)
+        is(wrongMethod.captured.headers.allow, 'GET')
+      },
+    },
+    {
       name: 'a quota the service cannot answer is a 200 with a reason, never a 5xx',
       async run() {
         // A gateway that mirrors only the model surface is a working
@@ -959,6 +989,9 @@ export default {
         const onSubscription = await call(instance, local({ method: 'POST', url: UI_ROUTES.subscription }))
         is(onSubscription.captured.statusCode, 405)
         is(onSubscription.captured.headers.allow, 'GET')
+        const onActivity = await call(instance, local({ method: 'DELETE', url: UI_ROUTES.activity }))
+        is(onActivity.captured.statusCode, 405)
+        is(onActivity.captured.headers.allow, 'GET')
       },
     },
     {

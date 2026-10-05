@@ -19,6 +19,8 @@ view, or read `Config` from the plugin for the authoritative list.
 | `modelsCachePath` | `~/.dsh/cache/opencode-go-models.json` | Cache file; an unwritable path only warns |
 | `usagePath` | `~/.dsh/cache/opencode-go-usage.json` | Where the usage counters live; an unwritable path only warns |
 | `subscriptionCacheSeconds` | `60` | How long the page reuses a subscription-quota answer before asking the service again |
+| `subscriptionMinIntervalSeconds` | `30` | The shortest wait between two of the page's own quota checks (see [Fast entries](#fast-entries)) |
+| `subscriptionMaxIntervalSeconds` | `1800` | The longest a quota answer may go unchecked, however quiet the route is |
 | `models` | `[]` | Advisory catalog entries; the whole catalog when `modelSource: config` |
 | `modelOverrides` | `{}` | Reshape one catalog model without restating the rest |
 | `protocolOverrides` | `{}` | `{"<model id>": "<protocol>"}` shorthand |
@@ -79,7 +81,21 @@ Opening a surface reads the service's quota once, through the Host's
 `subscriptionCacheSeconds` cache; only *re-read quota* forces a fresh request.
 Every surface draws the same answer — the capsule, the panel, the settings tab,
 and the configuration page — so a re-read on one of them moves the numbers on all
-of them. The capsule reads once when it mounts and never polls.
+of them.
+
+The capsule keeps those numbers current without polling the service. The quota
+moves only when a call is made, so the page's schedule is driven by whether one
+was: every `subscriptionMinIntervalSeconds` (30 by default, and only while a
+surface is mounted) it asks `GET /opencode-go/activity` — a question the Host
+answers from memory, never from the service — and reads the quota only when that
+says something was spent, or when the answer on file has reached
+`subscriptionMaxIntervalSeconds` (1800 by default). What that last bound covers is
+the spending this process cannot see: another machine, another session.
+
+So a session that is working reads the quota at most once per floor, an idle one
+at most once per ceiling, and a closed panel costs nothing at all. Both fields
+must be positive — an interval of zero would be the poll this replaces — and a
+ceiling below the floor is lifted to it, since no interval could satisfy both.
 
 This route's own counters are shared the same way, with one difference worth
 knowing: what the surfaces share is **the table for a window**, not the window.
@@ -152,6 +168,7 @@ while the client is open:
 | `/opencode-go/refresh` | `POST` | re-reads `GET /models` and reports what changed |
 | `/opencode-go/usage` | `GET` | the usage table for `?days=1`, `7`, or `30` |
 | `/opencode-go/subscription` | `GET` | the subscription's own quota, read from the service; `?refresh=1` bypasses the cache |
+| `/opencode-go/activity` | `GET` | whether that quota answer has gone old — answered from memory, never from the service |
 
 How the surface is guarded:
 
