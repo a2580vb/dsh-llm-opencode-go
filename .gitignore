@@ -10,8 +10,11 @@ pnpm-lock.yaml
 # they check is only meaningful against the version that was verified.
 *.log
 # Launch kit and working notes: local to this checkout, never published and
-# never part of the plugin. The screenshots it refers to live in assets/,
-# which is committed.
+# never part of the plugin. The screenshot instructions moved in here with
+# them; the images themselves belong in assets/, which git picks up once they
+# exist. Git cannot track an empty directory, so assets/ needs no entry here —
+# and an entry would defeat the point, since a screenshot the market is meant
+# to show has to be committed.
 promotion/
 # A local orientation note: this checkout's paths, the current check count, and
 # the rules a change tends to run into. It goes stale on every commit, and the
