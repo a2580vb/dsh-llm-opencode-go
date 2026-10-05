@@ -75,9 +75,11 @@ The shortcut is rebindable in Settings → Shortcuts. It is `Ctrl/Cmd+U` on the
 desktop; the browser shell refuses a bare `primary+U`, so there it defaults to
 `Ctrl/Cmd+Alt+U` (Linux browsers can set their own).
 
-Opening the panel reads the service's quota once, through the Host's
-`subscriptionCacheSeconds` cache; only *re-read quota* forces a fresh request. The
-capsule reads once when it mounts and never polls.
+Opening a surface reads the service's quota once, through the Host's
+`subscriptionCacheSeconds` cache; only *re-read quota* forces a fresh request.
+Every surface draws the same answer — the capsule, the panel, the settings tab,
+and the configuration page — so a re-read on one of them moves the numbers on all
+of them. The capsule reads once when it mounts and never polls.
 
 ## Graphical configuration
 

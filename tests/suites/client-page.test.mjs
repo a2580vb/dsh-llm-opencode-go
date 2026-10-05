@@ -100,6 +100,16 @@ const button = (tree, label) => {
   return match?.node
 }
 
+/** The quota bars of one surface, as the share each one shows as spent. */
+const bars = (tree) => nodes(tree)
+  .filter(({ node }) => node.props?.role === 'progressbar')
+  .map(({ node }) => node.props['aria-valuenow'])
+
+/** What the capsule prints, window by window. */
+const figures = (tree) => nodes(tree)
+  .filter(({ node }) => node.props?.style?.fontVariantNumeric === 'tabular-nums')
+  .map(({ node }) => text(node))
+
 export default {
   name: 'client page',
   cases: [
@@ -1208,6 +1218,100 @@ export default {
         await panel.click((node) => node.type === 'button' && text(node).trim() === 'Re-read quota')
         const subscriptions = page.calls.filter((call) => call.path.startsWith('opencode-go/subscription'))
         equal(subscriptions.map((call) => call.path), ['opencode-go/subscription', 'opencode-go/subscription?refresh=1'])
+      },
+    },
+    {
+      name: 'one re-read moves the numbers on every surface that draws the quota',
+      async run() {
+        // Four surfaces draw one limit, and they are four separate React trees,
+        // so the answer has to live outside all of them. Held inside each of
+        // them, the panel's *Re-read quota* left the capsule at the numbers it
+        // had read when it mounted: two figures for one plan, differing by
+        // however much the plan moved while the session ran — and the capsule is
+        // the one a reader watches while it works.
+        const moved = {
+          ...SUBSCRIPTION,
+          cached: false,
+          windows: [
+            { name: 'rolling', status: 'ok', percent: 30, resetsAt: '2026-01-16T00:00:00.000Z' },
+            { name: 'weekly', status: 'ok', percent: 50, resetsAt: '2026-01-19T00:00:00.000Z' },
+            { name: 'monthly', status: 'ok', percent: 60, resetsAt: '2026-02-01T00:00:00.000Z' },
+          ],
+        }
+        const base = host()
+        const page = await renderPage({
+          fetch: async (path, init) => {
+            const answer = await base(path, init)
+            return String(path).includes('refresh=1') ? { ...answer, body: moved } : answer
+          },
+        })
+
+        await page.open()
+        const capsule = page.surface('sidebar.footer.action')
+        await capsule.open({ wide: true })
+        const tab = page.surface('settings.plugins.tab')
+        await tab.open()
+        const panel = page.surface('main')
+        await panel.open()
+
+        // Every surface starts on the one answer, whichever of them read it.
+        equal(bars(page.tree()), [8, 42, 91], 'the configuration page')
+        equal(bars(tab.tree()), [8, 42, 91], 'the settings tab')
+        equal(bars(panel.tree()), [8, 42, 91], 'the panel')
+        equal(figures(capsule.tree()), ['92%', '58%', '9%'], 'the capsule')
+
+        // Then a reader asks the panel for a fresh answer, and the surfaces they
+        // never touched move with it.
+        await panel.click((node) => node.type === 'button' && text(node).trim() === 'Re-read quota')
+
+        equal(bars(panel.tree()), [30, 50, 60], 'the panel that was asked')
+        equal(bars(page.tree()), [30, 50, 60], 'the configuration page')
+        equal(bars(tab.tree()), [30, 50, 60], 'the settings tab')
+        equal(figures(capsule.tree()), ['70%', '50%', '40%'], 'and the capsule, without being touched')
+
+        // One surface asked the service, once: the re-read is forced, and no
+        // mount in this case spent a second request on the same answer.
+        const asked = page.calls
+          .filter((call) => call.path.startsWith('opencode-go/subscription'))
+          .map((call) => call.path)
+        equal(asked.filter((path) => path.includes('refresh=1')), ['opencode-go/subscription?refresh=1'])
+        equal(asked.length, 5, 'four mounts and the one re-read')
+      },
+    },
+    {
+      name: 'surfaces that mount together share the one read in flight',
+      async run() {
+        // The shell decides when the sidebar and a panel appear, and it can
+        // render them without a beat between them. One answer is enough for
+        // both: the read is held open here until the test releases it, which is
+        // what a slow service looks like to a burst of mounts.
+        let release
+        const gate = new Promise((resolve) => {
+          release = resolve
+        })
+        const base = host()
+        const page = await renderPage({
+          fetch: async (path, init) => {
+            if (String(path).startsWith('opencode-go/subscription')) await gate
+            return base(path, init)
+          },
+        })
+
+        const capsule = page.surface('sidebar.footer.action')
+        await capsule.open({ wide: true })
+        const panel = page.surface('main')
+        await panel.open()
+        const asked = () => page.calls.filter((call) => call.path.startsWith('opencode-go/subscription'))
+
+        equal(asked().length, 1, 'one request for a whole burst of mounts')
+        ok(text(panel.tree()).includes('Reading the subscription quota'), 'and the surfaces say they are waiting')
+
+        release()
+        await page.update()
+
+        equal(asked().length, 1, 'the answer already on its way is the one both surfaces show')
+        equal(bars(panel.tree()), [8, 42, 91])
+        equal(figures(capsule.tree()), ['92%', '58%', '9%'])
       },
     },
     {

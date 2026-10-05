@@ -1,11 +1,18 @@
 /**
  * A page renderer for the client bundle, good enough to click through a page.
  *
- * The bundle is a plain function of props plus React hooks, so a ~80-line hook
+ * The bundle is a plain function of props plus React hooks, so a ~100-line hook
  * runtime is enough to render it for real in Node: no browser, no build step,
  * and no DOM. What it does not do is pretend to be React — it renders one tree
- * and re-renders it when a setter or an effect changes something, which is
- * exactly as much as a test of the page's wiring needs.
+ * per surface and re-renders it when a setter or an effect changes something,
+ * which is exactly as much as a test of the page's wiring needs.
+ *
+ * One bundle, many surfaces: the module is evaluated once and its factory
+ * materialized once, the way the browser's module loader memoizes a package,
+ * and each registered slot renders with its own hook store. That is what lets a
+ * case see one surface's read reach another's — a harness that re-evaluated the
+ * bundle per surface would give each of them a private copy of everything the
+ * factory holds.
  *
  * Walk the result with {@link find}, drive it with {@link click}, and read the
  * text the reader would see with {@link text}.
@@ -53,18 +60,14 @@ export function localeStore() {
 /**
  * One "page", rendered.
  *
- * The bundle computes everything — its components included — at module
- * evaluation time, and its components read the React hooks the browser's module
- * table handed it. So a test needs one module instance, one hook store, and one
- * React stub per surface: a second surface rendered against the first one's
- * hooks would silently write into the first one's store. Each registered slot
- * therefore gets its own instance of the bundle, and they all share the same
- * `fetch` recorder, so `calls` is the whole picture in order.
- *
- * This is a page renderer rather than React: it renders one tree and re-renders
- * it when a setter or an effect changes something, which is exactly as much as a
- * test of the page's wiring needs. Walk the result with {@link find}, drive it
- * with {@link click}, and read the text the reader would see with {@link text}.
+ * The bundle is evaluated once and its factory materialized once, as the
+ * browser's module loader does per package, so the surfaces it registers share
+ * whatever the factory built outside a component. Each registered slot then
+ * gets its own hook store, which is what a component instance gets in React:
+ * two surfaces rendered against one store would silently write into each
+ * other's slots. They all share the same `fetch` recorder, so `calls` is the
+ * whole picture in order, and one settle loop, so a change on one surface is
+ * rendered everywhere before a case reads either of them.
  *
  * @param {object} options - how to build it.
  * @param {(path: string, init?: object) => Promise<object>} options.fetch - answers the page's own requests.
@@ -74,8 +77,9 @@ export async function renderPage({ fetch: fetchImpl, locale = 'en' } = {}) {
   const calls = []
   const locales = localeStore()
 
-  /** The module loader facade and the one fetch every instance shares. */
-  const sandboxFor = (registrations) => ({
+  /** The module loader facade and the one fetch every surface shares. */
+  const registrations = []
+  const sandbox = {
     window: { __ModuleLoader__: { load: (entry) => registrations.push(entry) } },
     fetch: async (path, init) => {
       calls.push({ path, init })
@@ -93,196 +97,247 @@ export async function renderPage({ fetch: fetchImpl, locale = 'en' } = {}) {
     setTimeout: (callback) => setImmediate(callback),
     clearTimeout: () => {},
     console,
+  }
+  vm.runInNewContext(`(function () { ${CLIENT_SOURCE} })()`, sandbox, { filename: 'lib/client.js' })
+
+  /**
+   * The hook store of the surface whose render is in flight.
+   *
+   * One store per surface, switched while that surface renders. A setter,
+   * though, belongs to the surface that created it rather than to whoever
+   * happens to be rendering when it fires — one surface's read publishes into
+   * another's state, which is the whole point of a shared answer — so every
+   * hook captures the store it came from.
+   */
+  let frame = undefined
+  const rendering = () => {
+    if (frame === undefined) throw new Error('a hook was called outside a render')
+    return frame
+  }
+
+  /** Whether a hook's dependencies moved since the last render. */
+  const changed = (before, now) => before === undefined || now === undefined
+    || now.length !== before.length || now.some((value, index) => !Object.is(value, before[index]))
+
+  /** Take the next slot of the rendering surface's hook store. */
+  const slotFor = (initial) => {
+    const store = rendering()
+    const at = store.cursor
+    store.cursor += 1
+    const slot = store.hooks[at] ?? (store.hooks[at] = initial)
+    return { store, slot }
+  }
+
+  const React = {
+    // `children` land in `props.children` exactly as React puts them there,
+    // whichever way they were passed: positionally (`h(Wrapper, p, child)`) or
+    // in the config (`h('button', { children })`). A wrapper component that
+    // forwards its children is an ordinary pattern, and a harness that kept
+    // them only in the element would drop them on the floor.
+    createElement: (type, elementProps, ...children) => {
+      const config = elementProps ?? {}
+      const passed = children.length > 0
+        ? children
+        : Array.isArray(config.children)
+          ? config.children
+          : config.children === undefined || config.children === null ? [] : [config.children]
+      const list = passed.flat(Infinity).filter((child) => (
+        child !== null && child !== undefined && child !== false && child !== true
+      ))
+      return {
+        type,
+        props: {
+          ...config,
+          children: list.length === 0 ? undefined : list.length === 1 ? list[0] : list,
+        },
+        children: list,
+      }
+    },
+    Fragment: FRAGMENT,
+    useState(initial) {
+      const { store, slot } = slotFor({ value: typeof initial === 'function' ? initial() : initial })
+      return [slot.value, (next) => {
+        slot.value = typeof next === 'function' ? next(slot.value) : next
+        store.dirty = true
+      }]
+    },
+    useRef(initial) {
+      return slotFor({ current: initial }).slot
+    },
+    useEffect(effect, deps) {
+      const { store, slot } = slotFor({})
+      if (changed(slot.deps, deps)) {
+        slot.deps = deps
+        store.pending.push(() => {
+          slot.cleanup?.()
+          slot.cleanup = effect()
+        })
+      }
+    },
+    useCallback(callback, deps) {
+      const { slot } = slotFor({})
+      if (changed(slot.deps, deps)) {
+        slot.deps = deps
+        slot.value = callback
+      }
+      return slot.value
+    },
+    useMemo(factory, deps) {
+      const { slot } = slotFor({})
+      if (changed(slot.deps, deps)) {
+        slot.deps = deps
+        slot.value = factory()
+      }
+      return slot.value
+    },
+  }
+
+  const plugin = registrations[0].factory((name) => {
+    if (name === 'react') return React
+    throw new Error(`the bundle required "${name}"`)
   })
 
   /**
-   * Evaluate the bundle once and register its slots.
+   * What `ctx.get` answers, and when.
    *
-   * @param {Map<string, object>} services - what `ctx.get` answers: the optional
-   * shell services (the shortcut registry, the panel controller, the plugins
-   * page's navigation). A test fills this in before calling if it wants one.
-   * @returns {{plugin: object, context: object, registered: Map<string, object>}} the instance.
+   * A test fills this in before `open`/`surface`, because the bundle reads the
+   * optional services while it registers: `pluginNavigation` and `layout` are
+   * present or absent for the whole page, exactly as they are in a deployment.
    */
-  function instantiate(services) {
-    const registrations = []
-    vm.runInNewContext(`(function () { ${CLIENT_SOURCE} })()`, sandboxFor(registrations), { filename: 'lib/client.js' })
+  const optional = new Map()
+  const services = { get: (key) => optional.get(key) }
 
-    const hooks = []
-    const pending = []
-    let cursor = 0
-    let dirty = false
+  /** The slots the one materialized plugin registered, in registration order. */
+  const registered = new Map()
+  plugin.apply({
+    effect: (callback) => {
+      const disposer = callback()
+      return () => disposer?.()
+    },
+    locale: locales,
+    get: (key) => services.get(key),
+    slots: {
+      inject: (key, callback) => callback(),
+      register: (options, component) => {
+        registered.set(options.name, { options, component })
+        return () => {}
+      },
+    },
+  })
 
-    const React = {
-      // `children` land in `props.children` exactly as React puts them there,
-      // whichever way they were passed: positionally (`h(Wrapper, p, child)`) or
-      // in the config (`h('button', { children })`). A wrapper component that
-      // forwards its children is an ordinary pattern, and a harness that kept
-      // them only in the element would drop them on the floor.
-      createElement: (type, elementProps, ...children) => {
-        const config = elementProps ?? {}
-        const passed = children.length > 0
-          ? children
-          : Array.isArray(config.children)
-            ? config.children
-            : config.children === undefined || config.children === null ? [] : [config.children]
-        const list = passed.flat(Infinity).filter((child) => (
-          child !== null && child !== undefined && child !== false && child !== true
-        ))
-        return {
-          type,
-          props: {
-            ...config,
-            children: list.length === 0 ? undefined : list.length === 1 ? list[0] : list,
-          },
-          children: list,
-        }
-      },
-      Fragment: FRAGMENT,
-      useState(initial) {
-        const slot = hooks[cursor] ?? (hooks[cursor] = { value: typeof initial === 'function' ? initial() : initial })
-        cursor += 1
-        return [slot.value, (next) => {
-          slot.value = typeof next === 'function' ? next(slot.value) : next
-          dirty = true
-        }]
-      },
-      useRef(initial) {
-        const slot = hooks[cursor] ?? (hooks[cursor] = { current: initial })
-        cursor += 1
-        return slot
-      },
-      useEffect(effect, deps) {
-        const slot = hooks[cursor] ?? (hooks[cursor] = {})
-        cursor += 1
-        if (slot.deps === undefined || deps === undefined
-          || deps.length !== slot.deps.length || deps.some((value, index) => !Object.is(value, slot.deps[index]))) {
-          slot.deps = deps
-          pending.push(() => {
-            slot.cleanup?.()
-            slot.cleanup = effect()
-          })
-        }
-      },
-      useCallback(callback, deps) {
-        const slot = hooks[cursor] ?? (hooks[cursor] = {})
-        cursor += 1
-        if (slot.deps === undefined || deps === undefined
-          || deps.length !== slot.deps.length || deps.some((value, index) => !Object.is(value, slot.deps[index]))) {
-          slot.deps = deps
-          slot.value = callback
-        }
-        return slot.value
-      },
-      useMemo(factory, deps) {
-        const slot = hooks[cursor] ?? (hooks[cursor] = {})
-        cursor += 1
-        if (slot.deps === undefined || deps === undefined
-          || deps.length !== slot.deps.length || deps.some((value, index) => !Object.is(value, slot.deps[index]))) {
-          slot.deps = deps
-          slot.value = factory()
-        }
-        return slot.value
-      },
+  /** Render a node tree, one component at a time, as React would walk it. */
+  const expand = (node) => {
+    if (node === null || node === undefined || node === false || node === true) return null
+    if (Array.isArray(node)) return node.map(expand).filter((child) => child !== null)
+    if (typeof node === 'string' || typeof node === 'number') return { text: String(node) }
+    if (typeof node.type === 'function') {
+      if (node.type === FRAGMENT) return expand(node.children)
+      // `props.children` already carries what this element was given, so a
+      // component is called with the props React would hand it.
+      return expand(node.type(node.props))
     }
-
-    const plugin = registrations[0].factory((name) => {
-      if (name === 'react') return React
-      throw new Error(`the bundle required "${name}"`)
-    })
-
-    const registered = new Map()
-    plugin.apply({
-      effect: (callback) => {
-        const disposer = callback()
-        return () => disposer?.()
-      },
-      locale: locales,
-      get: (key) => services.get(key),
-      slots: {
-        inject: (key, callback) => callback(),
-        register: (options, component) => {
-          registered.set(options.name, { options, component })
-          return () => {}
-        },
-      },
-    })
-    return { plugin, registered, hooks, pending, getCursor: () => cursor, setCursor: (v) => { cursor = v }, isDirty: () => dirty, clearDirty: () => { dirty = false } }
+    return { type: node.type, props: node.props, children: node.children.map(expand).filter((child) => child !== null) }
   }
 
-  /** Parse a bundle body for one surface, with its own slots and hook store. */
-  const instanceFor = (name, services) => {
-    const instance = instantiate(services)
-    const entry = instance.registered.get(name)
+  /** Every surface a case can drive, in registration order. */
+  const drivers = []
+
+  /** Parse one registered slot into a surface with a hook store of its own. */
+  const surfaceFor = (name) => {
+    const entry = registered.get(name)
     if (entry === undefined) throw new Error(`the bundle registered no "${name}" surface`)
-    /** Render a node tree, remembering whether anything changed. */
-    const expand = (node) => {
-      if (node === null || node === undefined || node === false || node === true) return null
-      if (Array.isArray(node)) return node.map(expand).filter((child) => child !== null)
-      if (typeof node === 'string' || typeof node === 'number') return { text: String(node) }
-      if (typeof node.type === 'function') {
-        if (node.type === FRAGMENT) return expand(node.children)
-        // `props.children` already carries what this element was given, so a
-        // component is called with the props React would hand it.
-        return expand(node.type(node.props))
-      }
-      return { type: node.type, props: node.props, children: node.children.map(expand).filter((child) => child !== null) }
+    const surface = {
+      name,
+      entry,
+      store: { hooks: [], cursor: 0, pending: [], dirty: false },
+      props: {},
+      tree: null,
+      started: false,
     }
-    let tree = null
-    let props = {}
-    /** Render, then let every effect and setter settle. */
-    async function render() {
-      for (let pass = 0; pass < 50; pass += 1) {
-        instance.setCursor(0)
-        tree = expand(entry.component(props))
-        const effects = instance.pending.splice(0, instance.pending.length)
-        for (const effect of effects) effect()
-        await settle()
-        if (!instance.isDirty() && effects.length === 0) break
-        instance.clearDirty()
+    drivers.push(surface)
+    return surface
+  }
+
+  /** Render one surface, then run the effects that render scheduled. */
+  function renderSurface(surface) {
+    frame = surface.store
+    surface.store.cursor = 0
+    surface.tree = expand(surface.entry.component(surface.props))
+    frame = undefined
+    const effects = surface.store.pending.splice(0, surface.store.pending.length)
+    for (const effect of effects) effect()
+  }
+
+  /**
+   * Render whatever changed, on every surface, until nothing is left pending.
+   *
+   * A setter on one surface — a listener answering another surface's read, for
+   * one — only marks its own store dirty, so the loop looks at all of them
+   * rather than at the one a case happens to be driving.
+   */
+  async function drain() {
+    for (let pass = 0; pass < 50; pass += 1) {
+      const working = drivers.filter((surface) => (
+        surface.started && (surface.store.dirty || surface.store.pending.length > 0)
+      ))
+      for (const surface of working) {
+        surface.store.dirty = false
+        renderSurface(surface)
       }
-      return tree
-    }
-    return {
-      options: entry.options,
-      component: entry.component,
-      hooks: instance.hooks,
-      tree: () => tree,
-      /** Render with the props the shell would inject, plus `extra`. */
-      async open(extra = {}) {
-        // The shell composes a slot entry's props from its own `inject` payload
-        // plus the framework seats; a surface that declares no `inject` simply
-        // gets none of the former.
-        const injected = typeof entry.options.inject === 'function' ? entry.options.inject() : {}
-        props = { ...injected, ...extra, t: locales.t(locale) }
-        instance.clearDirty()
-        return render()
-      },
-      async update() {
-        instance.clearDirty()
-        return render()
-      },
-      async dispatch(handlerName, predicate, event = {}) {
-        const node = find(tree, predicate, (candidate) => typeof candidate.props[handlerName] === 'function')
-        if (node === undefined) throw new Error(`no node with ${handlerName} matched in "${name}"`)
-        // A browser does not fire an event at a disabled control, so neither does
-        // this: a test that presses one is asking for something a reader cannot
-        // do, and it should hear about that rather than silently pass.
-        if (node.props.disabled === true) {
-          throw new Error(`the control matching the ${handlerName} predicate is disabled`)
-        }
-        node.props[handlerName]({ target: { value: node.props.value ?? '', checked: node.props.checked ?? false }, ...event })
-        await settle()
-        return render()
-      },
-      async click(predicate) {
-        return this.dispatch('onClick', predicate)
-      },
-      async change(predicate, value) {
-        const checked = typeof value === 'boolean' ? value : undefined
-        return this.dispatch('onChange', predicate, checked === undefined ? { target: { value } } : { target: { checked, value: '' } })
-      },
+      await settle()
+      const pending = drivers.some((surface) => (
+        surface.started && (surface.store.dirty || surface.store.pending.length > 0)
+      ))
+      if (working.length === 0 && !pending) break
     }
   }
+
+  /** A case's handle on one surface: render it, drive it, read what it shows. */
+  const driverFor = (surface) => ({
+    options: surface.entry.options,
+    component: surface.entry.component,
+    hooks: surface.store.hooks,
+    tree: () => surface.tree,
+    /** Render with the props the shell would inject, plus `extra`. */
+    async open(extra = {}) {
+      // The shell composes a slot entry's props from its own `inject` payload
+      // plus the framework seats; a surface that declares no `inject` simply
+      // gets none of the former.
+      const injected = typeof surface.entry.options.inject === 'function' ? surface.entry.options.inject() : {}
+      surface.props = { ...injected, ...extra, t: locales.t(locale) }
+      surface.started = true
+      surface.store.dirty = false
+      renderSurface(surface)
+      await drain()
+      return surface.tree
+    },
+    async update() {
+      surface.store.dirty = false
+      if (surface.started) renderSurface(surface)
+      await drain()
+      return surface.tree
+    },
+    async dispatch(handlerName, predicate, event = {}) {
+      const node = find(surface.tree, predicate, (candidate) => typeof candidate.props[handlerName] === 'function')
+      if (node === undefined) throw new Error(`no node with ${handlerName} matched in "${surface.name}"`)
+      // A browser does not fire an event at a disabled control, so neither does
+      // this: a test that presses one is asking for something a reader cannot
+      // do, and it should hear about that rather than silently pass.
+      if (node.props.disabled === true) {
+        throw new Error(`the control matching the ${handlerName} predicate is disabled`)
+      }
+      node.props[handlerName]({ target: { value: node.props.value ?? '', checked: node.props.checked ?? false }, ...event })
+      await drain()
+      return surface.tree
+    },
+    async click(predicate) {
+      return this.dispatch('onClick', predicate)
+    },
+    async change(predicate, value) {
+      const checked = typeof value === 'boolean' ? value : undefined
+      return this.dispatch('onChange', predicate, checked === undefined ? { target: { value } } : { target: { checked, value: '' } })
+    },
+  })
 
   /** Let the page's own promises finish. */
   async function settle() {
@@ -290,31 +345,15 @@ export async function renderPage({ fetch: fetchImpl, locale = 'en' } = {}) {
   }
 
   /**
-   * What `ctx.get` answers, and when.
-   *
-   * A test fills this in before `open`/`surface`, because the bundle reads the
-   * optional services while it registers: `pluginNavigation` and `layout` are
-   * present or absent for the whole instance, exactly as they are in a
-   * deployment.
-   */
-  const optional = new Map()
-  const services = { get: (key) => optional.get(key) }
-
-  /**
    * The surfaces the bundle registered, keyed by slot name.
    *
    * Every child slot the shell dispatches through `renderSlot` arrives here:
    * a registered options object and the component it renders, each with its own
-   * module instance so no two share a hook store. The entry the page's own tests
-   * drive is `plugins.row.config`.
+   * hook store so no two share cursors. The entry the page's own tests drive is
+   * `plugins.row.config`.
    */
-  const page = instanceFor('plugins.row.config', services)
-  const surfaces = new Map([['plugins.row.config', page]])
-  const names = [...instantiate(services).registered.keys()]
-  for (const name of names) {
-    if (name === 'plugins.row.config') continue
-    surfaces.set(name, instanceFor(name, services))
-  }
+  const surfaces = new Map([...registered.keys()].map((name) => [name, driverFor(surfaceFor(name))]))
+  const page = surfaces.get('plugins.row.config')
 
   const t = locales.t(locale)
 

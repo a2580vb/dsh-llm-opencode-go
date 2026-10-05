@@ -17,7 +17,7 @@ plugin, how to re-measure the live facts, and how the code is laid out.
 ## Verification
 
 ```sh
-npm test            # 349 offline checks: config, SSE framing, catalog, all three protocols, adapter, plugin body, the settings bridge, the client bundle, the display metadata and release coherence
+npm test            # 351 offline checks: config, SSE framing, catalog, all three protocols, adapter, plugin body, the settings bridge, the client bundle, the display metadata and release coherence
 npm run test:cordis # 43 checks mounting the plugin on the harness's own cordis
 npm run test:live   # the live suite; needs OC_KEY
 ```
@@ -56,7 +56,11 @@ The suites that cover the configuration page run offline as well:
   into its fields, press its controls, and read what a person would see. It
   checks that a save writes the config shape rather than the snapshot it read,
   that a window switch reads the window the reader chose, that a disabled control
-  is inert, and that a failure is reported in the reader's own words.
+  is inert, and that a failure is reported in the reader's own words. It
+  evaluates the bundle once and materializes its factory once, the way the
+  browser's module loader memoizes a package, and gives each registered slot a
+  hook store of its own — which is what lets a case watch one surface's read
+  reach the other one drawing the same fact.
 
 Two checks in the page suite are **structural**, and they double as rules for new
 code — a stylesheet here is a plain object, not CSS, so a mistake is easy to write
