@@ -9,3 +9,7 @@ pnpm-lock.yaml
 # harness's own BlockAssembler from @deepseek-ai/dsh-llm, so the contract
 # they check is only meaningful against the version that was verified.
 *.log
+# Launch kit and working notes: local to this checkout, never published and
+# never part of the plugin. The screenshots it refers to live in assets/,
+# which is committed.
+promotion/
