@@ -139,6 +139,200 @@ const scheduleBoxes = (section) => nodes(section)
 const scheduleSave = (section) => nodes(section)
   .find(({ node }) => node.type === 'button' && text(node).trim() === 'Save intervals')?.node
 
+/**
+ * A minimal DOM node: enough of one to be searched, climbed, and clicked.
+ *
+ * Only what the bundle actually reaches for is here. A stand-in that pretended
+ * to be a browser would be a second thing to keep true; this one is a tree, a
+ * `textContent`, and the two attributes this plugin and the shell agree on.
+ */
+function domNode(tag, { text = '', attributes = {}, onClick } = {}) {
+  const node = {
+    tag,
+    textContent: text,
+    attributes,
+    children: [],
+    parentElement: null,
+    getAttribute: (name) => (name in node.attributes ? node.attributes[name] : null),
+    click: () => onClick?.(),
+    append(child) {
+      child.parentElement = node
+      node.children.push(child)
+      return child
+    },
+    querySelectorAll: (selector) => descendants(node).filter((candidate) => matches(candidate, selector)),
+    querySelector(selector) {
+      return this.querySelectorAll(selector)[0] ?? null
+    },
+  }
+  return node
+}
+
+/** Every node under one, depth first. */
+function descendants(root) {
+  const found = []
+  const walk = (node) => {
+    for (const child of node.children) {
+      found.push(child)
+      walk(child)
+    }
+  }
+  walk(root)
+  return found
+}
+
+/**
+ * Whether one node answers a selector.
+ *
+ * A tiny grammar instead of the four selectors this plugin happens to use
+ * today: `tag` and any number of `[name]` / `[name="value"]` parts, plus the
+ * descendant form `nav button` the shell's nav rows are found with. Anything
+ * else throws, so a selector this stand-in cannot model is a loud failure rather
+ * than a silent mismatch.
+ */
+function parseSelector(selector) {
+  if (selector === 'nav button') return { descendant: true, tag: 'button', parentTag: 'nav', attributes: [] }
+  const match = /^([a-z]*)((?:\[[^\]]+\])*)$/.exec(selector)
+  if (match === null) throw new Error(`the stand-in document cannot model the selector "${selector}"`)
+  const attributes = [...match[2].matchAll(/\[([^\]=]+)(?:="([^"]*)")?\]/g)]
+    .map((part) => ({ name: part[1], value: part[2] }))
+  if (attributes.length === 0 && match[1] === '') {
+    throw new Error(`the stand-in document cannot model the selector "${selector}"`)
+  }
+  return { descendant: false, tag: match[1] === '' ? undefined : match[1], attributes }
+}
+
+/** Whether one node answers a selector, per {@link parseSelector}. */
+function matches(node, selector) {
+  const parsed = typeof selector === 'string' ? parseSelector(selector) : selector
+  if (parsed.descendant) {
+    return node.tag === parsed.tag && node.parentElement?.tag === parsed.parentTag
+  }
+  if (parsed.tag !== undefined && node.tag !== parsed.tag) return false
+  return parsed.attributes.every(({ name, value }) => (
+    name in node.attributes && (value === undefined || node.attributes[name] === value)
+  ))
+}
+
+/**
+ * A stand-in for the shell's own Settings control and the dialog it mounts.
+ *
+ * This is the whole reason the entry can reach the page in one step: the dialog
+ * has no service behind it, so the only honest way in is the control a reader
+ * presses. Both shapes the shell can have are modelled, because they need
+ * different numbers of presses:
+ *
+ *  - `launcher: false` — the sidebar renders the shell's own trigger, which
+ *    carries the shortcut itself, so it is on screen and one press opens the
+ *    dialog;
+ *  - `launcher: true` — the account package has taken the launcher seat, so the
+ *    trigger is a menu button and the *Settings* row is not in the DOM until the
+ *    menu is open. That row is the one carrying the shortcut.
+ *
+ * The layout mirrors the shell's: the capsule and the launcher/trigger are
+ * siblings inside the sidebar's foot, which is what lets the plugin climb from
+ * its own capsule instead of knowing a class name.
+ *
+ * @param {object} input - how the shell behaves.
+ * @param {string[]} input.pressed - collects the nav rows that were pressed.
+ * @param {boolean} [input.launcher] - whether the account launcher replaces the trigger.
+ * @param {boolean} [input.trigger] - whether the shell renders an opener at all.
+ * @param {boolean} [input.opens] - whether the opener actually opens the dialog.
+ * @param {string} [input.shortcut] - the aria the shell publishes for `settings.open`.
+ * @param {string} [input.rowLabel] - the label the shell projects onto this plugin's row.
+ */
+function settingsShell({
+  pressed,
+  launcher = false,
+  trigger = true,
+  opens = true,
+  shortcut = 'Ctrl+,',
+  rowLabel = 'OpenCode Go settings',
+  menuRowsBeforeSettings = 0,
+}) {
+  const capsule = domNode('div', { attributes: { 'data-opencode-go-capsule': '' } })
+  const footerActions = domNode('div').append(capsule)
+  const settingsArea = domNode('div')
+  const opened = () => {
+    if (opens) dialog.parentElement = document.body
+  }
+  let clicks = 0
+  let menuClicks = 0
+  let menuItems = []
+  if (trigger && !launcher) {
+    settingsArea.append(domNode('button', {
+      attributes: { 'aria-haspopup': 'dialog', 'aria-keyshortcuts': shortcut },
+      onClick: () => {
+        clicks += 1
+        opened()
+      },
+    }))
+  }
+  if (trigger && launcher) {
+    settingsArea.append(domNode('button', {
+      attributes: { 'aria-haspopup': 'menu', 'aria-label': 'Account menu' },
+      onClick: () => {
+        menuClicks += 1
+        // The menu's rows mount into a portal with the list, so they are only
+        // in the document while it is open — which is why the item cannot be
+        // the first thing pressed.
+        if (menuItems.length === 0) {
+          // The launcher seat is a public extension point: whatever package
+          // takes it brings its own rows, and only the shell's *Settings* row
+          // carries the shortcut. `menuRowsBeforeSettings` models a seat whose
+          // rows come before it, which is what makes the position useless and
+          // the shortcut the thing that identifies the row.
+          for (let index = 0; index < menuRowsBeforeSettings; index += 1) {
+            menuItems.push(domNode('button', {
+              attributes: { role: 'menuitem' },
+              text: `Another row ${index + 1}`,
+              onClick: () => pressed.push('other'),
+            }))
+          }
+          menuItems.push(domNode('button', {
+            attributes: { role: 'menuitem', 'aria-keyshortcuts': shortcut },
+            text: 'Settings',
+            onClick: () => {
+              clicks += 1
+              opened()
+            },
+          }))
+          for (const item of menuItems) document.body.append(item)
+        }
+      },
+    }))
+  }
+  const nav = domNode('nav')
+  // The shell's own pages come first, so pressing the wrong row is a real
+  // mistake rather than a harmless one: this plugin's row is found by its label,
+  // not by being the first button in the ledger.
+  nav.append(domNode('button', { text: 'General', onClick: () => pressed.push('general') }))
+  nav.append(domNode('button', {
+    text: `  ${rowLabel}  `,
+    onClick: () => pressed.push('row'),
+  }))
+  const dialog = domNode('div', { attributes: { 'data-shortcut-modal': 'settings' } })
+  dialog.append(nav)
+  const document = {
+    body: domNode('body'),
+    querySelectorAll: (selector) => descendants(document.body).filter((node) => matches(node, selector)),
+    querySelector(selector) {
+      if (selector === '[data-shortcut-modal="settings"]') {
+        return dialog.parentElement === null ? null : dialog
+      }
+      return this.querySelectorAll(selector)[0] ?? null
+    },
+  }
+  document.body.append(domNode('div').append(footerActions))
+  document.body.append(settingsArea)
+  return {
+    document,
+    triggered: () => clicks,
+    menuOpened: () => menuClicks,
+    dialogOpen: () => dialog.parentElement !== null,
+  }
+}
+
 /** The quota bars of one surface, as the share each one shows as spent. */
 const bars = (tree) => nodes(tree)
   .filter(({ node }) => node.props?.role === 'progressbar')
@@ -1729,7 +1923,7 @@ export default {
         const bare = page.surface('main')
         const bareTree = await bare.open()
         is(nodes(bareTree).filter(({ node }) => text(node).trim() === 'Plugin settings').length, 0)
-        ok(text(bareTree).includes('This deployment has no plugins page'), 'the panel says why there is no entry')
+        ok(text(bareTree).includes('This deployment offers no way to open the configuration page'), 'the panel says why there is no entry')
 
         const wired = await renderPage({ fetch: host() })
         const opened = []
@@ -1745,6 +1939,145 @@ export default {
         await capsule.click((node) => node.type === 'button' && node.props['aria-label'] === 'Open the plugin configuration page')
         equal(opened, ['dsh-llm-opencode-go', 'dsh-llm-opencode-go'])
         is(text(tree).includes('Plugins →'), false, 'the entry no longer spells out the path in prose')
+      },
+    },
+    {
+      name: 'the settings entry opens the settings dialog on this plugin\'s own row',
+      async run() {
+        // The page lives in the shell's settings dialog, and that dialog has no
+        // service behind it: its state is a slot store only the shell renders,
+        // and its `settings.open` command is reachable only through the shell's
+        // keyboard layer. So the entry presses what a reader presses — the
+        // control that opens the dialog, then this plugin's own nav row — rather
+        // than dropping the reader on the Plugins page to find the row there.
+        const pressed = []
+        const opened = []
+        const shell = settingsShell({ pressed })
+        const page = await renderPage({ fetch: host(), document: shell.document })
+        page.optional.set('pluginNavigation', { openBundle: (name) => opened.push(name) })
+
+        const panel = page.surface('main')
+        await panel.open()
+        await panel.click((node) => node.type === 'button' && text(node).trim() === 'Plugin settings')
+
+        equal(shell.triggered(), 1, 'the shell\'s own Settings control is what opens the dialog')
+        equal(pressed, ['row'], 'and the row this plugin contributes is what it presses')
+        equal(opened, [], 'the Plugins page is not used when the dialog answers')
+        is(shell.dialogOpen(), true, 'the dialog is left open on the page')
+
+        // Pressing again with the dialog already up is one press, not two: it
+        // must not try to open a second dialog, and must still land on the row.
+        await panel.click((node) => node.type === 'button' && text(node).trim() === 'Plugin settings')
+        equal(shell.triggered(), 1, 'a dialog already on screen is not opened twice')
+        equal(pressed, ['row', 'row'])
+
+        // The capsule carries the same entry, so the reader who is looking at
+        // the numbers reaches the page that configures them the same way.
+        const capsule = page.surface('sidebar.footer.action')
+        await capsule.open()
+        await capsule.click((node) => node.type === 'button' && node.props['aria-label'] === 'Open the plugin configuration page')
+        equal(shell.triggered(), 1, 'the dialog is still the one already on screen')
+        equal(pressed, ['row', 'row', 'row'], 'and the gear lands on the row too')
+
+        // The control is offered on the strength of the dialog alone, so a
+        // deployment with no Plugins page still gets one.
+        const withoutPage = await renderPage({ fetch: host(), document: settingsShell({ pressed: [] }).document })
+        const barePanel = withoutPage.surface('main')
+        const bareTree = await barePanel.open()
+        ok(text(bareTree).includes('Plugin settings'), 'the settings dialog alone is enough to offer the entry')
+      },
+    },
+    {
+      name: 'a launcher that replaces the trigger still ends on this plugin\'s row',
+      async run() {
+        // The shape this deployment actually has: the account package occupies
+        // the launcher seat, so the shell's own trigger is not rendered at all.
+        // What is rendered is a menu button, and the *Settings* row that opens
+        // the dialog does not exist until that menu is open — so this route is
+        // one press more, and every press is still a reader's.
+        const pressed = []
+        const opened = []
+        // One row before the shell's own, so a row found by position would be
+        // the wrong one: only the shortcut says which row opens the dialog.
+        const shell = settingsShell({ pressed, launcher: true, menuRowsBeforeSettings: 1 })
+        const page = await renderPage({ fetch: host(), document: shell.document })
+        page.optional.set('pluginNavigation', { openBundle: (name) => opened.push(name) })
+        // The shell publishes the combination for `settings.open`, and that is
+        // what identifies its *Settings* row inside the menu: the row is not in
+        // the document before the menu is open, and its label is the shell's
+        // copy, which this plugin never guesses.
+        page.optional.set('shortcuts', { catalog: { getSnapshot: () => [{ id: 'settings.open', aria: 'Ctrl+,' }] } })
+        const panel = page.surface('main')
+        await panel.open()
+        await panel.click((node) => node.type === 'button' && text(node).trim() === 'Plugin settings')
+
+        equal(shell.menuOpened(), 1, 'the launcher menu is opened')
+        equal(shell.triggered(), 1, 'its Settings row is what opens the dialog')
+        equal(pressed, ['row'], 'and this plugin\'s row is what it presses')
+        equal(opened, [], 'the Plugins page is not used when the dialog answers')
+        is(shell.dialogOpen(), true, 'the dialog is left open on the page')
+      },
+    },
+    {
+      name: 'a launcher whose menu cannot be read falls back rather than guessing a row',
+      async run() {
+        // Without the published combination there is no way to tell the shell's
+        // *Settings* row from its *Contact* or *Sign out* rows, and pressing a
+        // guess is worse than not pressing: the reader would be signed out by a
+        // gear. So this refuses to guess and takes the page that is an API.
+        const pressed = []
+        const opened = []
+        const shell = settingsShell({ pressed, launcher: true })
+        const page = await renderPage({ fetch: host(), document: shell.document })
+        page.optional.set('pluginNavigation', { openBundle: (name) => opened.push(name) })
+        const panel = page.surface('main')
+        await panel.open()
+        await panel.click((node) => node.type === 'button' && text(node).trim() === 'Plugin settings')
+        equal(shell.menuOpened(), 0, 'no menu is opened')
+        equal(pressed, [], 'and no row is guessed at')
+        equal(opened, ['dsh-llm-opencode-go'], 'the Plugins page is where the reader lands')
+      },
+    },
+    {
+      name: 'the settings entry falls back to the plugins page when the shell has no opener',
+      async run() {
+        // A deployment whose shell renders no control for the dialog — the entry
+        // has nothing to press — must still land somewhere: the Plugins page is
+        // the door the shell publishes as an API, and it hosts the same page.
+        const opened = []
+        const page = await renderPage({ fetch: host(), document: settingsShell({ pressed: [], trigger: false }).document })
+        page.optional.set('pluginNavigation', { openBundle: (name) => opened.push(name) })
+        const panel = page.surface('main')
+        await panel.open()
+        await panel.click((node) => node.type === 'button' && text(node).trim() === 'Plugin settings')
+        equal(opened, ['dsh-llm-opencode-go'], 'the Plugins page is the fallback')
+      },
+    },
+    {
+      name: 'an opener that opens nothing falls back to the plugins page',
+      async run() {
+        // The other half of the same fallback: a control is there and pressed,
+        // but the dialog never mounts. The wait for the row is a poll, so this
+        // case lets the clock run and then insists the reader is not left with a
+        // press that did nothing.
+        const pressed = []
+        const opened = []
+        const shell = settingsShell({ pressed, opens: false })
+        const page = await renderPage({ fetch: host(), document: shell.document })
+        page.optional.set('pluginNavigation', { openBundle: (name) => opened.push(name) })
+        const panel = page.surface('main')
+        await panel.open()
+        await panel.click((node) => node.type === 'button' && text(node).trim() === 'Plugin settings')
+        equal(shell.triggered(), 1, 'the opener was pressed')
+        equal(opened, [], 'and nothing is decided before the poll gives up')
+        // The wait for the row is one macrotask per attempt, and the harness
+        // settles a bounded number of those per pass, so the poll is walked the
+        // way the browser's event loop would walk it: a few rounds past the
+        // twenty attempts the entry makes.
+        for (let round = 0; round < 10; round += 1) await page.update()
+        is(shell.dialogOpen(), false, 'the dialog never opened')
+        equal(opened, ['dsh-llm-opencode-go'], 'so the Plugins page is where the reader lands')
+        equal(pressed, [], 'and no row was ever pressed')
       },
     },
     {

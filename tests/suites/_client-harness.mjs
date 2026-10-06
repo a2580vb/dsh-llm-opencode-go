@@ -72,8 +72,9 @@ export function localeStore() {
  * @param {object} options - how to build it.
  * @param {(path: string, init?: object) => Promise<object>} options.fetch - answers the page's own requests.
  * @param {string} [options.locale] - which shipped dictionary to translate with.
+ * @param {object} [options.document] - the browser document, for the one thing the bundle reaches for it.
  */
-export async function renderPage({ fetch: fetchImpl, locale = 'en' } = {}) {
+export async function renderPage({ fetch: fetchImpl, locale = 'en', document } = {}) {
   const calls = []
   const locales = localeStore()
 
@@ -116,6 +117,10 @@ export async function renderPage({ fetch: fetchImpl, locale = 'en' } = {}) {
   /** The module loader facade and the one fetch every surface shares. */
   const registrations = []
   const sandbox = {
+    // Absent unless a case supplies one, exactly as it is in this process: the
+    // bundle has to work with no DOM at all, and only the one entry that asks
+    // the shell to open Settings ever looks for it.
+    ...(document === undefined ? {} : { document }),
     window: { __ModuleLoader__: { load: (entry) => registrations.push(entry) } },
     fetch: async (path, init) => {
       calls.push({ path, init })

@@ -28,6 +28,11 @@ release itself is now a tag, and the package it produces is checked.
   *Shortest/Longest quota update interval*, share a line at the same width, and
   no longer carry the three explanatory paragraphs; a row that reports no
   intervals at all says so instead of waiting on them forever.
+- **The capsule's gear opens Settings on the plugin's row, not the Plugins
+  page.** It presses the shell's own way in — its trigger, or the account
+  launcher's *Settings* row where a package has taken that seat — then this
+  plugin's nav row; the usage panel's *Plugin settings* button does the same, and
+  both fall back to the Plugins page where the shell answers neither press.
 
 ### Added
 
@@ -56,7 +61,7 @@ release itself is now a tag, and the package it produces is checked.
 
 ### Changed
 
-- 393 offline checks, up from 349.
+- 398 offline checks, up from 349.
 - **The workflows are checked too**, by a new `ci` suite: an action pinned to a
   branch, a tab in the YAML, or a release that could publish before comparing the
   tag with the manifest fails the suite rather than a release.

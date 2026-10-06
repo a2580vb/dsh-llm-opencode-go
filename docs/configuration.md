@@ -51,13 +51,14 @@ Usage has three entries, all reading the same facts:
 
 All four are optional. The panel body, the capsule's click, the shortcut, and the
 panel's own way out all come from `layout` and `shortcuts`; the configuration entry
-comes from the Plugins page's `pluginNavigation`. Where one of those is missing the
-entry is *not rendered* rather than rendered inert: a deployment with no Plugins
-page shows neither the gear nor the *Plugin settings* button, and one without the
-`shortcuts` service or a selectable panel simply has no such command — and, having
-no panel to leave, no × to leave it with. The Settings page is the exception: it
-needs nothing but the web client's own Settings panel, which is also what renders
-it.
+opens the shell's Settings dialog on this plugin's own row, and falls back to the
+Plugins page's `pluginNavigation` where the dialog is not there to reach. Where
+neither route exists the entry is *not rendered* rather than rendered inert: a
+deployment with no Settings dialog and no Plugins page shows neither the gear nor
+the *Plugin settings* button, and one without the `shortcuts` service or a
+selectable panel simply has no such command — and, having no panel to leave, no ×
+to leave it with. The Settings page is the exception: it needs nothing but the web
+client's own Settings panel, which is also what renders it.
 
 The capsule itself:
 
@@ -116,10 +117,20 @@ same window at the same moment spend one request between them.
 ## Graphical configuration
 
 The plugin ships a page in the Harness web client. It opens from two places, both
-rendering the same page: a row of Settings' own navigation (**OpenCode Go
-settings**, beside the pages the shell ships), or the sidebar's **Plugins** page,
-where the `dsh-llm-opencode-go` bundle's `opencode-go` row has a **Configure**
-control. The page covers the facts that are per-deployment and change often:
+registering the *same component* — so the two cannot drift — but hosting it in
+different chrome: a row of Settings' own navigation (**OpenCode Go settings**,
+beside the pages the shell ships), or the sidebar's **Plugins** page, where the
+`dsh-llm-opencode-go` bundle's `opencode-go` row has a **Configure** control. The
+capsule's gear and the usage panel's *Plugin settings* button open that first
+place directly: they press the shell's own way into Settings — its own trigger,
+or the *Settings* row of the account launcher where a package has taken that seat
+— and then this plugin's nav row, so the reader lands in the dialog rather than
+on the Plugins page with a row to find and a Configure control to press. That
+dialog belongs to the shell — its state is a slot store, not a service, and its
+command is reachable only through the keyboard layer — so those two controls
+read the panel's DOM, identify controls by the shortcut the shell publishes, and
+fall back to the Plugins page when the shell answers neither press. The page
+covers the facts that are per-deployment and change often:
 
 | | |
 |---|---|

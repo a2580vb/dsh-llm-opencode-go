@@ -273,11 +273,13 @@ export default {
       },
     },
     {
-      name: 'the settings entry is offered only where there is a page to open',
+      name: 'the settings entry is offered only where there is a route to the page',
       run() {
-        // Without `pluginNavigation` the Plugins page is not mounted, so there
-        // is no configuration page to reach: the entry has to disappear rather
-        // than point at nothing.
+        // This process has no DOM, and this context has no `pluginNavigation`,
+        // so neither route exists and the entry has to disappear rather than
+        // point at nothing. (The other route — the settings dialog, which the
+        // page reaches through the shell's own command — needs a document, and
+        // is covered where a render harness can supply one.)
         const { factory } = loadBundle()
         const plugin = factory(fakeRequire())
         const bare = fakeClientContext()
