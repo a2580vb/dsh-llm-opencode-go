@@ -17,15 +17,18 @@ plugin, how to re-measure the live facts, and how the code is laid out.
 ## Verification
 
 ```sh
-npm test            # 370 offline checks: config, SSE framing, catalog, all three protocols, adapter, plugin body, the settings bridge, the client bundle, the display metadata and release coherence
+npm test            # 381 offline checks: config, SSE framing, catalog, all three protocols, adapter, plugin body, the settings bridge, the client bundle, the display metadata, release coherence and the repository's own CI
 npm run test:cordis # 43 checks mounting the plugin on the harness's own cordis
 npm run test:live   # the live suite; needs OC_KEY
+npm run check:pack  # what `npm publish` would upload
 ```
 
 The count above is restated in both README badges, in this page, in its Chinese
-counterpart, and in both changelog files, so a new case moves it in six files.
-`release` is the suite that keeps a version bump honest: it reads the manifest and
-fails on any place that still states the version a release left behind.
+counterpart, and in both changelog files, so a new case moves it in six files —
+and only in the newest changelog section, since an older section's number is
+history. `release` is the suite that keeps a version bump honest: it reads the
+manifest and fails on any place that still states the version a release left
+behind.
 
 `npm test` runs offline and needs no credential. The protocol suites replay
 response bodies **captured from the live service** (`tests/golden/`), so they
@@ -105,11 +108,86 @@ configuration page's route is claimed through the real
 `ctx.inject(['webServer'], …)` path and answered over a socket. Set `DSH_ASAR` if
 the installation lives elsewhere; the suite skips cleanly when it cannot find one.
 
+The archive is only how those packages are *packaged*, not what makes the suite
+work: the same libraries are on npm at the same versions, so when no installation
+is present the suite runs them from `node_modules` — which is how CI runs it, on
+a version pinned by the lock file rather than by whatever a developer has
+installed. `DSH_BUNDLE` overrides both, and a machine with neither skips.
+
 One constraint to keep in mind when writing the plugin: the exported `Config` is
 not free-form. cordis calls `Config['~standard'].validate(raw)` before starting
 the plugin, so a plain object there fails activation with
 `Cannot read properties of undefined (reading 'validate')` — an isolated unit test
 will not catch that class of mistake, and `test:cordis` will.
+
+`npm run check:pack` packs the real tarball and reads it, because `files` is an
+allowlist and both of its failure modes are silent: a document the repository has
+and the list omits is a document the package does not have, and an entry matching
+nothing publishes nothing. It asserts that the package carries its two READMEs,
+its two changelogs, the patch the Loader reads, both halves of the client and both
+locale files; that it carries no test, script, workflow or cache directory; that
+no published file sits outside the allowlist; and that every `docs/*.md` ships
+with its `.zh-CN.md` half.
+
+## Continuous integration
+
+`.github/workflows/ci.yml` runs on every push to `main` and every pull request:
+the syntax check, the offline suite, and — on one leg of the matrix rather than
+all four, since the bytes are the same — the pack check. A second job runs the
+activation suite on Node 20, 22 and 24. The live suite is not there: it needs a
+credential and spends real quota.
+
+The workflows are themselves checked, by the `ci` suite. Nothing else reads them,
+and a workflow that is wrong runs on GitHub and nowhere else, where a typo is a
+job that quietly never does what it was added for. So the suite refuses a tab
+character (illegal in YAML, invisible in an editor), an action pinned to a branch
+rather than a version, a release that could publish before checking the tag
+against the manifest, a stored npm token, a step naming an npm script that does
+not exist, and a pack anchor pointing at a file the repository does not have.
+
+## Releasing
+
+A release is a tag. Everything a person does by hand is the same three things a
+version bump already needed — move the version in nine places, open a changelog
+section, run the suite — and the rest is done by tag.
+
+`scripts/release.mjs` holds the release's own decisions, because a release
+workflow is a shell script running in an environment nobody can try locally: the
+feedback would arrive on a tag, in public, after a publish had been attempted. So
+the parts that decide something live where the `ci` and `release` suites exercise
+them on every push, and the workflow keeps only steps no shell can avoid.
+
+```sh
+node scripts/release.mjs version          # the version in package.json
+node scripts/release.mjs check-tag v0.2.1 # the version a tag names, or a refusal
+node scripts/release.mjs notes 0.2.1      # the changelog section, as a release body
+```
+
+`check-tag` is the one that matters: a tag is the only version a person types
+rather than a manifest states, so it is the one that can be wrong in a way nothing
+else catches. It refuses anything that is not a `v<version>` tag — a dispatch from
+a branch has a ref name like `main` — and refuses a tag whose version is not what
+`package.json` says, which is a tag on the wrong commit.
+
+`.github/workflows/release.yml` runs on a `v*` tag and does the rest: resolves the
+version, re-runs the syntax check, the offline suite and the pack check on the
+tagged commit, reads the notes, publishes to npm with provenance, and opens the
+release. It authenticates through npm's **trusted publishing**: the workflow
+exchanges its OIDC token for a short-lived publisher credential, so no npm token
+is stored in this repository or anywhere else. `workflow_dispatch` finishes a
+release that failed halfway — it checks out the tag it names, so what is published
+is still the tagged commit — and skips the publish when the version is already on
+npm, which is what makes a re-run safe.
+
+Two things have to be true on npm's side, once: the package must name this
+repository and `release.yml` under **Trusted Publishers**, and the workflow must
+run npm 11.5.1 or newer, which is why it upgrades npm before publishing. The
+credential exchange writes the token itself, so the `registry-url` that
+`actions/setup-node` leaves in `.npmrc` is not in the way.
+
+`prepublishOnly` still runs the syntax check and the offline suite, which is
+redundant in the workflow and deliberately so: it is also what holds when a human
+publishes from their own machine.
 
 ## Re-measuring the live facts
 
@@ -168,7 +246,9 @@ lib/
 scripts/
 ├── snapshot-models.mjs       refresh lib/model/limits.js from the catalogue
 ├── probe-protocols.mjs       measure which protocol each served model accepts
-└── probe-image.mjs           measure the image request shape per protocol
+├── probe-image.mjs           measure the image request shape per protocol
+├── check-pack.mjs            what `npm publish` would upload, read back
+└── release.mjs               a version, a tag, and a changelog section
 
 locale/
 ├── en.json                   the display metadata the Plugins page reads

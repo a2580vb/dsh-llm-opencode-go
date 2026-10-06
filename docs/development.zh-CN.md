@@ -16,13 +16,14 @@
 ## 验证
 
 ```sh
-npm test            # 370 项离线检查：配置、SSE 分帧、目录、三种协议、适配器、插件本体、配置桥接、客户端 bundle、显示元数据与版本一致性
+npm test            # 381 项离线检查：配置、SSE 分帧、目录、三种协议、适配器、插件本体、配置桥接、客户端 bundle、显示元数据、版本一致性，以及本仓库自己的 CI
 npm run test:cordis # 43 项检查，把插件挂到 Harness 自己的 cordis 上
 npm run test:live   # 对线上服务的实测套件；需要 OC_KEY
+npm run check:pack  # `npm publish` 会真正上传的那个 tarball
 ```
 
 上面这个数字在两个 README 的徽章里各写了一次，本页与它的中文版各写了一次，两份更新日志里又各写了
-一次，因此新增一个用例要改六个文件。
+一次，因此新增一个用例要改六个文件——而且只有**最新那一版**的更新日志段会动，旧段里的数字是历史。
 `release` 是那个让版本升级保持诚实的套件：它读 manifest，任何还写着旧版本号的地方
 都会失败。
 
@@ -85,6 +86,60 @@ OC_KEY=oc_sk_... npm run test:live
 `Cannot read properties of undefined (reading 'validate')` 失败——孤立的单元测试抓不到这一类错误，
 `test:cordis` 能。
 
+那个归档只是这些包的**打包方式**，并不是这套检查成立的原因：同样的库在 npm 上就是同样的版本，
+所以找不到安装时，该套件会改从 `node_modules` 里加载——CI 就是这么跑的，用的是锁文件钉住的版本，
+而不是某台机器上恰好装了什么。`DSH_BUNDLE` 可以同时覆盖两者；两者都没有的机器会跳过。
+
+`npm run check:pack` 真的打一个 tarball 再读它，因为 `files` 是允许清单，而它的两种失败都是静默的：
+仓库里有的文档、清单漏了，就是包没有这份文档；某条 `files` 什么都没匹配到，就等于什么都没发布。
+它断言包里带着两个 README、两份更新日志、Loader 要读的 patch、客户端的两半和两个语言文件；不带任何
+测试、脚本、workflow 或缓存目录；没有任何已发布文件落在允许清单之外；并且每个 `docs/*.md` 都和它的
+`.zh-CN.md` 配对一起发布。
+
+## 持续集成
+
+`.github/workflows/ci.yml` 在每次推送到 `main` 和每个 pull request 上运行：语法检查、离线套件，
+以及打包检查——后者只在矩阵的一行上跑而不是四行，因为四种组合产出的字节是一样的。另一个 job 在
+Node 20、22、24 上跑激活套件。实测套件不在其中：它需要凭据，并且消耗真实配额。
+
+workflow 本身也在被检查，由 `ci` 套件负责。除此之外没有任何东西读它们，而写错的 workflow 只在
+GitHub 上跑、不在任何别处跑——在那里，一个笔误就是一个安静地从不做它该做之事的 job。所以该套件会
+拒绝：制表符（YAML 不允许，而在编辑器里看不见）、钉在分支而不是版本上的 action、一个可能在比对
+tag 与 manifest 之前就发布的 release、仓库里存着的 npm token、调用了不存在的 npm 脚本的步骤，
+以及指向仓库里并不存在的文件的打包锚点。
+
+## 发布
+
+一次发布就是一个标签。人手动要做的，仍然是版本升级本来就需要的三件事——把九个地方的版本号挪一遍、
+开一段更新日志、跑套件——其余交给标签。
+
+`scripts/release.mjs` 装着发布这件事自己的判断，因为 release workflow 是一个谁也没法在本地试跑的
+环境里的 shell 脚本：反馈会在打了标签之后、在公开场合、在已经尝试过发布之后才到。所以凡是「要做决定」
+的部分都放在套件每次 push 都会跑到的地方，workflow 只留下 shell 无法避免的那些步骤。
+
+```sh
+node scripts/release.mjs version          # package.json 里的版本
+node scripts/release.mjs check-tag v0.2.1 # 标签所指的版本，或一次拒绝
+node scripts/release.mjs notes 0.2.1      # 那段更新日志，作为发布说明正文
+```
+
+其中要紧的是 `check-tag`：标签是唯一一个由人输入、而不是由 manifest 声明的版本，因此也是唯一一个
+可能错得没别的东西能发现的地方。它拒绝任何不是 `v<版本>` 的标签——从分支发起的 dispatch 拿到的 ref
+名会是 `main` 这种——也拒绝版本与 `package.json` 不一致的标签，因为那意味着标签打在了错误的提交上。
+
+`.github/workflows/release.yml` 由 `v*` 标签触发，其余的事它做完：解析版本、在被打标签的提交上重跑
+语法检查、离线套件与打包检查、读出说明、带 provenance 发布到 npm，然后建 release。它通过 npm 的
+**可信发布**认证：workflow 用自己的一次性 OIDC token 换取短期的发布凭据，所以本仓库（以及任何别处）
+都不存 npm token。`workflow_dispatch` 用来收尾一次中途失败的发布——它会检出自己点名的那个标签，所以
+发出去的仍然是那个被打标签的提交——版本已在 npm 上时会跳过发布那一步，这正是重跑安全的原因。
+
+npm 那一侧有两个一次性设置：包必须在 **Trusted Publishers** 里指名本仓库与 `release.yml`，workflow
+必须跑在 npm 11.5.1 或更新版本上——这就是它在发布前先升级 npm 的原因。凭据交换是自己写入 token 的，
+所以 `actions/setup-node` 留在 `.npmrc` 里那行 `registry-url` 不会挡路。
+
+`prepublishOnly` 仍会跑语法检查和离线套件，这在 workflow 里是重复的，而且是刻意的：人在自己机器上
+发布时，靠的正是它。
+
 ## 重新实测线上事实
 
 关于这个服务有两类事实来自实测而非公布，各自都有一个纳入版本控制的探针。它们都需要 key 并消耗
@@ -138,7 +193,9 @@ lib/
 scripts/
 ├── snapshot-models.mjs       从目录刷新 lib/model/limits.js
 ├── probe-protocols.mjs       实测每个在服务的模型接受哪些协议
-└── probe-image.mjs           实测每种协议的图片请求形状
+├── probe-image.mjs           实测每种协议的图片请求形状
+├── check-pack.mjs            把 `npm publish` 会传的东西打出来再读一遍
+└── release.mjs               一个版本号、一个标签、一段更新日志
 
 locale/
 ├── en.json                   Plugins 页读的显示元数据

@@ -11,8 +11,8 @@ permissions:
 
 jobs:
   # The offline suite needs no credential and spends no quota, so it is the
-  # check that runs on every push. The cordis and live suites are not here:
-  # one needs a local DSH installation, the other a real key.
+  # check that runs on every push. The live suite is not here: it needs a real
+  # key and real quota.
   test:
     name: node ${{ matrix.node }} on ${{ matrix.os }}
     runs-on: ${{ matrix.os }}
@@ -40,3 +40,38 @@ jobs:
         run: npm run check
       - name: Offline suite
         run: npm test
+      # The published package is the artifact that reaches a reader, and it is
+      # built by an allowlist: a document outside `files` is a document nobody
+      # gets, and nothing in the suite reads the tarball. So one job packs it.
+      # The matrix would pack the same bytes four times.
+      - name: Packed package
+        if: matrix.node == 22 && matrix.os == 'ubuntu-latest'
+        run: npm run check:pack
+
+  # The offline suite cannot activate the plugin: cordis validates the exported
+  # config through `Config['~standard'].validate()` before it starts anything,
+  # and a plain-object schema fails there and nowhere else. That is a gap only a
+  # real cordis closes, so this mounts the plugin on one.
+  #
+  # On a developer's machine the harness's own packages are read out of the DSH
+  # installation, which is the version that machine actually ships. CI has no
+  # installation, and the same packages are on npm, so this runs them from
+  # `devDependencies` — a version pinned by the lock file rather than by whatever
+  # is installed locally, which is the more reproducible of the two.
+  cordis:
+    name: cordis activation, node ${{ matrix.node }}
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        node: [20, 22, 24]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ matrix.node }}
+          cache: npm
+      - name: Install
+        run: npm ci --no-audit --no-fund
+      - name: Activation suite
+        run: npm run test:cordis

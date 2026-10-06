@@ -1,0 +1,123 @@
+name: release
+
+# A tag is the release. Pushing `v0.2.1` publishes the version that tag names,
+# and the release notes are the changelog section for it — so the three places a
+# version is stated (the manifest, the tag, the notes) cannot drift apart without
+# this refusing to run.
+#
+# `workflow_dispatch` is here for the two cases a tag cannot cover: a release
+# that failed halfway and needs finishing, and a tag pushed before this workflow
+# existed. Dispatch it from the tag; or from anywhere and name the tag.
+on:
+  push:
+    tags: ['v*']
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: The tag to release, e.g. v0.2.1. Defaults to the ref this run was dispatched on.
+        required: false
+        type: string
+
+# `id-token: write` is what npm's trusted publishing exchanges for a short-lived
+# credential: no NPM_TOKEN is stored, and the package is published as this
+# repository's workflow rather than as the bearer of a long-lived secret.
+# `contents: write` is for the release page.
+permissions:
+  contents: write
+  id-token: write
+
+jobs:
+  release:
+    name: publish ${{ github.event.inputs.tag || github.ref_name }}
+    runs-on: ubuntu-latest
+    env:
+      # One answer to "which release is this", for every step below.
+      RELEASE_TAG: ${{ github.event.inputs.tag || github.ref_name }}
+    steps:
+      # The tagged commit, not the branch a manual run was dispatched from: what
+      # is published has to be what the tag points at.
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ env.RELEASE_TAG }}
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          registry-url: https://registry.npmjs.org
+
+      # Trusted publishing needs npm 11.5.1 or newer. Node 22 ships npm 10.x, so
+      # this upgrade is what makes the credential exchange above possible at all.
+      - name: Upgrade npm
+        run: npm install --global npm@latest
+
+      - name: Install
+        run: npm ci --no-audit --no-fund
+
+      # Refusing anything that is not a version tag keeps a manual run on a branch
+      # from publishing whatever that branch happens to contain, and comparing it
+      # with the manifest catches a tag on the wrong commit — publishing a version
+      # whose contents are not what the release notes describe. Both decisions are
+      # in the script, where the suites exercise them, rather than in shell.
+      - name: Resolve the version
+        id: version
+        run: |
+          version="$(node scripts/release.mjs check-tag "$RELEASE_TAG")"
+          echo "tag=$RELEASE_TAG" >> "$GITHUB_OUTPUT"
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+          echo "$RELEASE_TAG names $version, which is what package.json states"
+
+      # Everything that was green on main, re-run on the commit being published:
+      # a tag can point anywhere, including at a commit that never passed.
+      - name: Syntax check
+        run: npm run check
+
+      - name: Offline suite
+        run: npm test
+
+      # The tarball is what a reader installs, and it is built by an allowlist.
+      - name: Packed package
+        run: npm run check:pack
+
+      # The notes are read, not retyped: one changelog section feeds the release
+      # page, and the plugin market's What changed link points at that page.
+      # Failing here means the version has no notes, which is not a release.
+      - name: Read the release notes
+        run: |
+          node scripts/release.mjs notes "${{ steps.version.outputs.version }}" > "$RUNNER_TEMP/notes.md"
+          echo "--- notes ---"
+          cat "$RUNNER_TEMP/notes.md"
+
+      # Already published is not a failure: re-running a release after a later
+      # step broke is what workflow_dispatch is for, and npm would refuse the
+      # second publish anyway. The release page is still reconciled below.
+      - name: Is this version already on npm?
+        id: published
+        run: |
+          if npm view "dsh-llm-opencode-go@${{ steps.version.outputs.version }}" version > /dev/null 2>&1; then
+            echo "already=true" >> "$GITHUB_OUTPUT"
+            echo "dsh-llm-opencode-go@${{ steps.version.outputs.version }} is already published; skipping"
+          else
+            echo "already=false" >> "$GITHUB_OUTPUT"
+            echo "dsh-llm-opencode-go@${{ steps.version.outputs.version }} is not published yet"
+          fi
+
+      # `prepublishOnly` runs the syntax check and the offline suite again. That
+      # is redundant after the steps above and deliberately so: it is also what
+      # holds when a human publishes from their own machine.
+      - name: Publish to npm
+        if: steps.published.outputs.already == 'false'
+        run: npm publish --provenance
+
+      - name: Release on GitHub
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          if gh release view "${{ steps.version.outputs.tag }}" > /dev/null 2>&1; then
+            echo "a release for ${{ steps.version.outputs.tag }} already exists"
+            exit 0
+          fi
+          gh release create "${{ steps.version.outputs.tag }}" \
+            --title "${{ steps.version.outputs.version }}" \
+            --notes-file "$RUNNER_TEMP/notes.md" \
+            --verify-tag

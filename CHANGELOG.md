@@ -8,7 +8,8 @@ every released version one, and keep each entry to a line if it fits.
 
 ## 0.2.1 — 2026-10-06
 
-Four fixes to one theme: what a surface showed was not always what was true.
+Four fixes to one theme: what a surface showed was not always what was true. The
+release itself is now a tag, and the package it produces is checked.
 
 ### Fixed
 
@@ -32,10 +33,20 @@ Four fixes to one theme: what a surface showed was not always what was true.
   memory-only endpoint, `GET /opencode-go/activity`, in between.
 - **The image shapes a tool result needs**, measured per protocol and
   re-checkable with `scripts/probe-image.mjs`, which probes both routes now.
+- **A tag publishes the release.** `release.yml` checks the tag against the
+  manifest, re-runs the suite, and publishes to npm through trusted publishing —
+  no token is stored — then opens the release page from the changelog section.
+- **`npm run check:pack`**, which packs the tarball and reads it, because
+  `files` is an allowlist whose two failure modes are both silent.
+- **The activation suite runs in CI**, on the harness packages from npm when no
+  DSH installation is present.
 
 ### Changed
 
-- 370 offline checks, up from 349.
+- 381 offline checks, up from 349.
+- **The workflows are checked too**, by a new `ci` suite: an action pinned to a
+  branch, a tab in the YAML, or a release that could publish before comparing the
+  tag with the manifest fails the suite rather than a release.
 
 ## 0.2.0 — 2026-10-06
 

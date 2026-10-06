@@ -28,6 +28,8 @@
     "test:cordis": "node tests/real-cordis.mjs",
     "test:live": "node tests/live.mjs",
     "check": "node --check lib/index.js",
+    "check:pack": "node scripts/check-pack.mjs",
+    "release:notes": "node scripts/release.mjs notes",
     "prepublishOnly": "node --check lib/index.js && node tests/run.mjs"
   },
   "keywords": [
@@ -55,6 +57,7 @@
   },
   "comment": "Zero runtime dependencies on purpose: the adapter implements the harness contract with its own error and brand helpers, so it installs into any DSH version. See lib/error/errors.js.",
   "devDependencies": {
+    "@deepseek-ai/cordis-plugin-loader": "^1.0.5",
     "@deepseek-ai/dsh-llm": "^0.2.0-rc.2"
   },
   "dsh": {

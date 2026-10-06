@@ -35,9 +35,37 @@ const check = (name, ok, detail) => {
   console.log(`${ok ? 'PASS' : 'FAIL'}  ${name}${detail === undefined ? '' : ` — ${detail}`}`)
 }
 
-if (!existsSync(ASAR)) {
-  console.log(`SKIP  no harness installation at ${ASAR}; set DSH_ASAR to run this suite`)
-  process.exit(0)
+// ---------------------------------------------------------------------------
+// Find the harness's own packages.
+//
+// The interesting version of this suite runs against the libraries the local DSH
+// ships, because "the version this machine actually has" is the fact the config
+// schema has to satisfy. Those live inside an Electron archive, which is why
+// they are extracted first.
+//
+// A machine with nothing installed is not a reason to check nothing, though: the
+// same packages are on npm at the same versions, and CI has them from
+// `devDependencies`. So the archive is tried first and `node_modules` is the
+// fallback, which turns a suite that used to skip on every build into one that
+// runs there. `DSH_BUNDLE` overrides both.
+// ---------------------------------------------------------------------------
+
+/** Where the harness's packages sit, or `undefined` when this machine has none. */
+function resolveBundle() {
+  const override = process.env.DSH_BUNDLE
+  if (override !== undefined) {
+    return existsSync(join(override, '@deepseek-ai', 'cordis')) ? override : undefined
+  }
+  if (existsSync(ASAR)) {
+    const { packageCount, fileCount } = extractBundledPackages()
+    console.log(`extracted ${packageCount} harness packages (${fileCount} files) -> ${CACHE}\n`)
+    return join(CACHE, 'dsh', 'node_modules')
+  }
+  const installed = join(PLUGIN, 'node_modules')
+  return existsSync(join(installed, '@deepseek-ai', 'cordis'))
+    && existsSync(join(installed, '@deepseek-ai', 'cordis-plugin-loader'))
+    ? installed
+    : undefined
 }
 
 // ---------------------------------------------------------------------------
@@ -103,10 +131,15 @@ function extractBundledPackages() {
   return { packageCount, fileCount: files.length }
 }
 
-const { packageCount, fileCount } = extractBundledPackages()
-console.log(`extracted ${packageCount} harness packages (${fileCount} files) -> ${CACHE}\n`)
+const BUNDLE = resolveBundle()
 
-const BUNDLE = join(CACHE, 'dsh', 'node_modules')
+if (BUNDLE === undefined) {
+  console.log(`SKIP  no harness packages: nothing at ${ASAR}, and no @deepseek-ai/cordis installed`)
+  console.log(`      set DSH_ASAR to a DSH installation, or DSH_BUNDLE to a package directory`)
+  process.exit(0)
+}
+console.log(`using harness packages from ${BUNDLE}\n`)
+
 const { Context } = await import(url(join(BUNDLE, '@deepseek-ai/cordis/lib/index.js')))
 const LlmRuntime = (await import(url(join(BUNDLE, '@deepseek-ai/dsh-llm/lib/index.js')))).default
 const { BlockAssembler } = await import(url(join(BUNDLE, '@deepseek-ai/dsh-llm/lib/index.js')))
