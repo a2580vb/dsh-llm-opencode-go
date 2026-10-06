@@ -149,6 +149,43 @@ export default {
       },
     },
     {
+      name: 'the actions run on the runtime the runner has, not the one they were written for',
+      async run() {
+        // A pinned major is not only reproducibility: it decides which Node the
+        // action expects. GitHub deprecated Node 20 as an action runtime, and an
+        // action that targets it still runs — forced onto Node 24, with a
+        // warning on every job — so the pin is a thing to keep current rather
+        // than find out about one job at a time.
+        //
+        // `setup-node` is the one with teeth here. Before v7 it exported a dummy
+        // `NODE_AUTH_TOKEN`, which the maintainers describe as not breaking OIDC
+        // while still leaving a non-functional token in the environment — on
+        // exactly the publish path this repository uses, which is OIDC plus
+        // `registry-url` and no stored token.
+        const VERIFIED = { 'actions/checkout': 7, 'actions/setup-node': 7 }
+        const seen = new Set()
+        for (const name of WORKFLOWS) {
+          const text = await read(`.github/workflows/${name}`)
+          for (const match of text.matchAll(/uses:\s*([^\s#]+)/g)) {
+            const [action, ref] = match[1].split('@')
+            if (!(action in VERIFIED)) continue
+            seen.add(action)
+            const major = Number.parseInt(ref.replace(/^v/, ''), 10)
+            is(
+              Number.isFinite(major) && major >= VERIFIED[action],
+              true,
+              `${name} pins ${action}@${ref}; this repository verified ${VERIFIED[action]} as the oldest current major`,
+            )
+          }
+        }
+        // A row for an action nothing uses is a rule that checks nothing, which
+        // is how this list would quietly rot after a workflow loses a step.
+        for (const action of Object.keys(VERIFIED)) {
+          is(seen.has(action), true, `the table names ${action}, which no workflow uses`)
+        }
+      },
+    },
+    {
       name: 'the offline suite runs on every push and pull request',
       async run() {
         const text = await read('.github/workflows/ci.yml')

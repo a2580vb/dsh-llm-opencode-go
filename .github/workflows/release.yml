@@ -36,11 +36,11 @@ jobs:
     steps:
       # The tagged commit, not the branch a manual run was dispatched from: what
       # is published has to be what the tag points at.
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           ref: ${{ env.RELEASE_TAG }}
 
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v7
         with:
           node-version: 22
           cache: npm

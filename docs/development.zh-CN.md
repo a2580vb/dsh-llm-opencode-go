@@ -16,7 +16,7 @@
 ## 验证
 
 ```sh
-npm test            # 382 项离线检查：配置、SSE 分帧、目录、三种协议、适配器、插件本体、配置桥接、客户端 bundle、显示元数据、版本一致性，以及本仓库自己的 CI
+npm test            # 383 项离线检查：配置、SSE 分帧、目录、三种协议、适配器、插件本体、配置桥接、客户端 bundle、显示元数据、版本一致性，以及本仓库自己的 CI
 npm run test:cordis # 43 项检查，把插件挂到 Harness 自己的 cordis 上
 npm run test:live   # 对线上服务的实测套件；需要 OC_KEY
 npm run check:pack  # `npm publish` 会真正上传的那个 tarball
@@ -101,6 +101,12 @@ OC_KEY=oc_sk_... npm run test:live
 `.github/workflows/ci.yml` 在每次推送到 `main` 和每个 pull request 上运行：语法检查、离线套件，
 以及打包检查——后者只在矩阵的一行上跑而不是四行，因为四种组合产出的字节是一样的。另一个 job 在
 Node 20、22、24 上跑激活套件。实测套件不在其中：它需要凭据，并且消耗真实配额。
+
+action 钉在大版本上，而这个大版本是**保持跟进**的，不只是「可复现」：它决定这个 action 认为自己
+跑在哪个 Node 上。GitHub 已经弃用 Node 20 作为 action 运行时，而仍然指向它的 action 照跑不误——
+被强制换到 Node 24，并在每个 job 上带一条警告。这里面真正有分量的是 `setup-node`：v7 之前它会导出
+一个 dummy 的 `NODE_AUTH_TOKEN`；维护者的说法是「不是破坏，只是一个无效 token」，而发布路径恰恰是
+OIDC + `registry-url` + 不存 token——正是一个来路不明的 token 最容易造成困惑的地方。
 
 workflow 本身也在被检查，由 `ci` 套件负责。除此之外没有任何东西读它们，而写错的 workflow 只在
 GitHub 上跑、不在任何别处跑——在那里，一个笔误就是一个安静地从不做它该做之事的 job。所以该套件会

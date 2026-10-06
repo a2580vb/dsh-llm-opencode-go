@@ -43,10 +43,13 @@ release itself is now a tag, and the package it produces is checked.
 - **CI reads either line ending.** A checkout on Windows has CRLF by default, and
   the suite's workflow parser found nothing in one — worth a case, since that
   reads as "CI does not run the tests" on one platform only.
+- **The workflows use current actions.** `checkout` and `setup-node` moved to v7,
+  which is what makes the publish path OIDC alone: before v7 `setup-node` left a
+  dummy `NODE_AUTH_TOKEN` in the environment.
 
 ### Changed
 
-- 382 offline checks, up from 349.
+- 383 offline checks, up from 349.
 - **The workflows are checked too**, by a new `ci` suite: an action pinned to a
   branch, a tab in the YAML, or a release that could publish before comparing the
   tag with the manifest fails the suite rather than a release.

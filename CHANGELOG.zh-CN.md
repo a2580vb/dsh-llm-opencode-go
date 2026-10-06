@@ -31,10 +31,12 @@
 - **激活套件进了 CI**：本机没有 DSH 安装时，改从 npm 上取同样版本的 harness 包来跑。
 - **CI 两种换行符都能读。** Windows 上的检出默认是 CRLF，而套件的 workflow 解析器在那种文件里什么
   都匹配不到——值得一条用例，因为那看起来就是「CI 不跑测试」，而且只在一个平台上。
+- **workflow 换用当前的 action。** `checkout` 与 `setup-node` 升到 v7，发布路径由此只剩 OIDC：
+  v7 之前 `setup-node` 会在环境里留下一个 dummy 的 `NODE_AUTH_TOKEN`。
 
 ### Changed
 
-- 382 项离线检查，此前为 349。
+- 383 项离线检查，此前为 349。
 - **workflow 也在被检查**，由新的 `ci` 套件负责：钉在分支上的 action、YAML 里的制表符，或是一个可能在
   比对 tag 与 manifest 之前就发布的 release，现在失败在套件里，而不是失败在某次发布上。
 

@@ -17,7 +17,7 @@ plugin, how to re-measure the live facts, and how the code is laid out.
 ## Verification
 
 ```sh
-npm test            # 382 offline checks: config, SSE framing, catalog, all three protocols, adapter, plugin body, the settings bridge, the client bundle, the display metadata, release coherence and the repository's own CI
+npm test            # 383 offline checks: config, SSE framing, catalog, all three protocols, adapter, plugin body, the settings bridge, the client bundle, the display metadata, release coherence and the repository's own CI
 npm run test:cordis # 43 checks mounting the plugin on the harness's own cordis
 npm run test:live   # the live suite; needs OC_KEY
 npm run check:pack  # what `npm publish` would upload
@@ -136,6 +136,15 @@ the syntax check, the offline suite, and — on one leg of the matrix rather tha
 all four, since the bytes are the same — the pack check. A second job runs the
 activation suite on Node 20, 22 and 24. The live suite is not there: it needs a
 credential and spends real quota.
+
+The actions are pinned to a major, and the major is kept current rather than
+merely reproducible: it decides which Node the action expects. GitHub deprecated
+Node 20 as an action runtime, and an action that still targets it runs anyway —
+forced onto Node 24, with a warning on every job. `setup-node` is the one that
+mattered here, because before v7 it exported a dummy `NODE_AUTH_TOKEN`; the
+maintainers call that a non-functional token rather than a break, but the release
+path is OIDC with `registry-url` and no stored token, which is exactly where a
+stray one is most confusing.
 
 The workflows are themselves checked, by the `ci` suite. Nothing else reads them,
 and a workflow that is wrong runs on GitHub and nowhere else, where a typo is a
