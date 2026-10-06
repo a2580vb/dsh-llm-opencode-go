@@ -40,10 +40,13 @@ release itself is now a tag, and the package it produces is checked.
   `files` is an allowlist whose two failure modes are both silent.
 - **The activation suite runs in CI**, on the harness packages from npm when no
   DSH installation is present.
+- **CI reads either line ending.** A checkout on Windows has CRLF by default, and
+  the suite's workflow parser found nothing in one — worth a case, since that
+  reads as "CI does not run the tests" on one platform only.
 
 ### Changed
 
-- 381 offline checks, up from 349.
+- 382 offline checks, up from 349.
 - **The workflows are checked too**, by a new `ci` suite: an action pinned to a
   branch, a tab in the YAML, or a release that could publish before comparing the
   tag with the manifest fails the suite rather than a release.

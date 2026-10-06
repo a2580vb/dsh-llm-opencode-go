@@ -39,10 +39,21 @@ const version = manifest.version
 /** The workflows this repository ships, keyed by file name. */
 const WORKFLOWS = ['ci.yml', 'release.yml']
 
+/**
+ * A workflow's lines, however the checkout wrote them.
+ *
+ * Splitting on `\n` alone leaves the `\r` of a `\r\n` pair at the end of every
+ * line, and that is not a cosmetic difference here: `.` does not match `\r`, and
+ * `$` in multiline mode deliberately refuses to match before a `\r` that is
+ * followed by `\n`. A parser written against LF therefore matches *nothing* in a
+ * CRLF checkout, silently. `core.autocrlf` is true by default on Windows, so
+ * that checkout is what a contributor on Windows has.
+ */
+const textLines = (text) => text.split(/\r?\n/)
+
 /** The lines of a workflow, with the comment-only lines dropped. */
 function lines(text) {
-  return text
-    .split('\n')
+  return textLines(text)
     .map((line, index) => ({ number: index + 1, text: line }))
     .filter(({ text: line }) => !/^\s*#/.test(line) && line.trim() !== '')
 }
@@ -58,7 +69,7 @@ const has = (text, pattern) => new RegExp(pattern, 'm').test(text)
  */
 function runBodies(text) {
   const bodies = []
-  const all = text.split('\n')
+  const all = textLines(text)
   for (const [index, line] of all.entries()) {
     const start = /^(\s*)-?\s*run:\s*(\||>)?\s*(.*)$/.exec(line)
     if (start === null) continue
@@ -273,11 +284,48 @@ export default {
           const inRepo = anchor.slice('package/'.length)
           is(existsSync(new URL(`../../${inRepo}`, import.meta.url)), true, `the pack check anchors ${anchor}, which the repository does not have`)
         }
-        // A forbidden prefix that is not in the repository checks nothing.
+        // A forbidden prefix that names nothing the repository knows about checks
+        // nothing: `package/.livecache/` would sit in the list for ever without
+        // ever being able to match. What counts as "knows about" is the trap
+        // here — half of these directories are gitignored scratch, so they exist
+        // on a working machine and in no clone at all, which is exactly the
+        // difference that made this case fail in CI and pass locally.
+        const ignored = new Set(
+          textLines(await read('.gitignore'))
+            .map((line) => line.trim().replace(/\/$/, ''))
+            .filter((line) => line !== '' && !line.startsWith('#')),
+        )
         for (const prefix of FORBIDDEN) {
           const inRepo = prefix.slice('package/'.length).replace(/\/$/, '')
-          is(existsSync(new URL(`../../${inRepo}`, import.meta.url)), true, `the pack check forbids ${prefix}, which the repository does not have`)
+          const known = existsSync(new URL(`../../${inRepo}`, import.meta.url)) || ignored.has(inRepo)
+          is(known, true, `the pack check forbids ${prefix}, which is neither present nor gitignored`)
         }
+      },
+    },
+    {
+      name: 'the workflow parser reads a CRLF checkout, which is what Windows gets',
+      async run() {
+        // `core.autocrlf` is true by default on Windows, so every file in a clone
+        // there has CRLF — and a parser that anchors to `$` finds nothing in that,
+        // because the regex has no `m` flag, `$` then means end-of-string, and a
+        // trailing `\r` is a character neither `$` nor `.` will accept. The
+        // failure reads as "the workflow does not run the tests", on one platform,
+        // with nothing about line endings in it. This case is why the helpers
+        // split on `/\r?\n/`.
+        for (const name of WORKFLOWS) {
+          const raw = await read(`.github/workflows/${name}`)
+          // Whatever this checkout wrote, both variants are built from the same
+          // text: a case that assumed the file was LF would double every CR on a
+          // Windows machine and fail there for its own reason.
+          const lf = raw.replace(/\r\n/g, '\n')
+          const crlf = lf.replace(/\n/g, '\r\n')
+          equal(runBodies(crlf), runBodies(lf), `${name} yields the same step bodies either way`)
+          is(scriptsRun(raw).length > 0, true, `${name} parses as this checkout actually wrote it`)
+        }
+        const ci = await read('.github/workflows/ci.yml')
+        const crlf = ci.replace(/\r\n/g, '\n').replace(/\n/g, '\r\n')
+        is(scriptsRun(crlf).includes('test'), true, 'the offline suite is still found in a CRLF checkout')
+        is(scriptsRun(crlf).includes('check:pack'), true, 'and so is the pack check, which is a step of its own')
       },
     },
     {

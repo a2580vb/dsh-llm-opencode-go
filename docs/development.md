@@ -17,7 +17,7 @@ plugin, how to re-measure the live facts, and how the code is laid out.
 ## Verification
 
 ```sh
-npm test            # 381 offline checks: config, SSE framing, catalog, all three protocols, adapter, plugin body, the settings bridge, the client bundle, the display metadata, release coherence and the repository's own CI
+npm test            # 382 offline checks: config, SSE framing, catalog, all three protocols, adapter, plugin body, the settings bridge, the client bundle, the display metadata, release coherence and the repository's own CI
 npm run test:cordis # 43 checks mounting the plugin on the harness's own cordis
 npm run test:live   # the live suite; needs OC_KEY
 npm run check:pack  # what `npm publish` would upload
@@ -144,6 +144,21 @@ character (illegal in YAML, invisible in an editor), an action pinned to a branc
 rather than a version, a release that could publish before checking the tag
 against the manifest, a stored npm token, a step naming an npm script that does
 not exist, and a pack anchor pointing at a file the repository does not have.
+
+Two things that suite learned the hard way, both now cases of their own:
+
+- **A clone is not the working tree.** `.test-cache/`, `.live-cache/`,
+  `.npm-cache/` and `promotion/` are gitignored, so they exist on the machine
+  that made them and in no clone at all. A case that asserts a path is *there*
+  therefore passes for whoever wrote it and fails in CI — which is what happened:
+  the guard over the pack check's forbidden directories passed locally and took
+  down all four matrix legs.
+- **A checkout is not a checkout.** `core.autocrlf` is true by default on
+  Windows, so those files have CRLF there and LF on a Linux runner. A parser
+  anchored to `$` finds *nothing* in a CRLF file, because `.` cannot consume the
+  `\r` and `$` will not match before it — so "does the workflow run the tests"
+  answers no, on one platform, with nothing about line endings in the message.
+  The suite parses either, and one case asserts both give the same answer.
 
 ## Releasing
 
