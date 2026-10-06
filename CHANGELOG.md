@@ -6,24 +6,15 @@ Releases carry the notes that appear on the GitHub release and, through it, on t
 plugin market's **What changed** link. Keep the newest section at the top, give
 every released version one, and keep each entry to a line if it fits.
 
-## 0.2.1 — 2026-10-06
+## 0.2.2 — 2026-10-06
 
-Four fixes to one theme: what a surface showed was not always what was true. The
-release itself is now a tag, and the package it produces is checked.
+An interface release, and the release process is part of it: the quota rhythm is
+editable on the page, the capsule's gear opens the settings dialog rather than the
+plugins list, and a tag publishes the package and its notes without a stored
+token.
 
 ### Fixed
 
-- **A tool's image reaches the model.** `read_image` answers with an envelope and
-  the picture itself, and every protocol sent the envelope alone; the image now
-  travels inside the tool result, on all three wires.
-- **The capsule follows a re-read.** The four surfaces that draw the quota shared
-  one reader but not one answer, so *re-read quota* moved the surface it was
-  pressed on and left the others as they were.
-- **The counters follow a re-read too.** The three surfaces that draw them each
-  kept a copy; the table for a window is shared now, though which window a
-  surface shows is still its own.
-- **A hit rate under half is no longer green on the panel**, where the
-  configuration page had always drawn it plain.
 - **The quota rhythm section reads as one row.** Its two intervals are labelled
   *Shortest/Longest quota update interval*, share a line at the same width, and
   no longer carry the three explanatory paragraphs; a row that reports no
@@ -36,12 +27,6 @@ release itself is now a tag, and the package it produces is checked.
 
 ### Added
 
-- **Two intervals for the quota schedule**, `subscriptionMinIntervalSeconds` (30)
-  and `subscriptionMaxIntervalSeconds` (1800): the capsule checks on the floor
-  while calls are being made and on the ceiling while they are not, asking a
-  memory-only endpoint, `GET /opencode-go/activity`, in between.
-- **The image shapes a tool result needs**, measured per protocol and
-  re-checkable with `scripts/probe-image.mjs`, which probes both routes now.
 - **The quota rhythm is editable on the page.** The two intervals were
   config-file-only; they now have a section of their own, saved as one setting,
   with a floor above its ceiling refused where the reader can see it.
@@ -61,10 +46,41 @@ release itself is now a tag, and the package it produces is checked.
 
 ### Changed
 
-- 398 offline checks, up from 349.
+- 398 offline checks, up from 370.
 - **The workflows are checked too**, by a new `ci` suite: an action pinned to a
   branch, a tab in the YAML, or a release that could publish before comparing the
   tag with the manifest fails the suite rather than a release.
+
+## 0.2.1 — 2026-10-06
+
+Four fixes to one theme: what a surface showed was not always what was true.
+
+### Fixed
+
+- **A tool's image reaches the model.** `read_image` answers with an envelope and
+  the picture itself, and every protocol sent the envelope alone; the image now
+  travels inside the tool result, on all three wires.
+- **The capsule follows a re-read.** The four surfaces that draw the quota shared
+  one reader but not one answer, so *re-read quota* moved the surface it was
+  pressed on and left the others as they were.
+- **The counters follow a re-read too.** The three surfaces that draw them each
+  kept a copy; the table for a window is shared now, though which window a
+  surface shows is still its own.
+- **A hit rate under half is no longer green on the panel**, where the
+  configuration page had always drawn it plain.
+
+### Added
+
+- **Two intervals for the quota schedule**, `subscriptionMinIntervalSeconds` (30)
+  and `subscriptionMaxIntervalSeconds` (1800): the capsule checks on the floor
+  while calls are being made and on the ceiling while they are not, asking a
+  memory-only endpoint, `GET /opencode-go/activity`, in between.
+- **The image shapes a tool result needs**, measured per protocol and
+  re-checkable with `scripts/probe-image.mjs`, which probes both routes now.
+
+### Changed
+
+- 370 offline checks, up from 349.
 
 ## 0.2.0 — 2026-10-06
 

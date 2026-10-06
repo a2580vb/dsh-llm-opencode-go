@@ -20,7 +20,7 @@ The Messages endpoint uses its own header set: it refuses a bearer token with
 Every request also carries:
 
 ```http
-User-Agent: dsh-opencode-go/0.2.1
+User-Agent: dsh-opencode-go/0.2.2
 x-opencode-session: <stable per-conversation id>
 x-opencode-client: dsh-opencode-go
 ```
