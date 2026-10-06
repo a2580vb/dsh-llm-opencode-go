@@ -17,7 +17,7 @@ plugin, how to re-measure the live facts, and how the code is laid out.
 ## Verification
 
 ```sh
-npm test            # 383 offline checks: config, SSE framing, catalog, all three protocols, adapter, plugin body, the settings bridge, the client bundle, the display metadata, release coherence and the repository's own CI
+npm test            # 392 offline checks: config, SSE framing, catalog, all three protocols, adapter, plugin body, the settings bridge, the client bundle, the display metadata, release coherence and the repository's own CI
 npm run test:cordis # 43 checks mounting the plugin on the harness's own cordis
 npm run test:live   # the live suite; needs OC_KEY
 npm run check:pack  # what `npm publish` would upload

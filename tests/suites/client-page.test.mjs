@@ -35,7 +35,15 @@ const STATE = {
   route: { provider: 'opencode-go', baseURL: 'https://opencode.ai/zen/go/v1', apiKeyEnv: 'OPENCODE_GO_API_KEY' },
   credential: { configured: true, source: 'store', writable: true },
   environment: { key: 'OPENCODE_GO_API_KEY', present: false },
-  config: { editable: true, fields: { hiddenModels: [], modelVariants: [] }, override: {} },
+  config: {
+    editable: true,
+    fields: ['apiKeyEnv', 'hiddenModels', 'modelVariants', 'subscriptionMinIntervalSeconds', 'subscriptionMaxIntervalSeconds'],
+    // What the row resolves to, which is what the schedule section edits. The
+    // real bridge always reports these, so a fixture without them would test a
+    // page nobody is served.
+    values: { subscriptionMinIntervalSeconds: 30, subscriptionMaxIntervalSeconds: 1_800 },
+    override: {},
+  },
 }
 
 /**
@@ -106,6 +114,30 @@ const button = (tree, label) => {
   const match = nodes(tree).find(({ node }) => node.type === 'button' && text(node).trim() === label)
   return match?.node
 }
+
+/**
+ * The schedule section of the configuration page.
+ *
+ * Scoped rather than searched page-wide, and not only for tidiness: two
+ * sections here have a control labelled `Save`, so a page-wide search for one
+ * finds whichever the tree puts first — which is how a case about the schedule
+ * came to press the credential section's button and fail on a disabled control
+ * that had nothing to do with it.
+ */
+function scheduleSection(tree) {
+  const section = find(tree, (node) => node.type === 'section' && text(node).includes('Quota refresh rhythm'))
+  ok(section !== undefined, 'the schedule section rendered')
+  return section
+}
+
+/** The schedule's two boxes, as `{ label, value }`, in the order they appear. */
+const scheduleBoxes = (section) => nodes(section)
+  .filter(({ node }) => node.type === 'input' && node.props.type === 'number')
+  .map(({ node }) => ({ label: node.props['aria-label'], value: node.props.value }))
+
+/** The schedule's own save control, scoped to its section. */
+const scheduleSave = (section) => nodes(section)
+  .find(({ node }) => node.type === 'button' && text(node).trim() === 'Save intervals')?.node
 
 /** The quota bars of one surface, as the share each one shows as spent. */
 const bars = (tree) => nodes(tree)
@@ -429,6 +461,90 @@ export default {
         const after = page.calls.slice(page.calls.indexOf(written)).map((call) => call.path)
         ok(after.includes('opencode-go/models'), after.join(','))
         is(after[after.length - 1], 'opencode-go/state', 'the state is re-read last, so the page shows what the Host resolved')
+      },
+    },
+    {
+      name: 'the quota schedule is editable, and shows the intervals the Host resolved',
+      async run() {
+        // These two numbers were config-file-only: the resolution behind them
+        // had defaults and the page had nothing, so changing them meant finding
+        // the patch file. What the page shows is the *resolved* value, not the
+        // override — a reader who never set them should still see the 30s and
+        // 30min the Host is actually using.
+        const page = await renderPage({ fetch: host() })
+        const section = scheduleSection(await page.open())
+        ok(text(section).includes('Now: at least 30, at most 1800.'), text(section).slice(0, 120))
+        equal(scheduleBoxes(section), [
+          { label: 'Shortest interval (seconds)', value: 30 },
+          { label: 'Longest interval (seconds)', value: 1_800 },
+        ])
+        // Nothing has been typed, so there is nothing to save, and the section
+        // says which state it is in rather than leaving the button's own
+        // disabled look to carry the meaning.
+        ok(text(section).includes('Matches what is saved.'))
+        is(scheduleSave(section).props.disabled, true, 'an unchanged schedule has nothing to save')
+      },
+    },
+    {
+      name: 'saving the schedule sends both intervals in one request',
+      async run() {
+        // One setting, so one write: two requests would leave a moment where the
+        // profile holds a floor above its ceiling, which is a schedule with no
+        // valid interval at all.
+        const page = await renderPage({ fetch: host() })
+        await page.open()
+        await page.change((node) => node.props['aria-label'] === 'Shortest interval (seconds)', 120)
+        await page.change((node) => node.props['aria-label'] === 'Longest interval (seconds)', 900)
+        await page.click((node) => node.type === 'button' && text(node).trim() === 'Save intervals')
+
+        const writes = page.calls.filter((call) => call.path === 'opencode-go/config')
+        equal(writes.length, 1, 'one request, not one per field')
+        equal(JSON.parse(writes[0].init.body), {
+          set: { subscriptionMinIntervalSeconds: 120, subscriptionMaxIntervalSeconds: 900 },
+        })
+        // The row reloads on a config write, so the page reads the state back
+        // rather than assuming the numbers it sent are the numbers in force.
+        const after = page.calls.slice(page.calls.indexOf(writes[0])).map((call) => call.path)
+        is(after[after.length - 1], 'opencode-go/state')
+        ok(text(scheduleSection(await page.tree())).includes('Saved. The next check uses the new intervals.'))
+      },
+    },
+    {
+      name: 'a floor above its ceiling is refused on screen, before anything is written',
+      async run() {
+        // The Host refuses this too, but a reader should not have to spend a
+        // round trip — and a rejection arriving after the fact leaves them
+        // looking at two numbers with no statement about which one to change.
+        const page = await renderPage({ fetch: host() })
+        await page.open()
+        await page.change((node) => node.props['aria-label'] === 'Shortest interval (seconds)', 3_600)
+        await page.change((node) => node.props['aria-label'] === 'Longest interval (seconds)', 300)
+
+        const section = scheduleSection(await page.tree())
+        ok(text(section).includes('The shortest interval cannot be longer than the longest one.'), 'the pair is explained')
+        is(scheduleSave(section).props.disabled, true, 'and there is nothing to press')
+        equal(page.calls.filter((call) => call.path === 'opencode-go/config').length, 0, 'no request was made')
+
+        // Putting the ceiling back above the floor is what clears it — the two
+        // boxes are judged as a pair, so either one can resolve it.
+        await page.change((node) => node.props['aria-label'] === 'Longest interval (seconds)', 7_200)
+        const fixed = scheduleSection(await page.tree())
+        is(text(fixed).includes('The shortest interval cannot be longer than the longest one.'), false)
+        is(scheduleSave(fixed).props.disabled, false, 'and the save is available again')
+      },
+    },
+    {
+      name: 'an emptied interval box cannot be saved',
+      async run() {
+        // Emptying a box is a reader mid-edit, not a request: `Number('')` is 0,
+        // so a page that read the boxes carelessly would submit a zero-second
+        // interval — the poll the schedule exists to replace.
+        const page = await renderPage({ fetch: host() })
+        await page.open()
+        await page.change((node) => node.props['aria-label'] === 'Shortest interval (seconds)', '')
+        const section = scheduleSection(await page.tree())
+        is(scheduleSave(section).props.disabled, true, 'an incomplete pair is not savable')
+        equal(page.calls.filter((call) => call.path === 'opencode-go/config').length, 0, 'and nothing was sent')
       },
     },
     {

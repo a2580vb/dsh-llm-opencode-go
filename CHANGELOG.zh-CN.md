@@ -25,6 +25,8 @@
   `subscriptionMaxIntervalSeconds`（1800）。有调用时按「底」检查，没有时按「顶」检查，中间只问一个纯内存
   端点 `GET /opencode-go/activity`。
 - **工具结果里图片所需的请求形状**：逐协议实测，可用 `scripts/probe-image.mjs` 复核，该脚本现在会探两条路。
+- **额度节奏可以在页面上改了。** 这两个间隔此前只能改配置文件；现在它们有自己的一个区块，作为一个设置
+  一起保存，「底」大于「顶」会在读者看得见的地方被拒绝。
 - **打标签即发布。** `release.yml` 比对 tag 与 manifest、重跑套件、通过可信发布把包发到 npm——不存任何
   token——然后按更新日志的段落建出 release 页面。
 - **`npm run check:pack`**：真的打一个 tarball 再读它，因为 `files` 是允许清单，而它的两种失败都是静默的。
@@ -36,7 +38,7 @@
 
 ### Changed
 
-- 383 项离线检查，此前为 349。
+- 392 项离线检查，此前为 349。
 - **workflow 也在被检查**，由新的 `ci` 套件负责：钉在分支上的 action、YAML 里的制表符，或是一个可能在
   比对 tag 与 manifest 之前就发布的 release，现在失败在套件里，而不是失败在某次发布上。
 

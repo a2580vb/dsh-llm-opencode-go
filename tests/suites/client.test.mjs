@@ -379,6 +379,30 @@ export default {
       },
     },
     {
+      name: 'the managed fields are the ones the page offers to write',
+      run() {
+        // `MANAGED_CONFIG_FIELDS` is the lock on the write path: the bridge
+        // refuses any other name, so a field added to the page and not to that
+        // list is a control that answers `field-not-editable` — a broken button,
+        // which is the one kind of bug a rendered page cannot show you.
+        //
+        // (The two that pair up are checked here too, because the schedule
+        // reaches the write path as a single call rather than through
+        // `saveField`, which is what the sibling case scans for.)
+        for (const field of [...MANAGED_CONFIG_FIELDS]) {
+          ok(clientSource.includes(field), `the page names the managed field "${field}"`)
+        }
+        // And the docs promise a reader can edit them, so a field that stops
+        // being documented is a table that has quietly stopped describing the page.
+        for (const file of ['docs/configuration.md', 'docs/configuration.zh-CN.md']) {
+          const text = readFileSync(join(ROOT, file), 'utf8')
+          for (const field of ['subscriptionMinIntervalSeconds', 'subscriptionMaxIntervalSeconds']) {
+            ok(text.includes(field), `${file} names ${field} where it describes the page`)
+          }
+        }
+      },
+    },
+    {
       name: 'the documented endpoints are the ones the bridge actually serves',
       run() {
         // The page's surface is documented for anyone reading it with `curl`,
@@ -402,9 +426,17 @@ export default {
         for (const field of written) {
           ok(MANAGED_CONFIG_FIELDS.includes(field), `the bridge manages "${field}"`)
         }
+        // The schedule is the one section that writes two fields at once, so it
+        // does not go through `saveField` and would be invisible to the scan
+        // above — which is exactly the hole a scan for one pattern leaves.
+        const paired = [...clientSource.matchAll(/subscription(?:Min|Max)IntervalSeconds: /g)]
+        ok(paired.length >= 2, 'the schedule writes both intervals by name')
+        for (const field of ['subscriptionMinIntervalSeconds', 'subscriptionMaxIntervalSeconds']) {
+          ok(MANAGED_CONFIG_FIELDS.includes(field), `the bridge manages "${field}"`)
+        }
         // Both shipped dictionaries must name every section the page renders,
         // so a translated page is never half-translated.
-        for (const key of ['sectionKey', 'sectionModels', 'sectionVariants']) {
+        for (const key of ['sectionKey', 'sectionModels', 'sectionVariants', 'sectionSchedule']) {
           ok(clientSource.includes(`${key}:`), `the dictionary has ${key}`)
         }
       },

@@ -43,7 +43,9 @@
 #                      how the page paces its own quota checks (defaults: 30 and
 #                      1800). It checks at the floor while calls are being made
 #                      and at the ceiling while they are not, asking a memory-only
-#                      endpoint in between so that neither is a poll.
+#                      endpoint in between so that neither is a poll. Both are
+#                      editable on the configuration page, where they are saved
+#                      together and a floor above the ceiling is refused.
 #
 # The plugin also ships a page for the Web client: the sidebar's Plugins page
 # lists this bundle, and the opencode-go row's Configure control opens it. It

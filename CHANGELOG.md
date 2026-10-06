@@ -33,6 +33,9 @@ release itself is now a tag, and the package it produces is checked.
   memory-only endpoint, `GET /opencode-go/activity`, in between.
 - **The image shapes a tool result needs**, measured per protocol and
   re-checkable with `scripts/probe-image.mjs`, which probes both routes now.
+- **The quota rhythm is editable on the page.** The two intervals were
+  config-file-only; they now have a section of their own, saved as one setting,
+  with a floor above its ceiling refused where the reader can see it.
 - **A tag publishes the release.** `release.yml` checks the tag against the
   manifest, re-runs the suite, and publishes to npm through trusted publishing —
   no token is stored — then opens the release page from the changelog section.
@@ -49,7 +52,7 @@ release itself is now a tag, and the package it produces is checked.
 
 ### Changed
 
-- 383 offline checks, up from 349.
+- 392 offline checks, up from 349.
 - **The workflows are checked too**, by a new `ci` suite: an action pinned to a
   branch, a tab in the YAML, or a release that could publish before comparing the
   tag with the manifest fails the suite rather than a release.

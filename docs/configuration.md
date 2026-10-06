@@ -97,6 +97,12 @@ at most once per ceiling, and a closed panel costs nothing at all. Both fields
 must be positive — an interval of zero would be the poll this replaces — and a
 ceiling below the floor is lifted to it, since no interval could satisfy both.
 
+Those last two rules are why the page edits the pair together and refuses a floor
+above its ceiling: the lift above is correct for a config file, where the reader
+has no feedback, but it would answer a real request with a number the reader did
+not ask for. See **Quota refresh rhythm** under [Graphical
+configuration](#graphical-configuration).
+
 This route's own counters are shared the same way, with one difference worth
 knowing: what the surfaces share is **the table for a window**, not the window.
 Three surfaces draw those tables — the configuration page's usage section, the
@@ -121,6 +127,7 @@ control. The page covers the facts that are per-deployment and change often:
 | **Credential reference** | Which `apiKeyEnv` the key is stored under. Editable, so a name other than the one the launching environment supplies can be used. |
 | **Model visibility** | One switch per catalog model, written to `hiddenModels`. The page shows the whole catalog, including models this deployment already hides. |
 | **Model variants** | Named presets of one model, written to `modelVariants`, in an editable list: add a model, name it, then open any row's **Edit** to change its fields, or **Remove** to drop it. |
+| **Quota refresh rhythm** | The two intervals that pace the capsule's quota checks, written to `subscriptionMinIntervalSeconds` and `subscriptionMaxIntervalSeconds`. They are one setting, so they are saved together, and a floor above its ceiling is refused on the page rather than silently resolved. |
 | **Fetch the model list** | Re-reads `GET /models` on demand and reports what appeared and what went away. |
 | **Usage** | Two things side by side: the service's own metered quota for the subscription, and the calls and tokens this plugin counted itself, per model and per day. This is the same block the panel under [fast entries](#fast-entries) carries. |
 

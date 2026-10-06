@@ -43,7 +43,13 @@ export default {
         is(UI_ROUTES.usage, '/opencode-go/usage')
         is(UI_ROUTES.config, '/opencode-go/config')
         is(UI_ROUTES.credential, '/opencode-go/credential')
-        equal([...MANAGED_CONFIG_FIELDS], ['apiKeyEnv', 'hiddenModels', 'modelVariants'])
+        equal([...MANAGED_CONFIG_FIELDS], [
+          'apiKeyEnv',
+          'hiddenModels',
+          'modelVariants',
+          'subscriptionMinIntervalSeconds',
+          'subscriptionMaxIntervalSeconds',
+        ])
       },
     },
     {
@@ -73,7 +79,13 @@ export default {
         is(res.json.catalog.counts.variants, 1)
         is(res.json.config.editable, true)
         is(res.json.config.entry.id, 'opencode-go')
-        equal(res.json.config.fields, ['apiKeyEnv', 'hiddenModels', 'modelVariants'])
+        equal(res.json.config.fields, [
+          'apiKeyEnv',
+          'hiddenModels',
+          'modelVariants',
+          'subscriptionMinIntervalSeconds',
+          'subscriptionMaxIntervalSeconds',
+        ])
         is(res.json.config.values.apiKeyEnv, 'OC_KEY')
         equal(res.json.config.values.hiddenModels, ['space-bunny-free'])
       },
@@ -495,8 +507,109 @@ export default {
       },
     },
     {
-      name: 'a malformed hidden set is refused by field, before the editor',
+      name: 'the two schedule intervals are written together, as one setting',
       async run() {
+        // They bound one schedule, so they are one edit: writing them in two
+        // requests would leave a window in which the profile holds a floor above
+        // its ceiling, which is a schedule with no valid interval.
+        const editor = fakeEditor({ inherited: { provider: 'opencode-go' } })
+        const { instance } = bridgeUnderTest({ configEditor: editor })
+        const res = await call(instance, local({
+          method: 'POST',
+          url: UI_ROUTES.config,
+          headers: { host: '127.0.0.1:1' },
+          body: { set: { subscriptionMinIntervalSeconds: 120, subscriptionMaxIntervalSeconds: 900 } },
+        }))
+        is(res.captured.statusCode, 200)
+        equal(editor.writes, [{ subscriptionMinIntervalSeconds: 120, subscriptionMaxIntervalSeconds: 900 }])
+        is(res.json.config.override.subscriptionMinIntervalSeconds, 120)
+        is(res.json.config.override.subscriptionMaxIntervalSeconds, 900)
+      },
+    },
+    {
+      name: 'a floor above its ceiling is refused, because the ceiling would be silently lifted',
+      async run() {
+        // The resolution behind this does `max(floor, ceiling)`, so the write
+        // would land and the number the reader typed would be replaced by one
+        // they did not. Naming both numbers is what makes the refusal a fix.
+        const editor = fakeEditor({ inherited: { provider: 'opencode-go' } })
+        const { instance } = bridgeUnderTest({ configEditor: editor })
+        const res = await call(instance, local({
+          method: 'POST',
+          url: UI_ROUTES.config,
+          headers: { host: '127.0.0.1:1' },
+          body: { set: { subscriptionMinIntervalSeconds: 3_600, subscriptionMaxIntervalSeconds: 300 } },
+        }))
+        is(res.captured.statusCode, 400)
+        is(res.json.error, 'invalid-field-pair')
+        ok(String(res.json.message).includes('subscriptionMinIntervalSeconds'), 'the refusal names the floor')
+        ok(String(res.json.message).includes('subscriptionMaxIntervalSeconds'), 'and the ceiling')
+        equal(editor.writes, [], 'nothing was written')
+      },
+    },
+    {
+      name: 'raising only the floor is judged against the ceiling in force',
+      async run() {
+        // The pair can also be contradicted by a write that mentions one field:
+        // the other one is whatever the config resolves to now, not whatever the
+        // page last saw.
+        const editor = fakeEditor({ inherited: { provider: 'opencode-go' } })
+        const { instance } = bridgeUnderTest({
+          configEditor: editor,
+          config: {
+            provider: 'opencode-go',
+            apiKeyEnv: 'OC_KEY',
+            subscriptionMinIntervalSeconds: 60,
+            subscriptionMaxIntervalSeconds: 600,
+          },
+        })
+        const refused = await call(instance, local({
+          method: 'POST',
+          url: UI_ROUTES.config,
+          headers: { host: '127.0.0.1:1' },
+          body: { set: { subscriptionMinIntervalSeconds: 900 } },
+        }))
+        is(refused.captured.statusCode, 400)
+        is(refused.json.error, 'invalid-field-pair')
+        equal(editor.writes, [], 'nothing was written')
+
+        // The same write is fine as soon as it carries a ceiling to match, and
+        // equal values are allowed: the bound is "not below", not "strictly
+        // under" — a fixed interval is a schedule, just an unusual one.
+        const accepted = await call(instance, local({
+          method: 'POST',
+          url: UI_ROUTES.config,
+          headers: { host: '127.0.0.1:1' },
+          body: { set: { subscriptionMinIntervalSeconds: 900, subscriptionMaxIntervalSeconds: 900 } },
+        }))
+        is(accepted.captured.statusCode, 200)
+        equal(editor.writes, [{ subscriptionMinIntervalSeconds: 900, subscriptionMaxIntervalSeconds: 900 }])
+      },
+    },
+    {
+      name: 'an interval that is not a positive number is refused by field',
+      async run() {
+        // Zero is not "off": a zero interval is a check on every tick, which is
+        // the poll the schedule exists to replace. The resolution refuses it too,
+        // so the page refusing it is about saying which box is wrong.
+        const editor = fakeEditor()
+        const { instance } = bridgeUnderTest({ configEditor: editor })
+        for (const value of [0, -1, 'soon', null, true]) {
+          const res = await call(instance, local({
+            method: 'POST',
+            url: UI_ROUTES.config,
+            headers: { host: '127.0.0.1:1' },
+            body: { set: { subscriptionMinIntervalSeconds: value } },
+          }))
+          is(res.captured.statusCode, 400, `${String(value)} was refused`)
+          is(res.json.error, 'invalid-field-value', `${String(value)} was named as a value problem`)
+          ok(String(res.json.message).includes('subscriptionMinIntervalSeconds'), `${String(value)}: the field is named`)
+        }
+        equal(editor.writes, [], 'nothing was written')
+      },
+    },
+    {
+      name: 'a malformed hidden set is refused by field, before the editor',      async run() {
         const editor = fakeEditor()
         const { instance } = bridgeUnderTest({ configEditor: editor })
         for (const value of ['glm-5.3', ['glm-5.3', ''], [42], null]) {
