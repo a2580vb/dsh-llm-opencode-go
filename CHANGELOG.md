@@ -24,6 +24,10 @@ release itself is now a tag, and the package it produces is checked.
   surface shows is still its own.
 - **A hit rate under half is no longer green on the panel**, where the
   configuration page had always drawn it plain.
+- **The quota rhythm section reads as one row.** Its two intervals are labelled
+  *Shortest/Longest quota update interval*, share a line at the same width, and
+  no longer carry the three explanatory paragraphs; a row that reports no
+  intervals at all says so instead of waiting on them forever.
 
 ### Added
 
@@ -52,7 +56,7 @@ release itself is now a tag, and the package it produces is checked.
 
 ### Changed
 
-- 392 offline checks, up from 349.
+- 393 offline checks, up from 349.
 - **The workflows are checked too**, by a new `ci` suite: an action pinned to a
   branch, a tab in the YAML, or a release that could publish before comparing the
   tag with the manifest fails the suite rather than a release.

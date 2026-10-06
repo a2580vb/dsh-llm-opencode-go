@@ -473,11 +473,24 @@ export default {
         // 30min the Host is actually using.
         const page = await renderPage({ fetch: host() })
         const section = scheduleSection(await page.open())
-        ok(text(section).includes('Now: at least 30, at most 1800.'), text(section).slice(0, 120))
+        ok(text(section).includes('Now: 30s shortest, 1800s longest.'), text(section).slice(0, 120))
         equal(scheduleBoxes(section), [
-          { label: 'Shortest interval (seconds)', value: 30 },
-          { label: 'Longest interval (seconds)', value: 1_800 },
+          { label: 'Shortest quota update interval (seconds)', value: 30 },
+          { label: 'Longest quota update interval (seconds)', value: 1_800 },
         ])
+        // The reader-visible symptom this pins: `styles.formRow` bottom-aligns
+        // the columns it holds, so a column that is taller than its neighbour —
+        // a hint line under one box and not the other, or one field given a
+        // different width — puts the two boxes on two different lines. Both
+        // columns are the label and one control, at the same declared width.
+        const band = nodes(section)
+          .filter(({ node }) => node.type === 'div' && node.props.style?.display === 'flex')
+          .map(({ node }) => node.children ?? [])
+          .find((children) => children.some((child) => text(child).includes('Shortest quota update interval')))
+        ok(band !== undefined, 'the two boxes of the schedule sit in one row')
+        equal(band.map((child) => (child.children ?? []).map((grandchild) => grandchild.type)),
+          [['span', 'input'], ['span', 'input']], 'and each column is its label and its control, nothing more')
+        equal(band.map((child) => child.props.style.flex), ['0 0 200px', '0 0 200px'], 'both boxes the same width')
         // Nothing has been typed, so there is nothing to save, and the section
         // says which state it is in rather than leaving the button's own
         // disabled look to carry the meaning.
@@ -493,8 +506,8 @@ export default {
         // valid interval at all.
         const page = await renderPage({ fetch: host() })
         await page.open()
-        await page.change((node) => node.props['aria-label'] === 'Shortest interval (seconds)', 120)
-        await page.change((node) => node.props['aria-label'] === 'Longest interval (seconds)', 900)
+        await page.change((node) => node.props['aria-label'] === 'Shortest quota update interval (seconds)', 120)
+        await page.change((node) => node.props['aria-label'] === 'Longest quota update interval (seconds)', 900)
         await page.click((node) => node.type === 'button' && text(node).trim() === 'Save intervals')
 
         const writes = page.calls.filter((call) => call.path === 'opencode-go/config')
@@ -517,19 +530,19 @@ export default {
         // looking at two numbers with no statement about which one to change.
         const page = await renderPage({ fetch: host() })
         await page.open()
-        await page.change((node) => node.props['aria-label'] === 'Shortest interval (seconds)', 3_600)
-        await page.change((node) => node.props['aria-label'] === 'Longest interval (seconds)', 300)
+        await page.change((node) => node.props['aria-label'] === 'Shortest quota update interval (seconds)', 3_600)
+        await page.change((node) => node.props['aria-label'] === 'Longest quota update interval (seconds)', 300)
 
         const section = scheduleSection(await page.tree())
-        ok(text(section).includes('The shortest interval cannot be longer than the longest one.'), 'the pair is explained')
+        ok(text(section).includes('The shortest quota update interval cannot be longer than the longest one.'), 'the pair is explained')
         is(scheduleSave(section).props.disabled, true, 'and there is nothing to press')
         equal(page.calls.filter((call) => call.path === 'opencode-go/config').length, 0, 'no request was made')
 
         // Putting the ceiling back above the floor is what clears it — the two
         // boxes are judged as a pair, so either one can resolve it.
-        await page.change((node) => node.props['aria-label'] === 'Longest interval (seconds)', 7_200)
+        await page.change((node) => node.props['aria-label'] === 'Longest quota update interval (seconds)', 7_200)
         const fixed = scheduleSection(await page.tree())
-        is(text(fixed).includes('The shortest interval cannot be longer than the longest one.'), false)
+        is(text(fixed).includes('The shortest quota update interval cannot be longer than the longest one.'), false)
         is(scheduleSave(fixed).props.disabled, false, 'and the save is available again')
       },
     },
@@ -541,9 +554,31 @@ export default {
         // interval — the poll the schedule exists to replace.
         const page = await renderPage({ fetch: host() })
         await page.open()
-        await page.change((node) => node.props['aria-label'] === 'Shortest interval (seconds)', '')
+        await page.change((node) => node.props['aria-label'] === 'Shortest quota update interval (seconds)', '')
         const section = scheduleSection(await page.tree())
         is(scheduleSave(section).props.disabled, true, 'an incomplete pair is not savable')
+        equal(page.calls.filter((call) => call.path === 'opencode-go/config').length, 0, 'and nothing was sent')
+      },
+    },
+    {
+      name: 'a row that reports no intervals says so rather than waiting on them',
+      async run() {
+        // Two halves, two lifetimes: the page is served from the file on disk and
+        // hot-swaps when it changes, while the host half is whatever the app
+        // imported at startup — so the page can be new against a host that has
+        // never heard of these two fields. Its `state` then carries a `values`
+        // without them, and waiting for numbers that are not coming reads as a
+        // section that is stuck loading forever. It names the state instead.
+        const stale = { ...STATE, config: { ...STATE.config, values: {} } }
+        const page = await renderPage({ fetch: host({ state: { body: stale } }) })
+        const section = scheduleSection(await page.open())
+        ok(text(section).includes('the running plugin is older than this page'), text(section).slice(0, 160))
+        is(text(section).includes('Loading'), false, 'and it is not still loading')
+        equal(scheduleBoxes(section), [
+          { label: 'Shortest quota update interval (seconds)', value: '' },
+          { label: 'Longest quota update interval (seconds)', value: '' },
+        ])
+        is(scheduleSave(section).props.disabled, true, 'there is nothing to save from here')
         equal(page.calls.filter((call) => call.path === 'opencode-go/config').length, 0, 'and nothing was sent')
       },
     },
