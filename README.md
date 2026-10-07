@@ -79,7 +79,7 @@ Usage has three entries, all reading the same facts:
 
 | Entry | Where |
 |---|---|
-| **The quota capsule at the sidebar's foot** | Beside Settings. One row, three groups — `◉ 5H 92% │ ◉ 周 58% │ ◉ 月 9%` — visible without a click; that row opens the usage panel, and the gear beside it opens the plugin's configuration page. |
+| **The quota capsule at the sidebar's foot** | Beside Settings. One row, three groups — `◉ 5H 92% │ ◉ Wk 58% │ ◉ Mo 9%` — visible without a click; that row opens the usage panel, and the gear beside it opens the plugin's configuration page. |
 | **The usage panel** | From that row, or the keyboard (desktop `Ctrl/Cmd+U`): the subscription's three windows first, this route's counters under them, and a header that stays on screen as they scroll — the way to the plugin's configuration page, and an **×** back to the conversation. |
 | **Settings → Built-in plugins** | A tab carrying the same content as the panel. |
 

@@ -2,9 +2,8 @@
 
 > Chinese version: [CHANGELOG.zh-CN.md](CHANGELOG.zh-CN.md).
 
-Releases carry the notes that appear on the GitHub release and, through it, on the
-plugin market's **What changed** link. Keep the newest section at the top, give
-every released version one, and keep each entry to a line if it fits.
+Every released version has a section here, and that section is what its GitHub
+release page carries. The newest release comes first.
 
 ## 0.2.2 — 2026-10-06
 

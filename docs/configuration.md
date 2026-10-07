@@ -40,13 +40,14 @@ view, or read `Config` from the plugin for the authoritative list.
 
 ## Fast entries
 
-Usage has three entries, all reading the same facts:
+Usage has three entries, all reading the same facts, plus the configuration page
+itself:
 
 | Entry | Where | What it offers |
 |---|---|---|
 | **The quota capsule at the sidebar's foot** | Beside Settings, in `sidebar.footer.action` | One group per metered window in a single row — ring, short tag, and what is left, separated by hairlines — without a click. That row opens the usage panel, and the gear beside it opens the plugin's configuration page. |
 | **The usage panel** | From that row, or the keyboard (`main`, id `opencode-go-usage`) | The subscription's three windows first, this route's counters (totals, by model, by day) under them; its header stays pinned to the top of the scroll and carries the jump to the plugin's configuration page and an **×** back to the Conversation; *re-read quota* sits beside the "Subscription quota" heading. |
-| **A tab under Settings → Plugins** | `settings.plugins.tab`, id `opencode-go-usage` | The same two blocks as the panel. |
+| **A tab under Settings → Built-in plugins** | `settings.plugins.tab`, id `opencode-go-usage` | The same two blocks as the panel. |
 | **A row in Settings' navigation** | `settings.section`, id `opencode-go` | The [configuration page](#graphical-configuration) itself, after the pages the shell ships. |
 
 All four are optional. The panel body, the capsule's click, the shortcut, and the
@@ -63,10 +64,11 @@ client's own Settings panel, which is also what renders it.
 The capsule itself:
 
 - Each metered window gets **one ring of its own**, and the row reads
-  `◉ 5H 92% │ ◉ 周 58% │ ◉ 月 9%`: the tag comes before the figure, the figures are
-  "% left", and they are set in tabular figures. The tags are two characters
-  (`5H`, `周`, `月`); the spelled-out names do not fit the sidebar's 264px
-  minimum, so they travel in the tooltip and the accessible name.
+  `◉ 5H 92% │ ◉ Wk 58% │ ◉ Mo 9%`: the tag comes before the figure, the figures are
+  "% left", and they are set in tabular figures. The tags are short — `5H`, `Wk`,
+  `Mo`, and `5H`, `周`, `月` in the Chinese client — because the spelled-out
+  names do not fit the sidebar's 264px minimum, so they travel in the tooltip and
+  the accessible name.
 - A window the service did not report keeps its group, loses its arc, and prints a
   dash: "not measured" is not "nothing left".
 - The row is drawn to the host's own foot measurements (42px tall, 12px radius)
@@ -261,13 +263,13 @@ than at midnight. Each bar says when its window resets. Past 80% the figure take
 the warning colour and at 100% the error colour, and the same numbers travel in
 `aria-valuetext`.
 
-The quota endpoint is not part of the published API — it is what the console
-calls — so the *shape* may move without notice. Every way it can be missing is
-a sentence rather than a failure: a gateway that mirrors only the model surface
-answers `404`, a key the service rejects answers `401`, and an unreachable host
-answers nothing at all. In all three cases the local counters stay on screen and
-the quota panel says which one happened. Opening the page reuses an answer for
-`subscriptionCacheSeconds`; only **Re-read quota** forces a fresh call.
+The *shape* of that answer is the service's own and may move without notice.
+Every way it can be missing is a sentence rather than a failure: a gateway that
+mirrors only the model surface answers `404`, a key the service rejects answers
+`401`, and an unreachable host answers nothing at all. In all three cases the
+local counters stay on screen and the quota panel says which one happened.
+Opening the page reuses an answer for `subscriptionCacheSeconds`; only
+**Re-read quota** forces a fresh call.
 
 The counters below are the plugin's own. The harness reports tokens to whoever
 made the call, and only the adapter knows which model a token went to and which

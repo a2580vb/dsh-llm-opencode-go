@@ -1,8 +1,8 @@
 /**
  * The subscription's own quota: the one figure that is the provider's.
  *
- * `GET {baseURL}/usage` is not part of the published API — it is what the
- * console uses — so the cases here are mostly about the ways it can be absent.
+ * `GET {baseURL}/usage` is not a surface the service promises to keep stable,
+ * so the cases here are mostly about the ways it can be absent.
  * A quota readout is an enhancement beside the plugin's own counters, and the
  * whole point is that no deployment loses the page because of it.
  *

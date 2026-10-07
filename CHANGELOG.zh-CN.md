@@ -2,8 +2,7 @@
 
 > English version: [CHANGELOG.md](CHANGELOG.md).
 
-发布说明会出现在 GitHub release 上，并经由它出现在插件市场的 **What changed** 链接里。最新的一段放最上，
-每个发布版本都要有一段；每条能写成一行就写成一行。
+每个已发布的版本在这里都有一段，这一段就是它 GitHub release 上的发布说明。最新的一版在最上面。
 
 ## 0.2.2 — 2026-10-06
 

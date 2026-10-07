@@ -105,8 +105,9 @@ activation produces no warning, that the route registers on the real LLM runtime
 that models and reasoning efforts resolve through it, that a streamed call
 completes end to end, that unloading releases the route, and that the
 configuration page's route is claimed through the real
-`ctx.inject(['webServer'], …)` path and answered over a socket. Set `DSH_ASAR` if
-the installation lives elsewhere; the suite skips cleanly when it cannot find one.
+`ctx.inject(['webServer'], …)` path and answered over a socket. `DSH_ASAR` names an
+installation to read — that installation's `app.asar` — and the suite skips cleanly
+when it finds neither one nor the npm copies.
 
 The archive is only how those packages are *packaged*, not what makes the suite
 work: the same libraries are on npm at the same versions, so when no installation
@@ -156,9 +157,9 @@ not exist, and a pack anchor pointing at a file the repository does not have.
 
 Two things that suite learned the hard way, both now cases of their own:
 
-- **A clone is not the working tree.** `.test-cache/`, `.live-cache/`,
-  `.npm-cache/` and `promotion/` are gitignored, so they exist on the machine
-  that made them and in no clone at all. A case that asserts a path is *there*
+- **A clone is not the working tree.** `.test-cache/`, `.live-cache/` and
+  `.npm-cache/` are gitignored, so they exist on the machine that made them and
+  in no clone at all. A case that asserts a path is *there*
   therefore passes for whoever wrote it and fails in CI — which is what happened:
   the guard over the pack check's forbidden directories passed locally and took
   down all four matrix legs.
@@ -211,7 +212,10 @@ credential exchange writes the token itself, so the `registry-url` that
 
 `prepublishOnly` still runs the syntax check and the offline suite, which is
 redundant in the workflow and deliberately so: it is also what holds when a human
-publishes from their own machine.
+publishes from their own machine. The suite runs only where it exists — `tests/`
+and `scripts/` are outside `files`, so a tarball republished through a mirror or
+a private registry has no suite to run, and the script says so rather than failing
+with a module error.
 
 ## Re-measuring the live facts
 
@@ -265,7 +269,9 @@ lib/
 ├── ui/
 │   ├── http.js               node:http helpers, request fence
 │   └── bridge.js             the Host half of the configuration page
-└── usage/store.js            what this route spent, per day and per model
+└── usage/
+    ├── store.js              what this route spent, per day and per model
+    └── subscription.js       the plan's own quota, read from the service
 
 scripts/
 ├── snapshot-models.mjs       refresh lib/model/limits.js from the catalogue

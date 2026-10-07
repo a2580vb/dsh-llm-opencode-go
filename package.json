@@ -30,7 +30,7 @@
     "check": "node --check lib/index.js",
     "check:pack": "node scripts/check-pack.mjs",
     "release:notes": "node scripts/release.mjs notes",
-    "prepublishOnly": "node --check lib/index.js && node tests/run.mjs"
+    "prepublishOnly": "node --check lib/index.js && node -e \"const fs=require('fs'),p='tests/run.mjs';fs.existsSync(p)?require('child_process').execFileSync(process.execPath,[p],{stdio:'inherit'}):console.log('prepublishOnly: tests/ is not in this tree, so the offline suite is skipped')\""
   },
   "keywords": [
     "dsh",

@@ -79,7 +79,8 @@ OC_KEY=oc_sk_... npm run test:live
 `npm run test:cordis` 从 `app.asar` 里读出 Harness 自己的包，把插件挂到安装版**真实的** cordis
 上，并检查：激活不产生告警、路由注册到真实的 LLM runtime 上、模型与思考等级能通过它解析、一次
 流式调用端到端完成、卸载时释放路由，以及配置页的路由确实经由真实的 `ctx.inject(['webServer'], …)`
-路径被认领、并通过 socket 应答。安装位置在别处时设置 `DSH_ASAR`；找不到安装时该套件会干净地跳过。
+路径被认领、并通过 socket 应答。`DSH_ASAR` 用来指名一个安装——指向它的 `app.asar`；既没有指名、
+也没有可用安装时，该套件会干净地跳过。
 
 写插件时的一条约束：导出的 `Config` 不是自由形式的。cordis 在启动插件前会调用
 `Config['~standard'].validate(raw)`，所以那里如果是个普通对象，激活就会以
@@ -116,8 +117,8 @@ tag 与 manifest 之前就发布的 release、仓库里存着的 npm token、调
 
 那个套件吃过两次亏，现在各自是一条用例：
 
-- **克隆不等于工作区。** `.test-cache/`、`.live-cache/`、`.npm-cache/` 和 `promotion/` 都在
-  `.gitignore` 里，所以它们只存在于造出它们的机器上，任何克隆里都没有。于是「断言某个路径**存在**」
+- **克隆不等于工作区。** `.test-cache/`、`.live-cache/` 和 `.npm-cache/` 都在 `.gitignore`
+  里，所以它们只存在于造出它们的机器上，任何克隆里都没有。于是「断言某个路径**存在**」
   的用例对写它的人永远通过、在 CI 上必然失败——打包检查那条禁止目录的守卫正是如此：本地绿，却让
   矩阵四行全红。
 - **一份检出也不等于另一份检出。** `core.autocrlf` 在 Windows 上默认为 true，于是同一份文件在
@@ -155,7 +156,9 @@ npm 那一侧有两个一次性设置：包必须在 **Trusted Publishers** 里�
 所以 `actions/setup-node` 留在 `.npmrc` 里那行 `registry-url` 不会挡路。
 
 `prepublishOnly` 仍会跑语法检查和离线套件，这在 workflow 里是重复的，而且是刻意的：人在自己机器上
-发布时，靠的正是它。
+发布时，靠的正是它。套件只在它存在的地方跑——`tests/` 与 `scripts/` 不在 `files` 里，所以经镜像
+或私有 registry 重新发布的 tarball 里没有套件可跑，脚本会把这一点说出来，而不是以一个找不到模块的
+错误收场。
 
 ## 重新实测线上事实
 
@@ -205,7 +208,9 @@ lib/
 ├── ui/
 │   ├── http.js               node:http 辅助与请求栅栏
 │   └── bridge.js             配置页的 Host 半侧
-└── usage/store.js            这条路由花掉了什么，按天、按模型
+└── usage/
+    ├── store.js              这条路由花掉了什么，按天、按模型
+    └── subscription.js       订阅额度本身，读自服务端
 
 scripts/
 ├── snapshot-models.mjs       从目录刷新 lib/model/limits.js

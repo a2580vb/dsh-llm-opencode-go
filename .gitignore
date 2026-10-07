@@ -9,16 +9,7 @@ pnpm-lock.yaml
 # harness's own BlockAssembler from @deepseek-ai/dsh-llm, so the contract
 # they check is only meaningful against the version that was verified.
 *.log
-# Launch kit and working notes: local to this checkout, never published and
-# never part of the plugin. The screenshot instructions moved in here with
-# them; the images themselves belong in assets/, which git picks up once they
-# exist. Git cannot track an empty directory, so assets/ needs no entry here —
-# and an entry would defeat the point, since a screenshot the market is meant
-# to show has to be committed.
+# Local working directories: this checkout's own, never published and never
+# part of the plugin.
 promotion/
-# A local orientation note: this checkout's paths, the current check count, and
-# the rules a change tends to run into. It goes stale on every commit, and the
-# committed README, docs/ and CHANGELOG are the facts that ship — so it stays
-# out of the history rather than in it. The name is the ecosystem's convention,
-# which is also why a tool may read it without being asked.
 AGENTS.md

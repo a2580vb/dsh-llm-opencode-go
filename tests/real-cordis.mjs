@@ -13,7 +13,8 @@
  * installation cannot be found, so `npm test` stays green elsewhere.
  *
  *   node tests/real-cordis.mjs
- *   DSH_ASAR=<path>   override the archive
+ *   DSH_ASAR=<path to app.asar>   run against a DSH installation
+ *   DSH_BUNDLE=<dir>              run against an extracted package directory
  */
 
 import { mkdirSync, openSync, readFileSync, readSync, closeSync, writeFileSync, existsSync } from 'node:fs'
@@ -23,7 +24,7 @@ import { fileURLToPath, pathToFileURL } from 'node:url'
 import { dayKey } from '../lib/usage/store.js'
 
 const PLUGIN = dirname(dirname(fileURLToPath(import.meta.url)))
-const ASAR = process.env.DSH_ASAR ?? 'E:\\dsh\\resources\\app.asar'
+const ASAR = process.env.DSH_ASAR
 const CACHE = process.env.DSH_BUNDLE_CACHE ?? join(tmpdir(), 'dsh-llm-opencode-go-real-cordis')
 
 /** A Windows path as the file URL the ESM loader requires. */
@@ -45,9 +46,9 @@ const check = (name, ok, detail) => {
 //
 // A machine with nothing installed is not a reason to check nothing, though: the
 // same packages are on npm at the same versions, and CI has them from
-// `devDependencies`. So the archive is tried first and `node_modules` is the
-// fallback, which turns a suite that used to skip on every build into one that
-// runs there. `DSH_BUNDLE` overrides both.
+// `devDependencies`. So an archive named by `DSH_ASAR` is tried first and
+// `node_modules` is the fallback, which turns a suite that used to skip on every
+// build into one that runs there. `DSH_BUNDLE` overrides both.
 // ---------------------------------------------------------------------------
 
 /** Where the harness's packages sit, or `undefined` when this machine has none. */
@@ -56,7 +57,7 @@ function resolveBundle() {
   if (override !== undefined) {
     return existsSync(join(override, '@deepseek-ai', 'cordis')) ? override : undefined
   }
-  if (existsSync(ASAR)) {
+  if (ASAR !== undefined && existsSync(ASAR)) {
     const { packageCount, fileCount } = extractBundledPackages()
     console.log(`extracted ${packageCount} harness packages (${fileCount} files) -> ${CACHE}\n`)
     return join(CACHE, 'dsh', 'node_modules')
@@ -134,8 +135,8 @@ function extractBundledPackages() {
 const BUNDLE = resolveBundle()
 
 if (BUNDLE === undefined) {
-  console.log(`SKIP  no harness packages: nothing at ${ASAR}, and no @deepseek-ai/cordis installed`)
-  console.log(`      set DSH_ASAR to a DSH installation, or DSH_BUNDLE to a package directory`)
+  console.log('SKIP  no harness packages: no archive was named, and @deepseek-ai/cordis is not installed')
+  console.log("      set DSH_ASAR to a DSH installation's app.asar, or DSH_BUNDLE to a package directory")
   process.exit(0)
 }
 console.log(`using harness packages from ${BUNDLE}\n`)
