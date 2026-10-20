@@ -5,6 +5,13 @@
 Every released version has a section here, and that section is what its GitHub
 release page carries. The newest release comes first.
 
+## 0.2.3 — 2026-10-07
+
+### Changed
+
+- A cleanup pass: the pages say what the code does, no note written for this
+  checkout ships with the package, and the published artifact can publish itself.
+
 ## 0.2.2 — 2026-10-06
 
 An interface release, and the release process is part of it: the quota rhythm is
