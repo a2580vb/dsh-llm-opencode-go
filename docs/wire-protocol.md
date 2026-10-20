@@ -85,11 +85,13 @@ with `tool_calls` and `role: "tool"` on Chat Completions, `tool_use`/`tool_resul
 blocks on Messages — and a conversation is replayed the same way it was answered.
 
 A result's content converts the way a user turn's does, which is what lets a tool
-hand back an image: `read_image` answers with an envelope and the picture itself,
-and the picture travels inside the result — as `content` parts on the tool
-message, as `output` parts on the `function_call_output` item, or as `content`
-blocks inside the `tool_result` — never as a message of its own. All three shapes
-were measured against the live service; see
+hand back an image: `read_image` answers with an envelope and the picture itself.
+On Responses and Messages the picture travels inside the result — as `output`
+parts on the `function_call_output` item, or as `content` blocks inside the
+`tool_result`. Chat Completions takes a tool message as a plain string, so the
+result carries the text and the picture follows in its own `user` turn, after the
+last result of a parallel group. A result that carries no image is a plain string
+on every wire. Both shapes can be re-checked against the live service; see
 [Models](models.md#modalities-what-the-model-takes-versus-what-a-route-can-send).
 
 One rule governs all three translations, because all three wires enforce it: **a

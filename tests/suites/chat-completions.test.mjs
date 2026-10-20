@@ -44,11 +44,11 @@ export default {
       },
     },
     {
-      name: 'a tool result that carries an image sends the image, not a placeholder',
+      name: 'a tool result carries its picture in the turn after it, never in the tool message',
       async run() {
-        // `read_image` answers with an envelope and the image itself. Sending only
-        // the text left the model reading a description of a picture it could not
-        // see — the one thing that tool exists to prevent.
+        // `read_image` answers with an envelope and the image itself. The tool
+        // message is a plain string on this route, so the picture travels in the
+        // turn after it.
         const { imageUrl } = imageParts()
         const wire = await chat.prepare({
           request: {
@@ -65,18 +65,45 @@ export default {
           images: true,
           imageUrl,
         })
-        // The image rides the tool message's own content parts, which is the shape
-        // the live service accepts — the same parts a user turn uses.
-        equal(wire.body.messages[1], {
-          role: 'tool',
-          tool_call_id: 'c1',
-          content: [
-            { type: 'text', text: '<type>image</type>' },
-            { type: 'image_url', image_url: { url: 'data:image/png;base64,iVBORw0KGgo=' } },
-          ],
+        equal(wire.body.messages[1], { role: 'tool', tool_call_id: 'c1', content: '<type>image</type>' })
+        // The picture is its own turn, and it needs no sentence around it: an
+        // image part is a complete user message.
+        equal(wire.body.messages[2], {
+          role: 'user',
+          content: [{ type: 'image_url', image_url: { url: 'data:image/png;base64,iVBORw0KGgo=' } }],
         })
         // Nothing about the pairing changed, so the turn still answers the call.
         is(wire.body.messages[0].tool_calls[0].id, 'c1')
+      },
+    },
+    {
+      name: 'parallel tool results stay contiguous, and their pictures follow the group',
+      async run() {
+        const { imageUrl } = imageParts()
+        const wire = await chat.prepare({
+          request: {
+            messages: [
+              {
+                role: 'assistant',
+                content: [
+                  { type: 'tool-call', id: 'c1', name: 'read_image', arguments: '{"file_path":"a.png"}' },
+                  { type: 'tool-call', id: 'c2', name: 'read_image', arguments: '{"file_path":"b.png"}' },
+                ],
+              },
+              { role: 'tool', toolCallId: 'c1', content: [{ type: 'text', text: 'first' }, IMAGE_BLOCK] },
+              { role: 'tool', toolCallId: 'c2', content: [{ type: 'text', text: 'second' }, IMAGE_BLOCK] },
+            ],
+          },
+          model: { id: 'm' },
+          images: true,
+          imageUrl,
+        })
+        // A turn between two results would break the answer to the assistant's
+        // calls, so both results come first and one turn carries both pictures.
+        equal(wire.body.messages.map((message) => message.role), ['assistant', 'tool', 'tool', 'user'])
+        is(wire.body.messages[1].content, 'first')
+        is(wire.body.messages[2].content, 'second')
+        equal(wire.body.messages[3].content.map((part) => part.type), ['image_url', 'image_url'])
       },
     },
     {

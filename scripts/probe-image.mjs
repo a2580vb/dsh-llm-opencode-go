@@ -9,9 +9,11 @@
  * different routes and the second one is not the first one's shape:
  *
  *   - **in the user turn** — what a pasted or attached image produces;
- *   - **inside a tool result** — what `read_image` answers with, where the image
- *     has to ride the tool message, the `function_call_output` item, or the
- *     `tool_result` block rather than a user turn of its own.
+ *   - **inside a tool result** — what `read_image` answers with. Responses and
+ *     Messages carry it inside the result (`function_call_output`'s `output`,
+ *     `tool_result`'s `content`); Chat Completions carries it in the `user` turn
+ *     its converter emits after the tool message, because that route's tool
+ *     message has to be a plain string.
  *
  *   OC_KEY=oc_sk_... node scripts/probe-image.mjs
  *   OC_IMAGE=.live-cache/probe-image.png OC_MODEL=deepseek-v4-flash-vision-exp ...

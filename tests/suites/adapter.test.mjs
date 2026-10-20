@@ -378,6 +378,35 @@ export default {
       },
     },
     {
+      name: 'a backend that refuses a message shape is named as a content refusal',
+      async run() {
+        // The chat route's far end spells a tool message as a string and says so
+        // when it cannot; reporting that as a malformed request would send the
+        // reader looking for a fault in a request that is well formed.
+        const { adapter } = adapterWith([{
+          status: 400,
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({
+            type: 'error',
+            error: {
+              type: 'invalid_request_error',
+              message: 'Upstream request failed: [invalid_request_error] tool message content must be a string on the gRPC path',
+            },
+          }),
+        }])
+        let error
+        try {
+          await collect(adapter, { provider: 'opencode-go', model: 'glm-5.3', messages: [userMessage('hi')] })
+        } catch (thrown) {
+          error = thrown
+        }
+        is(error?.code, 'UNSUPPORTED_CONTENT')
+        // The refusal names the shape the far end takes; the wording around it is
+        // allowed to change, so only that fact is pinned.
+        ok(String(error?.message).includes('plain string'), 'the shape it expects is named')
+      },
+    },
+    {
       name: 'a failure that is not a protocol refusal is terminal',
       async run() {
         const { adapter, fetch } = adapterWith([

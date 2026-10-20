@@ -16,7 +16,7 @@
 ## 验证
 
 ```sh
-npm test            # 403 项离线检查：配置、SSE 分帧、目录、三种协议、适配器、插件本体、配置桥接、客户端 bundle、显示元数据、版本一致性，以及本仓库自己的 CI
+npm test            # 405 项离线检查：配置、SSE 分帧、目录、三种协议、适配器、插件本体、配置桥接、客户端 bundle、显示元数据、版本一致性，以及本仓库自己的 CI
 npm run test:cordis # 43 项检查，把插件挂到 Harness 自己的 cordis 上
 npm run test:live   # 对线上服务的实测套件；需要 OC_KEY
 npm run check:pack  # `npm publish` 会真正上传的那个 tarball
@@ -173,7 +173,7 @@ node scripts/snapshot-models.mjs [--write]                      # 容量快照�
 
 `probe-protocols.mjs` 会逐模型给出 `served=[…]`，`FALLBACK_MODELS` 就是照它写的。
 `probe-image.mjs` 会把一张 PNG 按每种协议发出去，验证模型是否真的能读图——每种协议发两次：一次图片
-在用户那一轮，一次图片在工具结果里，因为这是两种不同的形状，而只有后一种才承载 `read_image`
+在用户那一轮，一次图片由工具结果带出，因为这是两种不同的形状，而只有后一种才承载 `read_image`
 的返回。用 `OC_IMAGE=path/to.png` 可以换任意一张图（默认的 `.live-cache/probe-image.png` 是未纳入
 版本控制的草稿区），把打印出来的回答与图片内容对一遍即可。`snapshot-models.mjs` 会打印快照之后的
 变化（`new`、`changed`、`gone`），加 `--write` 则重写两张表。

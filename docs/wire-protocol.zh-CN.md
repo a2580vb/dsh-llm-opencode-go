@@ -68,9 +68,11 @@ Chat Completions 是 `function` 包装加 `tool_calls` 与 `role: "tool"`，Mess
 `tool_use`/`tool_result` 块——历史也按当初回答它的同样形状回放。
 
 工具结果的 content 与用户那一轮走同一套转换，正因如此，工具才能把一张图片交回来：`read_image`
-的返回是一段信封文字加图片本身，而这张图**走在结果里面**——tool 消息的 `content` 部件、
-`function_call_output` 条目的 `output` 部件，或 `tool_result` 的 `content` 块——绝不另起一条消息。
-三种形状都经线上实测；见[模型](models.zh-CN.md#多模态模型能接受什么与一条路由能发什么)。
+的返回是一段信封文字加图片本身。在 Responses 与 Messages 上，这张图**走在结果里面**——
+`function_call_output` 条目的 `output` 部件，或 `tool_result` 的 `content` 块。Chat Completions
+的 tool 消息是纯字符串，所以结果只带文字，图片改为跟在**并行结果组的最后一条之后**、单独一条
+`user` 回合里。不带图片的结果在三条线上都是纯字符串。这两种形状都可以对着线上服务复核；见
+[模型](models.zh-CN.md#多模态模型能接受什么与一条路由能发什么)。
 
 三种翻译都遵守同一条规则，因为三条线上都强制它：**调用与结果要么一起发出，要么都不发。**
 Responses API 对没有结果的调用回 `400 No tool output found for tool call <id>`；Chat Completions

@@ -86,11 +86,13 @@ therefore defines its own failure types and depends on no harness package.
   defaults to `auto`, which declares `image` for a vision model only when the
   attachment seam is mounted. On a deployment without it the model reports
   text-only, with a note naming what the route cannot send.
-- **A tool's image is sent as part of the tool result.** `read_image` commits the
-  picture it read to the session, and this adapter hands it to the provider inside
-  that result — not in a turn of its own, which would change what the transcript
-  says happened. A route that cannot take images still receives the envelope and a
-  line naming the image it could not send, so a refusal is never silent.
+- **A tool's image reaches the model, in the shape its protocol takes.** `read_image`
+  commits the picture it read to the session, and this adapter hands it to the
+  provider: inside the result on Responses and Messages, and in the `user` turn
+  right after it on Chat Completions, whose tool message is a plain string. A
+  refusal of that shape is named as `UNSUPPORTED_CONTENT` rather than as a
+  malformed request. A route that cannot take images still receives the envelope
+  and a line naming the image it could not send, so a refusal is never silent.
 - **`stop` is forwarded as-is.** Whether a given model honours stop sequences is
   the model's business; the plugin does not claim otherwise.
 - **One route per mount.** Mounting the plugin twice needs two `provider` names

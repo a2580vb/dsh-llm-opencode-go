@@ -17,7 +17,7 @@ plugin, how to re-measure the live facts, and how the code is laid out.
 ## Verification
 
 ```sh
-npm test            # 403 offline checks: config, SSE framing, catalog, all three protocols, adapter, plugin body, the settings bridge, the client bundle, the display metadata, release coherence and the repository's own CI
+npm test            # 405 offline checks: config, SSE framing, catalog, all three protocols, adapter, plugin body, the settings bridge, the client bundle, the display metadata, release coherence and the repository's own CI
 npm run test:cordis # 43 checks mounting the plugin on the harness's own cordis
 npm run test:live   # the live suite; needs OC_KEY
 npm run check:pack  # what `npm publish` would upload
@@ -231,7 +231,7 @@ node scripts/snapshot-models.mjs [--write]                      # capacity snaps
 `probe-protocols.mjs` answers `served=[…]` per model, which is what
 `FALLBACK_MODELS` is written from. `probe-image.mjs` posts a PNG over each
 protocol and checks the model can actually read it — twice per protocol, once
-with the image in a user turn and once with it inside a tool result, because
+with the image in a user turn and once with it carried by a tool result, because
 those are two different shapes and only the second one carries what `read_image`
 answers with. Point it at any picture with `OC_IMAGE=path/to.png` (the default,
 `.live-cache/probe-image.png`, is untracked scratch) and read the printed answer
