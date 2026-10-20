@@ -55,8 +55,11 @@ OpenCode 的中继会把共享同一个 `x-opencode-session` 值的所有请求�
 
 **推理历史**只在协议支持的情况下回放：Chat Completions 接收 `reasoning_content`，Messages 接收
 带 provider 签发签名的 thinking block（按 block 的确切文本寻址，在没有保留签名时降级为纯文本）。
-Responses API 不回放推理历史，因为 reasoning item 会针对 Harness 并未保留的上游状态做校验。设置
-`disableReasoningReplay: true` 可在任何协议上都不发送推理历史。
+Responses 上则只为**上游要求**的模型回放——`deepseek-*` 家族的思考模式在请求带 `tools` 时，若没有
+把此前每一轮的推理交回就会拒绝——以纯文本 `reasoning` 项、`summary` part 的形式，紧挨在它所属的
+assistant 消息之前。同一条线路上的其他上游（OpenAI、xAI）自己保存推理状态，并会用该状态校验回放的
+reasoning 项，所以那些请求仍然一个都不发；这条判断记在模型目录记录上（`requiresReasoningReplay`），
+不在协议层。设置 `disableReasoningReplay: true` 可在任何协议上都不发送推理历史。
 
 ## 工具调用
 

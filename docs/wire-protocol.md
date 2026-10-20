@@ -67,10 +67,15 @@ sent as a request the API would reject.
 Reasoning **history** is replayed where the protocol supports it: Chat
 Completions takes `reasoning_content` back, and Messages takes thinking blocks
 with the signature the provider issued (addressed by the block's exact text, and
-degraded to plain text when no signature was retained). The Responses API takes
-none, because a reasoning item is validated against upstream state the harness
-does not retain. Set `disableReasoningReplay: true` to send no reasoning history
-on any protocol.
+degraded to plain text when no signature was retained). On the Responses wire it
+is replayed for the models whose upstream requires it — the `deepseek-*` family,
+whose thinking mode refuses a request that carries tools unless every earlier
+turn's reasoning comes back — as a plain-text `reasoning` item, in a `summary`
+part, immediately ahead of the assistant message it belongs to. Every other
+provider on that wire (OpenAI, xAI) keeps its own reasoning state and validates a
+replayed item against it, so their requests still send none; the condition lives
+on the catalog record (`requiresReasoningReplay`), not in the protocol. Set
+`disableReasoningReplay: true` to send no reasoning history on any protocol.
 
 ## Tool calling
 

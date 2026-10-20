@@ -59,11 +59,15 @@ therefore defines its own failure types and depends on no harness package.
   offers `hideTrainingModels` for a deployment that cannot enable it; it provides
   no switch that would grant that consent on a deployment's behalf. See
   [Models that train on request data](models.md#models-that-train-on-request-data).
-- **Reasoning is not replayed to the Responses API.** A reasoning item is
-  validated against upstream state the harness does not retain, and a mismatch
-  is an opaque `400`, so prior thinking is dropped from that protocol's requests.
-  The Messages protocol does replay thinking blocks, using the signature the
-  provider issued.
+- **Reasoning is replayed to the Responses API only where the upstream needs
+  it.** DeepSeek's thinking mode refuses a request carrying tools unless every
+  earlier turn's reasoning comes back, so those models receive it as a plain-text
+  `reasoning` item ahead of the assistant message. The OpenAI- and xAI-served
+  models on the same wire validate a replayed item against state this harness
+  does not retain and answer a mismatch with an opaque `400`, so their requests
+  still send none. The condition is a catalog fact (`requiresReasoningReplay`),
+  not a protocol rule. The Messages protocol replays thinking blocks with the
+  signature the provider issued.
 - **A tool call the history cannot answer is dropped, not sent.** An assistant
   message can record a `tool-call` that was never dispatched — the process
   stopped between the model's answer and the tool starting — so no result exists

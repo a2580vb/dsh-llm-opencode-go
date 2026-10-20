@@ -45,9 +45,11 @@
   适配器把这条拒绝单独归类（`TRAINING_CONSENT_REQUIRED`），在消息里写清要开启的设置项及其位置，
   在模型元数据里给出说明，并为开不了该设置的部署提供 `hideTrainingModels`；它不提供任何开关去
   代替部署给出这份同意。见[会训练请求数据的模型](models.zh-CN.md#会训练请求数据的模型)。
-- **推理不会回放到 Responses API。** reasoning item 会针对 Harness 并未保留的上游状态做校验，
-  不匹配就是一个含义不明的 `400`，所以该协议的请求里直接丢弃此前的思考。Messages 协议会回放
-  thinking block，并使用 provider 签发的签名。
+- **推理只在相应上游需要时才回放到 Responses API。** DeepSeek 的思考模式在请求带 tools 时，若没有
+  把此前每一轮的推理交回就会拒绝，所以这些模型会在 assistant 消息之前收到一个纯文本 `reasoning` 项。
+  同一条线路上的 OpenAI 与 xAI 上游会用自己保存的状态校验回放的 reasoning 项，不匹配就是一个含义
+  不明的 `400`，因此它们的请求仍然一个都不发。这条判断是模型目录里的事实（`requiresReasoningReplay`），
+  不是协议规则。Messages 协议会回放 thinking block，并使用 provider 签发的签名。
 - **历史里无法被回答的工具调用会直接丢弃，而不是发出去。** assistant 消息可能记录了一次从未被
   派发的 `tool-call`——进程在模型给出回答之后、工具启动之前就停了——于是历史里没有任何结果可回放。
   三种协议都拒绝这种「半对」：Responses API 回 `400 No tool output found for tool call <id>`，

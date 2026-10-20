@@ -67,6 +67,29 @@ export default {
       },
     },
     {
+      name: 'only the DeepSeek family asks for its own reasoning back on the Responses wire',
+      run() {
+        const records = buildCatalog(resolveConfig({}), [])
+        for (const id of ['deepseek-v4-pro', 'deepseek-v4-flash', 'deepseek-v4.1-flash', 'deepseek-flash', 'deepseek-v4-flash-vision-exp']) {
+          is(records.get(id).requiresReasoningReplay, true, `${id} needs its reasoning replayed`)
+        }
+        for (const id of ['gpt-5.6-luna', 'grok-4.7', 'glm-5.3', 'minimax-m2.7']) {
+          is(records.get(id).requiresReasoningReplay, false, `${id} keeps its reasoning upstream`)
+        }
+        // The fact follows the id through every reshape a deployment can apply.
+        const shaped = buildCatalog(resolveConfig({
+          modelVariants: [{ model: 'deepseek-v4.1-flash', name: 'max', effort: 'max' }],
+          protocolOverrides: { 'deepseek-v4.1-flash': 'chat-completions' },
+          modelOverrides: { 'deepseek-v4-flash': { contextWindow: 1_000 } },
+        }), [])
+        is(shaped.get('deepseek-v4.1-flash@max').requiresReasoningReplay, true, 'a variant keeps it')
+        is(shaped.get('deepseek-v4.1-flash').requiresReasoningReplay, true, 'a protocol override keeps it')
+        is(shaped.get('deepseek-v4-flash').requiresReasoningReplay, true, 'a model override keeps it')
+        // A `models` entry for an id the fallback does not describe derives it too.
+        is(buildCatalog(resolveConfig({ models: [{ id: 'deepseek-next' }] }), []).get('deepseek-next').requiresReasoningReplay, true)
+      },
+    },
+    {
       name: 'a model that only serves one protocol is never offered another first',
       run() {
         const records = buildCatalog(resolveConfig({}), [])

@@ -216,6 +216,17 @@ const CHAT_BODY = sse([
   { data: '[DONE]' },
 ])
 
+const RESPONSES_BODY = sse([
+  { event: 'response.created', data: { type: 'response.created', response: { id: 'resp_1' } } },
+  { event: 'response.output_item.added', data: { type: 'response.output_item.added', output_index: 0, item: { type: 'message' } } },
+  { event: 'response.output_text.delta', data: { type: 'response.output_text.delta', output_index: 0, delta: 'hi' } },
+  { event: 'response.output_item.done', data: { type: 'response.output_item.done', output_index: 0, item: { type: 'message' } } },
+  {
+    event: 'response.completed',
+    data: { type: 'response.completed', response: { id: 'resp_1', usage: { input_tokens: 3, output_tokens: 1 } } },
+  },
+])
+
 export default {
   name: 'adapter',
   cases: scratch.withCleanup([
@@ -324,6 +335,46 @@ export default {
         is(fetch.requests[1].url, 'https://relay.test/v1/chat/completions')
         equal(blocks, [{ type: 'text', text: 'hi' }])
         equal(finish, { kind: 'stop' })
+      },
+    },
+    {
+      name: 'a DeepSeek call replays its own reasoning; a provider that keeps its own state does not',
+      async run() {
+        const tools = [{ name: 'get_weather', description: 'd', parameters: { type: 'object', properties: {} } }]
+        const history = [
+          userMessage('What is the weather in Paris?'),
+          {
+            role: 'assistant',
+            content: [
+              { type: 'reasoning', text: 'Call the tool.' },
+              { type: 'text', text: 'Checking.' },
+              { type: 'tool-call', id: 'c1', name: 'get_weather', arguments: '{"city":"Paris"}' },
+            ],
+          },
+          { role: 'tool', toolCallId: 'c1', content: [{ type: 'text', text: '18C' }] },
+        ]
+
+        const deepseek = adapterWith([{ body: RESPONSES_BODY }])
+        await collect(deepseek.adapter, {
+          provider: 'opencode-go',
+          model: 'deepseek-v4.1-flash',
+          messages: history,
+          tools,
+        })
+        const input = JSON.parse(deepseek.fetch.requests[0].init.body).input
+        // The relay takes the text as a `summary` part, ahead of the turn it belongs to.
+        equal(input[1], { type: 'reasoning', summary: [{ type: 'summary_text', text: 'Call the tool.' }] })
+        equal(input[2], { role: 'assistant', content: [{ type: 'output_text', text: 'Checking.' }] })
+
+        const openai = adapterWith([{ body: RESPONSES_BODY }])
+        await collect(openai.adapter, {
+          provider: 'opencode-go',
+          model: 'gpt-5.6-luna',
+          messages: history,
+          tools,
+        })
+        const other = JSON.parse(openai.fetch.requests[0].init.body).input
+        is(other.some((item) => item.type === 'reasoning'), false, 'a provider with its own reasoning state gets none')
       },
     },
     {

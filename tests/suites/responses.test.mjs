@@ -132,15 +132,97 @@ export default {
       },
     },
     {
-      name: 'prior reasoning is dropped, because a reasoning item cannot be replayed',
+      name: 'prior reasoning is dropped by default, because a provider may validate it',
       async run() {
         const wire = await responses.prepare({
           request: {
             messages: [{ role: 'assistant', content: [{ type: 'reasoning', text: 'thinking' }, { type: 'text', text: 'ok' }] }],
+            tools: [{ name: 't', description: 'd', parameters: { type: 'object', properties: {} } }],
           },
           model: { id: 'm' },
+          replayReasoning: true,
         })
         equal(wire.body.input, [{ role: 'assistant', content: [{ type: 'output_text', text: 'ok' }] }])
+      },
+    },
+    {
+      name: 'a model whose upstream requires it gets its reasoning back as a summary item',
+      async run() {
+        // DeepSeek's thinking mode continues a thought it was never sent unless
+        // this comes back; the relay takes the text as a `summary` part.
+        const wire = await responses.prepare({
+          request: {
+            messages: [{ role: 'assistant', content: [{ type: 'reasoning', text: 'I should call the tool.' }, { type: 'text', text: 'ok' }] }],
+            tools: [{ name: 't', description: 'd', parameters: { type: 'object', properties: {} } }],
+          },
+          model: { id: 'deepseek-v4.1-flash', requiresReasoningReplay: true },
+          replayReasoning: true,
+        })
+        equal(wire.body.input, [
+          { type: 'reasoning', summary: [{ type: 'summary_text', text: 'I should call the tool.' }] },
+          { role: 'assistant', content: [{ type: 'output_text', text: 'ok' }] },
+        ])
+      },
+    },
+    {
+      name: 'replayed reasoning stands ahead of the calls it produced, and the pairing still holds',
+      async run() {
+        const wire = await responses.prepare({
+          request: {
+            messages: [
+              {
+                role: 'assistant',
+                content: [
+                  { type: 'reasoning', text: 'Check the file first.' },
+                  { type: 'text', text: 'Reading it.' },
+                  { type: 'tool-call', id: 'c1', name: 'read', arguments: '{}' },
+                ],
+              },
+              { role: 'tool', toolCallId: 'c1', content: [{ type: 'text', text: 'ok' }] },
+            ],
+            tools: [{ name: 't', description: 'd', parameters: { type: 'object', properties: {} } }],
+          },
+          model: { id: 'deepseek-v4.1-flash', requiresReasoningReplay: true },
+          replayReasoning: true,
+        })
+        equal(wire.body.input.map((item) => item.type ?? item.role), [
+          'reasoning',
+          'assistant',
+          'function_call',
+          'function_call_output',
+        ])
+      },
+    },
+    {
+      name: 'reasoning stays out without tools, when replay is switched off, or when a turn has nothing else',
+      async run() {
+        const messages = [
+          { role: 'assistant', content: [{ type: 'reasoning', text: 'thinking' }, { type: 'text', text: 'ok' }] },
+        ]
+        const tools = [{ name: 't', description: 'd', parameters: { type: 'object', properties: {} } }]
+        // No tools: every provider ignores a replayed reasoning item, so none is sent.
+        const withoutTools = await responses.prepare({
+          request: { messages },
+          model: { id: 'deepseek-v4.1-flash', requiresReasoningReplay: true },
+          replayReasoning: true,
+        })
+        equal(withoutTools.body.input, [{ role: 'assistant', content: [{ type: 'output_text', text: 'ok' }] }])
+
+        // The deployment's own switch still wins.
+        const disabled = await responses.prepare({
+          request: { messages, tools },
+          model: { id: 'deepseek-v4.1-flash', requiresReasoningReplay: true },
+          replayReasoning: false,
+        })
+        equal(disabled.body.input, [{ role: 'assistant', content: [{ type: 'output_text', text: 'ok' }] }])
+
+        // A turn made only of reasoning has no assistant message to attach to.
+        const reasoningOnly = await responses.prepare({
+          request: { messages: [{ role: 'assistant', content: [{ type: 'reasoning', text: 'thinking' }] }], tools },
+          model: { id: 'deepseek-v4.1-flash', requiresReasoningReplay: true },
+          replayReasoning: true,
+        })
+        equal(reasoningOnly.body.input, [])
       },
     },
     {
