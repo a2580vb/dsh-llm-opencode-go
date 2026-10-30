@@ -17,7 +17,7 @@ plugin, how to re-measure the live facts, and how the code is laid out.
 ## Verification
 
 ```sh
-npm test            # 405 offline checks: config, SSE framing, catalog, all three protocols, adapter, plugin body, the settings bridge, the client bundle, the display metadata, release coherence and the repository's own CI
+npm test            # 417 offline checks: config, SSE framing, catalog, all three protocols, adapter, plugin body, the settings bridge, the client bundle, the display metadata, the diagnostics log, release coherence and the repository's own CI
 npm run test:cordis # 43 checks mounting the plugin on the harness's own cordis
 npm run test:live   # the live suite; needs OC_KEY
 npm run check:pack  # what `npm publish` would upload
@@ -43,6 +43,11 @@ of the checkout, and their paths come from `tests/suites/_scratch.mjs`: one
 directory per case, removed when that case ends, under a name carrying a token
 minted for the run. A run that dies before its own cleanup therefore cannot leave
 behind the file a later run opens.
+
+The **diagnostics suite** drives the real adapter against transports that fail in
+the three ways a call can — never connected, refused, and accepted-then-broken —
+and then reads the file the plugin wrote, because a log is only worth having if
+the difference between those three survives it.
 
 The suites that cover the configuration page run offline as well:
 

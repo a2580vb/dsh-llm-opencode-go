@@ -16,7 +16,7 @@
 ## 验证
 
 ```sh
-npm test            # 405 项离线检查：配置、SSE 分帧、目录、三种协议、适配器、插件本体、配置桥接、客户端 bundle、显示元数据、版本一致性，以及本仓库自己的 CI
+npm test            # 417 项离线检查：配置、SSE 分帧、目录、三种协议、适配器、插件本体、配置桥接、客户端 bundle、显示元数据、诊断日志、版本一致性，以及本仓库自己的 CI
 npm run test:cordis # 43 项检查，把插件挂到 Harness 自己的 cordis 上
 npm run test:live   # 对线上服务的实测套件；需要 OC_KEY
 npm run check:pack  # `npm publish` 会真正上传的那个 tarball
@@ -37,6 +37,9 @@ npm run check:pack  # `npm publish` 会真正上传的那个 tarball
 `tests/suites/_scratch.mjs` 发放：每个用例一个自己的目录，用例结束即删除，目录名里带着本次运行
 才生成的 token。因此即使某次运行在自己的清理之前就死掉，它留下的文件也不会是后来那次运行要打开
 的那个。
+
+**诊断日志套件**用三种失败方式驱动真实适配器——根本没连上、被拒、已接收然后断流——然后读插件写下的
+文件：一份日志只有让这三种情况的区别活下来，才值得存在。
 
 覆盖配置页的套件同样离线运行：
 

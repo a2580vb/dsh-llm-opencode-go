@@ -27,6 +27,13 @@ Failures are reported by the **shape** the harness reads — an `Error` with own
 `code` and `failure` data properties — not by class identity. The plugin
 therefore defines its own failure types and depends on no harness package.
 
+A code and a sentence are all that survives a call, which is not enough to
+explain one afterwards: a `TRANSPORT` failure's own message is `fetch failed`,
+and whether the request never connected or died mid-stream is decided by facts
+only the attempt knows. So each failed attempt also appends a metadata-only line
+to the [diagnostics log](configuration.md#diagnostics-log) — the stage, the
+timing, and the cause chain — and nothing about a call is written anywhere else.
+
 ## Limits
 
 - **Protocol capability is measured, not published.** OpenCode Go's `/models`

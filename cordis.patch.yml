@@ -36,6 +36,14 @@
 #   retryPolicy        { mode, maxRetries, ... }
 #   usagePath          where the usage counters live
 #                      (default ~/.dsh/cache/opencode-go-usage.json)
+#   diagnostics        what the diagnostics log keeps: 'off' | 'failures' | 'all'
+#                      (default: failures). One JSON line per attempt outcome with
+#                      its timing, the stage it reached, and the cause chain under
+#                      a failure — the facts the harness cannot keep. Never the
+#                      key, never a header, never a message body.
+#   diagnosticsPath    where that log lives
+#                      (default ~/.dsh/logs/opencode-go.jsonl); rotates at 1 MB
+#                      and keeps two predecessors
 #   subscriptionCacheSeconds
 #                      how long the page reuses one subscription-quota answer
 #                      before asking GET {baseURL}/usage again (default: 60)

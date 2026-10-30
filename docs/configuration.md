@@ -18,6 +18,8 @@ view, or read `Config` from the plugin for the authoritative list.
 | `modelsCacheSeconds` | `21600` | Discovered-catalog lifetime |
 | `modelsCachePath` | `~/.dsh/cache/opencode-go-models.json` | Cache file; an unwritable path only warns |
 | `usagePath` | `~/.dsh/cache/opencode-go-usage.json` | Where the usage counters live; an unwritable path only warns |
+| `diagnostics` | `failures` | What the diagnostics log keeps: `off` \| `failures` \| `all` (see [Diagnostics log](#diagnostics-log)) |
+| `diagnosticsPath` | `~/.dsh/logs/opencode-go.jsonl` | Where that log lives; an unwritable path only warns |
 | `subscriptionCacheSeconds` | `60` | How long the page reuses a subscription-quota answer before asking the service again |
 | `subscriptionMinIntervalSeconds` | `30` | The shortest wait between two of the page's own quota checks (see [Fast entries](#fast-entries)) |
 | `subscriptionMaxIntervalSeconds` | `1800` | The longest a quota answer may go unchecked, however quiet the route is |
@@ -342,6 +344,45 @@ Three further properties of this data:
   count could not be saved.
 - **It is per deployment.** Two profiles, or two machines, keep their own
   counters. Nothing here is shared, and nothing is sent anywhere.
+
+## Diagnostics log
+
+A failed call reaches the harness as a code and a sentence, and the harness keeps
+both. What it cannot keep is the layer under them: `fetch` rejects with
+`TypeError: fetch failed` and carries the real reason — `ECONNRESET`,
+`UND_ERR_CONNECT_TIMEOUT`, a socket closed by the far end — only in its `cause`.
+Two failures a week apart then look identical, and neither can be explained after
+the fact.
+
+So every attempt that fails appends one JSON line to
+`~/.dsh/logs/opencode-go.jsonl`:
+
+| What | Why it is there |
+|---|---|
+| `ts`, `durationMs`, `prepareMs`, `headersMs`, `streamMs` | When it happened, and which stage spent the time |
+| `provider`, `model`, `protocol`, `attempt`/`attempts` | Which of the model's protocols it was, and where in the fallback order |
+| `phase` | `connect` (no response headers), `response` (a refusal), `stream` (accepted, then died) |
+| `headersReceived`, `events` | How far the attempt got, and how many events had arrived when it stopped |
+| `status`, `code`, `message`, `requestId`, `retryAfterMs` | What the harness was told, next to the provider's own request id |
+| `cause` | The flattened `cause` chain, including the members of an `AggregateError` |
+| `requestBytes`, `timeoutMs`, `streamIdleTimeoutMs` | What was sent, and the budgets the attempt ran under |
+
+Three consequences are intentional:
+
+- **No credential, no headers, no message bodies.** The file is metadata only, so
+  it can be pasted into a bug report. `diagnostics: all` adds the attempts that
+  succeeded — for a latency question, those are the measurement — and still
+  records nothing a conversation contained.
+- **A working installation writes nothing.** The default, `failures`, records
+  only failed attempts; `off` records none; `all` records every attempt.
+- **The file is bounded.** It rotates at 1 MB and keeps two predecessors
+  (`opencode-go.jsonl.1`, `.2`), so a route that fails in a loop cannot fill a
+  disk. Recording is queued and never awaited by the request, and a log that
+  cannot be written is one warning — never a failed call.
+
+This log answers "what happened to that request". The [usage
+counters](#usage) answer a different question — what the route spent — and the
+two are deliberately separate files.
 
 ## Model variants
 

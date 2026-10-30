@@ -18,6 +18,8 @@
 | `modelsCacheSeconds` | `21600` | 已发现目录的生存期 |
 | `modelsCachePath` | `~/.dsh/cache/opencode-go-models.json` | 缓存文件；路径不可写时只告警 |
 | `usagePath` | `~/.dsh/cache/opencode-go-usage.json` | 用量计数所在文件；路径不可写时只告警 |
+| `diagnostics` | `failures` | 诊断日志记多少：`off` \| `failures` \| `all`（见[诊断日志](#诊断日志)） |
+| `diagnosticsPath` | `~/.dsh/logs/opencode-go.jsonl` | 那份日志所在文件；路径不可写时只告警 |
 | `subscriptionCacheSeconds` | `60` | 页面复用一次订阅额度结果多久之后再去问服务 |
 | `subscriptionMinIntervalSeconds` | `30` | 页面自己两次额度检查之间最短等待（见[快速入口](#快速入口)） |
 | `subscriptionMaxIntervalSeconds` | `1800` | 无论这条路由多空闲，一份额度答案最长多久必须重新检查 |
@@ -268,6 +270,35 @@ Harness 自己的 token 计量器正是在 `uncachedInputTokens` 这个名字下
 - **丢掉它永远不是失败。** 文件读不出来只意味着「还没有历史」，写不进去只产生一条告警，一次调用
   永远不会因为 token 数没能保存而失败。
 - **它属于单个部署。** 两个 profile、两台机器各记各的。这里没有任何共享，也没有任何数据发往别处。
+
+## 诊断日志
+
+失败到达 Harness 时是一个错误码加一句话，这两样 Harness 都留了下来。留不下来的是它们底下那一层：
+`fetch` 以 `TypeError: fetch failed` 拒绝，而真正的原因——`ECONNRESET`、`UND_ERR_CONNECT_TIMEOUT`、
+被对端关掉的 socket——只写在它的 `cause` 里。于是相隔一周的两次失败读起来一模一样，事后谁也解释不了。
+
+所以每一次失败的尝试都会往 `~/.dsh/logs/opencode-go.jsonl` 追加一行 JSON：
+
+| 字段 | 为什么记它 |
+|---|---|
+| `ts`、`durationMs`、`prepareMs`、`headersMs`、`streamMs` | 什么时候发生的，以及时间花在哪一段 |
+| `provider`、`model`、`protocol`、`attempt`/`attempts` | 用的是模型的那一种协议，在回落顺序里的第几次 |
+| `phase` | `connect`（没拿到响应头）、`response`（被拒）、`stream`（已接收，然后断了） |
+| `headersReceived`、`events` | 这次尝试走到哪一步，停下时已经收到多少个事件 |
+| `status`、`code`、`message`、`requestId`、`retryAfterMs` | Harness 被告知的内容，以及服务端自己的请求 id |
+| `cause` | 摊平后的 `cause` 链，包含 `AggregateError` 的每一个成员 |
+| `requestBytes`、`timeoutMs`、`streamIdleTimeoutMs` | 发出去多少字节，以及这次尝试运行的时限 |
+
+三条刻意的取舍：
+
+- **不含密钥、不含请求头、不含消息正文。** 这个文件只有元数据，所以可以直接贴进问题报告。
+  `diagnostics: all` 会把成功的尝试也记下来——问延迟的时候，那才是数据——同样不记录对话内容。
+- **一切正常的部署不写任何东西。** 默认值 `failures` 只记失败的尝试；`off` 一条都不记；`all` 全记。
+- **文件有上限。** 到 1 MB 就滚动，保留两份前身（`opencode-go.jsonl.1`、`.2`），所以一条反复失败的
+  路由填不满磁盘。写入是排队的，请求从不等待它；写不进去只产生一条告警，永远不会让调用失败。
+
+这份日志回答的是「那次请求到底遇到了什么」。旁边的[用量](#用量)回答的是另一个问题——这条路由花了
+多少——两者刻意分成两个文件。
 
 ## 模型变体
 
