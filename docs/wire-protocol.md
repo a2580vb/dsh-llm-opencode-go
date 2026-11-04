@@ -47,6 +47,15 @@ The plugin derives it from the DSH session id that already travels with each cal
 An auxiliary call with no session id (session-title generation) still gets a
 per-process fallback value rather than an absent header.
 
+## System prompts
+
+A request carries both sources of system guidance: `GenerateOptions.system`, used
+by one-shot callers, and `system` messages, which are how the agent loop supplies
+the current prompt and plan-mode policy. Neither source is dropped. Responses and
+Messages join the non-empty texts in that order as their top-level `instructions`
+and `system` fields; Chat Completions sends the request-level text first and then
+the system messages. Responses never emits a `system` item inside `input`.
+
 ## Reasoning
 
 Each protocol spells thinking differently, and the relay validates the spelling,

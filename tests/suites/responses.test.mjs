@@ -44,17 +44,36 @@ export default {
       },
     },
     {
-      name: 'the system prompt is top-level instructions, never an input item',
+      name: 'request-level and historical system prompts share top-level instructions, never an input item',
       async run() {
-        const wire = await responses.prepare({
+        const oneShot = await responses.prepare({
           request: {
-            messages: [{ role: 'system', content: [{ type: 'text', text: 'ignored' }] }, { role: 'user', content: [{ type: 'text', text: 'hi' }] }],
+            messages: [
+              { role: 'system', content: [{ type: 'text', text: 'from history one' }] },
+              { role: 'system', content: [{ type: 'text', text: '   ' }] },
+              { role: 'system', content: [{ type: 'text', text: 'from history two' }] },
+              { role: 'user', content: [{ type: 'text', text: 'hi' }] },
+            ],
             system: 'You are terse.',
           },
           model: { id: 'm' },
         })
-        is(wire.body.instructions, 'You are terse.')
-        equal(wire.body.input, [{ role: 'user', content: [{ type: 'input_text', text: 'hi' }] }])
+        is(oneShot.body.instructions, 'You are terse.\n\nfrom history one\n\nfrom history two')
+        equal(oneShot.body.input, [{ role: 'user', content: [{ type: 'input_text', text: 'hi' }] }])
+
+        // The agent loop leaves request.system undefined and puts the current
+        // prompt — including plan mode's policy — in a system message instead.
+        const loop = await responses.prepare({
+          request: {
+            messages: [
+              { role: 'system', content: [{ type: 'text', text: 'PLAN POLICY MARKER' }] },
+              { role: 'user', content: [{ type: 'text', text: 'hello' }] },
+            ],
+          },
+          model: { id: 'm' },
+        })
+        is(loop.body.instructions, 'PLAN POLICY MARKER')
+        equal(loop.body.input, [{ role: 'user', content: [{ type: 'input_text', text: 'hello' }] }])
       },
     },
     {

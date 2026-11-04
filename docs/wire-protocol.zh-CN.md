@@ -39,6 +39,13 @@ OpenCode 的中继会把共享同一个 `x-opencode-session` 值的所有请求�
 
 没有 session id 的辅助调用（会话标题生成）仍然会得到一个进程级回退值，而不是缺失该请求头。
 
+## 系统提示词
+
+请求同时携带两类系统指引：一次性调用使用的 `GenerateOptions.system`，以及 Agent Loop 用来提供当前提示词
+和计划模式策略的 `system` 消息；两者都不会被丢弃。Responses 与 Messages 按这个顺序把非空文本合并为顶层的
+`instructions` 与 `system` 字段；Chat Completions 先发送请求级文本，再发送各条 system 消息。Responses
+不会在 `input` 中生成 `system` 条目。
+
 ## 推理
 
 每种协议对「思考」的拼写都不同，中继会校验拼写，翻译由一个函数统一负责：
