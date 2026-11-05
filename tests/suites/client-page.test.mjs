@@ -37,11 +37,25 @@ const STATE = {
   environment: { key: 'OPENCODE_GO_API_KEY', present: false },
   config: {
     editable: true,
-    fields: ['apiKeyEnv', 'hiddenModels', 'modelVariants', 'subscriptionMinIntervalSeconds', 'subscriptionMaxIntervalSeconds'],
-    // What the row resolves to, which is what the schedule section edits. The
-    // real bridge always reports these, so a fixture without them would test a
-    // page nobody is served.
-    values: { subscriptionMinIntervalSeconds: 30, subscriptionMaxIntervalSeconds: 1_800 },
+    fields: ['apiKeyEnv', 'hiddenModels', 'modelVariants', 'freshConnectionOnLargeBody', 'timeoutMs', 'streamIdleTimeoutMs', 'retryPolicy', 'subscriptionMinIntervalSeconds', 'subscriptionMaxIntervalSeconds'],
+    // What the row resolves to, which is what the schedule and transport
+    // sections edit. The real bridge always reports these, so a fixture without
+    // them would test a page nobody is served.
+    values: {
+      subscriptionMinIntervalSeconds: 30,
+      subscriptionMaxIntervalSeconds: 1_800,
+      freshConnectionOnLargeBody: true,
+      timeoutMs: 180_000,
+      streamIdleTimeoutMs: 90_000,
+      retryPolicy: {
+        mode: 'normal',
+        maxRetries: 5,
+        retryableCodes: ['EMPTY_RESPONSE', 'RATE_LIMIT', 'SERVER', 'TIMEOUT', 'TRANSPORT'],
+        initialDelayMs: 500,
+        maxDelayMs: 10_000,
+        jitterRatio: 0.1,
+      },
+    },
     override: {},
   },
 }
@@ -138,6 +152,32 @@ const scheduleBoxes = (section) => nodes(section)
 /** The schedule's own save control, scoped to its section. */
 const scheduleSave = (section) => nodes(section)
   .find(({ node }) => node.type === 'button' && text(node).trim() === 'Save intervals')?.node
+
+/**
+ * The transport section of the configuration page.
+ *
+ * Scoped for the same reason as the schedule: two sections have a control
+ * labelled `Undo`, so a page-wide search would find whichever the tree puts
+ * first.
+ */
+function transportSection(tree) {
+  const section = find(tree, (node) => node.type === 'section' && text(node).includes('Transport and retries'))
+  ok(section !== undefined, 'the transport section rendered')
+  return section
+}
+
+/** The transport section's number boxes, as `{ label, value }`, in order. */
+const transportBoxes = (section) => nodes(section)
+  .filter(({ node }) => node.type === 'input' && node.props.type === 'number')
+  .map(({ node }) => ({ label: node.props['aria-label'], value: node.props.value }))
+
+/** The large-body switch, which decides whether a request asks for its own connection. */
+const transportSwitch = (section) => nodes(section)
+  .find(({ node }) => node.type === 'input' && node.props.type === 'checkbox')?.node
+
+/** The transport section's own save control. */
+const transportSave = (section) => nodes(section)
+  .find(({ node }) => node.type === 'button' && text(node).trim() === 'Save transport')?.node
 
 /**
  * A minimal DOM node: enough of one to be searched, climbed, and clicked.
@@ -774,6 +814,72 @@ export default {
         ])
         is(scheduleSave(section).props.disabled, true, 'there is nothing to save from here')
         equal(page.calls.filter((call) => call.path === 'opencode-go/config').length, 0, 'and nothing was sent')
+      },
+    },
+    {
+      name: 'transport and retry settings are editable, and saving writes them together',
+      async run() {
+        // These were config-file-only knobs: the resolution had defaults and the
+        // page had nothing. What the page shows is the *resolved* value — a
+        // reader who never set them still sees the deadlines in force — and the
+        // deadlines are typed in seconds while the config keeps milliseconds.
+        const page = await renderPage({ fetch: host() })
+        const section = transportSection(await page.open())
+        ok(text(section).includes('Now: fresh connection on, timeout 180s, stream idle 90s, 5 retries, delays 500–10000ms.'), text(section).slice(0, 220))
+        equal(transportBoxes(section), [
+          { label: 'Request deadline (seconds)', value: 180 },
+          { label: 'Stream idle timeout (seconds)', value: 90 },
+          { label: 'Retry limit', value: 5 },
+          { label: 'First retry delay (milliseconds)', value: 500 },
+          { label: 'Longest retry delay (milliseconds)', value: 10_000 },
+        ])
+        is(transportSwitch(section).props.checked, true, 'the large-body switch shows what the row resolved')
+        ok(text(section).includes('Matches what is saved.'))
+        is(transportSave(section).props.disabled, true, 'unchanged settings have nothing to save')
+
+        await page.change((node) => node.props['aria-label'] === 'Request deadline (seconds)', 240)
+        await page.change((node) => node.props['aria-label'] === 'Retry limit', 7)
+        await page.click((node) => node.type === 'button' && text(node).trim() === 'Save transport')
+
+        const writes = page.calls.filter((call) => call.path === 'opencode-go/config')
+        equal(writes.length, 1, 'one request, not one per field')
+        equal(JSON.parse(writes[0].init.body), {
+          set: {
+            freshConnectionOnLargeBody: true,
+            timeoutMs: 240_000,
+            streamIdleTimeoutMs: 90_000,
+            // The whole policy travels back, so the fields this page does not
+            // edit keep their values instead of being dropped by the merge.
+            retryPolicy: {
+              mode: 'normal',
+              maxRetries: 7,
+              retryableCodes: ['EMPTY_RESPONSE', 'RATE_LIMIT', 'SERVER', 'TIMEOUT', 'TRANSPORT'],
+              initialDelayMs: 500,
+              maxDelayMs: 10_000,
+              jitterRatio: 0.1,
+            },
+          },
+        })
+        // The row reloads on a config write, so the page reads the state back
+        // rather than assuming the numbers it sent are the numbers in force.
+        const after = page.calls.slice(page.calls.indexOf(writes[0])).map((call) => call.path)
+        is(after[after.length - 1], 'opencode-go/state')
+        ok(text(transportSection(await page.tree())).includes('Saved. The next request uses these values.'))
+      },
+    },
+    {
+      name: 'a first retry delay longer than the longest one is refused on screen',
+      async run() {
+        // The Host refuses this too, and the resolution's backoff would clamp the
+        // first delay from the very first attempt; saying it here keeps the
+        // reader from spending a round trip to learn which box to change.
+        const page = await renderPage({ fetch: host() })
+        await page.open()
+        await page.change((node) => node.props['aria-label'] === 'First retry delay (milliseconds)', 20_000)
+        const section = transportSection(await page.tree())
+        ok(text(section).includes('The first retry delay cannot be longer than the longest retry delay.'))
+        is(transportSave(section).props.disabled, true, 'and there is nothing to press')
+        equal(page.calls.filter((call) => call.path === 'opencode-go/config').length, 0, 'no request was made')
       },
     },
     {

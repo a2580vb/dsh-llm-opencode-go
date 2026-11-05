@@ -47,6 +47,10 @@ export default {
           'apiKeyEnv',
           'hiddenModels',
           'modelVariants',
+          'freshConnectionOnLargeBody',
+          'timeoutMs',
+          'streamIdleTimeoutMs',
+          'retryPolicy',
           'subscriptionMinIntervalSeconds',
           'subscriptionMaxIntervalSeconds',
         ])
@@ -83,11 +87,23 @@ export default {
           'apiKeyEnv',
           'hiddenModels',
           'modelVariants',
+          'freshConnectionOnLargeBody',
+          'timeoutMs',
+          'streamIdleTimeoutMs',
+          'retryPolicy',
           'subscriptionMinIntervalSeconds',
           'subscriptionMaxIntervalSeconds',
         ])
         is(res.json.config.values.apiKeyEnv, 'OC_KEY')
         equal(res.json.config.values.hiddenModels, ['space-bunny-free'])
+        // The transport fields are reported as the resolution's own defaults, so
+        // the page shows the numbers in force rather than blanks.
+        is(res.json.config.values.freshConnectionOnLargeBody, false)
+        is(res.json.config.values.timeoutMs, 600_000)
+        is(res.json.config.values.streamIdleTimeoutMs, 300_000)
+        is(res.json.config.values.retryPolicy.maxRetries, 5)
+        is(res.json.config.values.retryPolicy.initialDelayMs, 500)
+        is(res.json.config.values.retryPolicy.maxDelayMs, 10_000)
       },
     },
     {
@@ -834,12 +850,84 @@ export default {
           method: 'POST',
           url: UI_ROUTES.config,
           headers: { host: '127.0.0.1:1' },
-          body: { set: { retryPolicy: { maxRetries: 9 } } },
+          body: { set: { baseURL: 'https://elsewhere.test/v1' } },
         }))
         is(res.captured.statusCode, 400)
         is(res.json.error, 'field-not-editable')
-        includes(res.json.message, 'retryPolicy')
+        includes(res.json.message, 'baseURL')
         equal(editor.writes, [])
+      },
+    },
+    {
+      name: 'transport fields are declared booleans and numbers, or refused by name',
+      run() {
+        is(validateFieldValue('freshConnectionOnLargeBody', true), undefined)
+        is(validateFieldValue('freshConnectionOnLargeBody', 'yes'), 'freshConnectionOnLargeBody must be true or false')
+        is(validateFieldValue('timeoutMs', 180_000), undefined)
+        is(validateFieldValue('timeoutMs', 0), 'timeoutMs must be a positive whole number of milliseconds')
+        is(validateFieldValue('streamIdleTimeoutMs', 90_000), undefined)
+        is(validateFieldValue('streamIdleTimeoutMs', 1.5), 'streamIdleTimeoutMs must be a positive whole number of milliseconds')
+      },
+    },
+    {
+      name: 'the retry policy is validated as one object, delays included',
+      run() {
+        const policy = {
+          mode: 'normal',
+          maxRetries: 5,
+          retryableCodes: ['EMPTY_RESPONSE', 'RATE_LIMIT', 'SERVER', 'TIMEOUT', 'TRANSPORT'],
+          initialDelayMs: 500,
+          maxDelayMs: 10_000,
+          jitterRatio: 0.1,
+        }
+        is(validateFieldValue('retryPolicy', policy), undefined)
+        // A first retry that waits longer than the ceiling would be clamped from
+        // the very first attempt, so the pair is the mistake worth naming.
+        ok(String(validateFieldValue('retryPolicy', { ...policy, initialDelayMs: 20_000 })).includes('initialDelayMs'))
+        ok(String(validateFieldValue('retryPolicy', { ...policy, maxRetries: 21 })).includes('maxRetries'))
+        ok(String(validateFieldValue('retryPolicy', { ...policy, jitterRatio: 2 })).includes('jitterRatio'))
+        ok(String(validateFieldValue('retryPolicy', { ...policy, extra: 1 })).includes('extra'))
+        is(validateFieldValue('retryPolicy', null), 'retryPolicy must be an object')
+      },
+    },
+    {
+      name: 'saving transport settings writes the values it was given, in one request',
+      async run() {
+        const editor = fakeEditor()
+        const { instance } = bridgeUnderTest({ configEditor: editor })
+        const policy = {
+          mode: 'normal',
+          maxRetries: 7,
+          retryableCodes: ['EMPTY_RESPONSE', 'RATE_LIMIT', 'SERVER', 'TIMEOUT', 'TRANSPORT'],
+          initialDelayMs: 800,
+          maxDelayMs: 12_000,
+          jitterRatio: 0.1,
+        }
+        const res = await call(instance, local({
+          method: 'POST',
+          url: UI_ROUTES.config,
+          headers: { host: '127.0.0.1:1' },
+          body: {
+            set: {
+              freshConnectionOnLargeBody: true,
+              timeoutMs: 240_000,
+              streamIdleTimeoutMs: 120_000,
+              retryPolicy: policy,
+            },
+          },
+        }))
+        is(res.captured.statusCode, 200)
+        is(res.json.ok, true)
+        equal(editor.writes, [{
+          freshConnectionOnLargeBody: true,
+          timeoutMs: 240_000,
+          streamIdleTimeoutMs: 120_000,
+          retryPolicy: policy,
+        }])
+        is(res.json.config.override.freshConnectionOnLargeBody, true)
+        is(res.json.config.override.timeoutMs, 240_000)
+        is(res.json.config.override.retryPolicy.maxRetries, 7)
+        is(res.json.config.override.retryPolicy.maxDelayMs, 12_000)
       },
     },
     {

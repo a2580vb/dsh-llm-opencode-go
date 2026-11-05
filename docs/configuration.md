@@ -144,6 +144,7 @@ covers the facts that are per-deployment and change often:
 | **Model visibility** | One switch per catalog model, written to `hiddenModels`. The page shows the whole catalog, including models this deployment already hides. |
 | **Model variants** | Named presets of one model, written to `modelVariants`, in an editable list: add a model, name it, then open any row's **Edit** to change its fields, or **Remove** to drop it. |
 | **Quota refresh rhythm** | The two intervals that pace the capsule's quota checks, written to `subscriptionMinIntervalSeconds` and `subscriptionMaxIntervalSeconds`. They are one setting, so they are saved together, and a floor above its ceiling is refused on the page rather than silently resolved. |
+| **Transport and retries** | One switch for `freshConnectionOnLargeBody` — a request body of 256 KiB or more asks for its own connection — plus the two deadlines (`timeoutMs`, `streamIdleTimeoutMs`) and the retry policy's limit and delays (`retryPolicy`). The deadlines are typed in seconds and written in milliseconds, and the whole policy is written back, so fields the page does not edit keep their values. |
 | **Fetch the model list** | Re-reads `GET /models` on demand and reports what appeared and what went away. |
 | **Usage** | Two things side by side: the service's own metered quota for the subscription, and the calls and tokens this plugin counted itself, per model and per day. This is the same block the panel under [fast entries](#fast-entries) carries. |
 
