@@ -458,8 +458,8 @@ export default {
         // tell what the numbers cover.
         const thirty = button(tree, '30 days')
         const seven = button(tree, '7 days')
-        is(seven.props.style.background, 'var(--dsw-alias-brand-primary)')
-        ok(thirty.props.style.background !== 'var(--dsw-alias-brand-primary)')
+        is(seven.props.style.background, 'var(--dsw-alias-button-primary-fill)')
+        is(thirty.props.style.background, 'transparent')
       },
     },
     {
@@ -559,8 +559,8 @@ export default {
         // whatever the Host answered first.
         const section = find(page.tree(), (node) => node.type === 'section' && text(node).includes('Usage'))
         ok(text(section).includes('2026-01-15'), 'the table is still on screen')
-        is(button(page.tree(), '30 days').props.style.background, 'var(--dsw-alias-brand-primary)')
-        is(button(page.tree(), '7 days').props.style.background, 'var(--dsw-alias-bg-layer-2)')
+        is(button(page.tree(), '30 days').props.style.background, 'var(--dsw-alias-button-primary-fill)')
+        is(button(page.tree(), '7 days').props.style.background, 'transparent')
       },
     },
     {
@@ -1112,7 +1112,7 @@ export default {
         const section = find(tree, (node) => node.type === 'section' && text(node).includes('Model variants'))
         ok(section !== undefined, 'the variants section rendered')
         const ids = () => nodes(find(page.tree(), (node) => node.type === 'section' && text(node).includes('Model variants')))
-          .filter(({ node }) => node.type === 'span' && node.props.style?.color === 'var(--dsw-alias-label-secondary)')
+          .filter(({ node }) => node.type === 'span' && node.props.style?.color === 'var(--dsw-alias-label-tertiary)')
           .map(({ node }) => text(node))
           .filter((value) => /@/.test(value) && !value.includes('<model>'))
         // The saved variant is listed, with its count stated.
@@ -1356,7 +1356,7 @@ export default {
           const style = node.props.style ?? {}
           const named = node.props['aria-label'] ?? node.props.type ?? node.type
           // A checkbox is not a text control: the platform draws it and it has
-          // no 30px box to keep in step with the buttons beside it.
+          // no 36px box to keep in step with the buttons beside it.
           const toggle = node.type === 'input' && ['checkbox', 'radio', 'range', 'file'].includes(node.props.type)
           if (toggle) continue
           checked += 1
@@ -1368,10 +1368,10 @@ export default {
           if (column && basis !== undefined) {
             problems.push(`${named}: flex "${style.flex}" inside a column container`)
           }
-          // Whatever the container, a text control is 30px tall: that is what
+          // Whatever the container, a text control is 36px tall: that is what
           // every button beside it is, and the line box is pinned to match so
           // the host's own input rules cannot inflate it.
-          if (style.height !== '30px') problems.push(`${named}: height ${String(style.height)}`)
+          if (style.height !== '36px') problems.push(`${named}: height ${String(style.height)}`)
           if (style.boxSizing !== 'border-box') problems.push(`${named}: box-sizing ${String(style.boxSizing)}`)
         }
         equal(problems, [], problems.join(' · '))
@@ -1404,7 +1404,7 @@ export default {
         for (const child of band) {
           const controls = nodes(child).filter(({ node }) => node.type === 'input' || node.type === 'select')
           equal(controls.length, 1, `${text(child).trim().slice(0, 18)} holds one control`)
-          equal(controls[0].node.props.style.height, '30px')
+          equal(controls[0].node.props.style.height, '36px')
           equal(controls[0].node.props.style.flex, 'none', 'no basis, so no height from the wrong axis')
         }
       },
@@ -1430,11 +1430,11 @@ export default {
           const column = [...path].reverse().find((ancestor) => ancestor.props?.style?.flexDirection === 'column')
           const declared = /\s0\s(\d+)px/.exec(column?.props?.style?.flex ?? '')?.[1]
           const width = declared === undefined ? 240 : Number(declared)
-          // 12px text: ~7px for a wide glyph (CJK, capitals), ~6px otherwise,
-          // less the control's own padding.
+          // 14px text: ~14px for a wide glyph (CJK), ~7px otherwise, less
+          // the control's own padding.
           const placeholder = node.props.placeholder
           const wide = [...placeholder].filter((char) => /[\u3000-\u9fff\uFF00-\uFFEF]/.test(char)).length
-          const estimate = (placeholder.length - wide) * 6 + wide * 12
+          const estimate = (placeholder.length - wide) * 7 + wide * 14
           const room = width - 24
           if (estimate > room) {
             problems.push(`"${placeholder}" needs ~${String(estimate)}px of ${String(room)}px`)
@@ -1855,8 +1855,8 @@ export default {
         is(button(panel.tree(), '30 days').props.style.background, 'var(--dsw-alias-brand-primary)')
         // The other two surfaces are still on 7 days, and still say so.
         for (const [where, tree] of [['the configuration page', page.tree()], ['the settings tab', tab.tree()]]) {
-          is(button(tree, '7 days').props.style.background, 'var(--dsw-alias-brand-primary)', where)
-          is(button(tree, '30 days').props.style.background, 'var(--dsw-alias-bg-layer-2)', where)
+          is(button(tree, '7 days').props.style.background, 'var(--dsw-alias-button-primary-fill)', where)
+          is(button(tree, '30 days').props.style.background, 'transparent', where)
         }
       },
     },
