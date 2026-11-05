@@ -32,6 +32,7 @@
 | `reasoningEfforts` | `[minimal, low, medium, high, max]` | 可选的思考等级；按协议收窄 |
 | `sessionHeader` | `session-id` | `session-id` \| `uuid` \| `off` |
 | `sendClientHeader` | `true` | 是否发送 `x-opencode-client` |
+| `freshConnectionOnLargeBody` | `false` | 请求体达到 256 KiB 时要求一条新连接；用于「复用 keep-alive 连接上的大上传会被重置」的网络路径（见[可靠性](reliability.zh-CN.md#限制)） |
 | `sendImages` | `auto` | `auto` \| `always` \| `off`——是否尝试发送图片字节（见[模型](models.zh-CN.md#多模态模型能接受什么与一条路由能发什么)） |
 | `disableReasoningReplay` | `false` | 不再回传此前的 reasoning（见[线协议](wire-protocol.zh-CN.md#推理)） |
 | `hideTrainingModels` | `false` | 把 provider 会用请求数据训练的模型从列表中摘掉（见[模型](models.zh-CN.md#会训练请求数据的模型)） |

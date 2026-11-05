@@ -26,6 +26,10 @@
 #   reasoningEfforts   selectable thinking levels
 #   sessionHeader      'session-id' | 'uuid' | 'off'
 #   sendClientHeader   send x-opencode-client
+#   freshConnectionOnLargeBody
+#                      ask for a fresh connection when a request body reaches
+#                      256 KiB (default: false); for network paths that reset a
+#                      large upload on a reused keep-alive socket
 #   disableReasoningReplay  stop replaying prior reasoning
 #   hideTrainingModels      keep models that train on request data out of the list
 #   hiddenModels       model ids to keep out of the list (hiding never disables one)

@@ -89,6 +89,17 @@ export default {
       },
     },
     {
+      name: 'freshConnectionOnLargeBody is a declared boolean, off by default',
+      run: async () => {
+        is(resolveConfig(undefined).freshConnectionOnLargeBody, false)
+        is(resolveConfig({ freshConnectionOnLargeBody: true }).freshConnectionOnLargeBody, true)
+        await rejectsWith(
+          Promise.resolve().then(() => resolveConfig({ freshConnectionOnLargeBody: 'yes' })),
+          'freshConnectionOnLargeBody',
+        )
+      },
+    },
+    {
       name: 'the development guide baseURL is normalized without its trailing slash',
       run() {
         const config = resolveConfig({ baseURL: 'https://opencode.ai/zen/go/v1/' })

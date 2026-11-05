@@ -102,5 +102,13 @@ timing, and the cause chain — and nothing about a call is written anywhere els
   and a line naming the image it could not send, so a refusal is never silent.
 - **`stop` is forwarded as-is.** Whether a given model honours stop sequences is
   the model's business; the plugin does not claim otherwise.
+- **Fresh connections for large bodies are opt-in.** Some network paths — a
+  transparent proxy's user-space TCP stack among them — reset a large upload
+  that rides a keep-alive socket reused from the previous call, before any
+  response headers arrive. `freshConnectionOnLargeBody` (default `false`) makes
+  every attempt whose body reaches `FRESH_CONNECTION_BYTES` (256 KiB) ask for
+  `Connection: close`, so that attempt travels on a socket of its own; smaller
+  calls keep the connection they already have. The trade is one handshake per
+  large call, which is why it stays off unless a deployment needs it.
 - **One route per mount.** Mounting the plugin twice needs two `provider` names
   and two API keys.

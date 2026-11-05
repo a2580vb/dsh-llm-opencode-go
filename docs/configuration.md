@@ -32,6 +32,7 @@ view, or read `Config` from the plugin for the authoritative list.
 | `reasoningEfforts` | `[minimal, low, medium, high, max]` | Selectable thinking levels; narrowed per protocol |
 | `sessionHeader` | `session-id` | `session-id` \| `uuid` \| `off` |
 | `sendClientHeader` | `true` | Send `x-opencode-client` |
+| `freshConnectionOnLargeBody` | `false` | Ask for a fresh connection when a request body reaches 256 KiB; for network paths that reset a large upload on a reused keep-alive socket (see [Reliability](reliability.md#limits)) |
 | `sendImages` | `auto` | `auto` \| `always` \| `off` — whether image bytes are attempted (see [Models](models.md#modalities-what-the-model-takes-versus-what-a-route-can-send)) |
 | `disableReasoningReplay` | `false` | Stop sending prior reasoning back (see [Wire protocol](wire-protocol.md#reasoning)) |
 | `hideTrainingModels` | `false` | Keep models whose provider trains on request data out of the listing (see [Models](models.md#models-that-train-on-request-data)) |

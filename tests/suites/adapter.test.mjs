@@ -250,6 +250,43 @@ export default {
       },
     },
     {
+      name: 'freshConnectionOnLargeBody asks for a new connection only for large bodies',
+      async run() {
+        const { adapter, fetch } = adapterWith(
+          [{ body: CHAT_BODY }, { body: CHAT_BODY }],
+          { config: { freshConnectionOnLargeBody: true } },
+        )
+        await collect(adapter, {
+          provider: 'opencode-go',
+          model: 'glm-5.3',
+          messages: [userMessage('hi')],
+          sessionId: 'session-abc',
+        })
+        await collect(adapter, {
+          provider: 'opencode-go',
+          model: 'glm-5.3',
+          messages: [userMessage('x'.repeat(300 * 1024))],
+          sessionId: 'session-abc',
+        })
+        // Small: keep the keep-alive socket. Large: travel on a fresh one.
+        is(new Headers(fetch.requests[0].init.headers).get('connection'), null)
+        is(new Headers(fetch.requests[1].init.headers).get('connection'), 'close')
+      },
+    },
+    {
+      name: 'freshConnectionOnLargeBody is off by default',
+      async run() {
+        const { adapter, fetch } = adapterWith([{ body: CHAT_BODY }])
+        await collect(adapter, {
+          provider: 'opencode-go',
+          model: 'glm-5.3',
+          messages: [userMessage('x'.repeat(300 * 1024))],
+          sessionId: 'session-abc',
+        })
+        is(new Headers(fetch.requests[0].init.headers).get('connection'), null)
+      },
+    },
+    {
       name: 'two turns of one conversation share one session id; another conversation differs',
       async run() {
         const { adapter, fetch } = adapterWith([{ body: CHAT_BODY }, { body: CHAT_BODY }, { body: CHAT_BODY }])
