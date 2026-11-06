@@ -203,6 +203,10 @@ export async function renderPage({ fetch: fetchImpl, locale = 'en', document } =
           children: list.length === 0 ? undefined : list.length === 1 ? list[0] : list,
         },
         children: list,
+        // The authored positions, null and false included: a component's store
+        // is keyed by where it sits, and a conditional sibling must not renumber
+        // the ones after it.
+        rawChildren: passed.flat(Infinity),
       }
     },
     Fragment: FRAGMENT,
@@ -210,7 +214,7 @@ export async function renderPage({ fetch: fetchImpl, locale = 'en', document } =
       const { store, slot } = slotFor({ value: typeof initial === 'function' ? initial() : initial })
       return [slot.value, (next) => {
         slot.value = typeof next === 'function' ? next(slot.value) : next
-        store.dirty = true
+        store.surface.dirty = true
       }]
     },
     useRef(initial) {
@@ -278,17 +282,57 @@ export async function renderPage({ fetch: fetchImpl, locale = 'en', document } =
   })
 
   /** Render a node tree, one component at a time, as React would walk it. */
-  const expand = (node) => {
+  /**
+   * Expand one element into the host tree, giving every component its own store.
+   *
+   * `path` is the component's position in the authored tree: a list of child
+   * indices from the surface root. A conditional null keeps its slot, so the
+   * components after it keep their positions — which is what makes a store
+   * survive a render in which a neighbouring control was not mounted.
+   *
+   * @param {unknown} node - element, text, array, or placeholder.
+   * @param {readonly number[]} path - the parent's child-position chain.
+   * @param {{ stores: Map<string, object>, rendered: Set<object>, order: object[] }} pass - this render's bookkeeping.
+   * @returns {object|null} the expanded host node, or null for a placeholder.
+   */
+  const expand = (node, path, pass) => {
     if (node === null || node === undefined || node === false || node === true) return null
-    if (Array.isArray(node)) return node.map(expand).filter((child) => child !== null)
+    if (Array.isArray(node)) {
+      return node.map((child, index) => expand(child, path.concat(index), pass)).filter((child) => child !== null)
+    }
     if (typeof node === 'string' || typeof node === 'number') return { text: String(node) }
     if (typeof node.type === 'function') {
-      if (node.type === FRAGMENT) return expand(node.children)
+      const authored = node.rawChildren ?? node.children ?? []
+      if (node.type === FRAGMENT) {
+        return authored.map((child) => expand(child, path, pass)).filter((child) => child !== null)
+      }
+      // A component instance is identified by its type and its position. Two
+      // components of the same type in one parent are told apart by the index
+      // their position adds.
+      const key = `${node.type.name || 'component'}@${path.join('.')}`
+      let store = pass.stores.get(key)
+      if (store === undefined) {
+        store = { key, hooks: [], cursor: 0, pending: [], surface: pass.surface }
+        pass.stores.set(key, store)
+      }
+      store.cursor = 0
+      if (!pass.rendered.has(store)) {
+        pass.rendered.add(store)
+        pass.order.push(store)
+      }
       // `props.children` already carries what this element was given, so a
       // component is called with the props React would hand it.
-      return expand(node.type(node.props))
+      const outer = frame
+      frame = store
+      try {
+        return expand(node.type(node.props), path, pass)
+      } finally {
+        frame = outer
+      }
     }
-    return { type: node.type, props: node.props, children: node.children.map(expand).filter((child) => child !== null) }
+    const authored = node.rawChildren ?? node.children ?? []
+    const children = authored.map((child, index) => expand(child, path.concat(index), pass)).filter((child) => child !== null)
+    return { type: node.type, props: node.props, children }
   }
 
   /** Every surface a case can drive, in registration order. */
@@ -301,7 +345,8 @@ export async function renderPage({ fetch: fetchImpl, locale = 'en', document } =
     const surface = {
       name,
       entry,
-      store: { hooks: [], cursor: 0, pending: [], dirty: false },
+      stores: new Map(),
+      dirty: false,
       props: {},
       tree: null,
       started: false,
@@ -310,13 +355,23 @@ export async function renderPage({ fetch: fetchImpl, locale = 'en', document } =
     return surface
   }
 
-  /** Render one surface, then run the effects that render scheduled. */
+  /** Render one surface, then run the effects its components scheduled. */
   function renderSurface(surface) {
-    frame = surface.store
-    surface.store.cursor = 0
-    surface.tree = expand(surface.entry.component(surface.props))
-    frame = undefined
-    const effects = surface.store.pending.splice(0, surface.store.pending.length)
+    const pass = { stores: surface.stores, rendered: new Set(), order: [], surface }
+    surface.tree = expand({ type: surface.entry.component, props: surface.props, children: [], rawChildren: [] }, [], pass)
+    // A component that did not render this pass has unmounted: React runs its
+    // cleanups before forgetting it, and so does this, or a surface reopened
+    // after a conditional change would keep a dead subscription alive.
+    for (const [key, store] of surface.stores) {
+      if (pass.rendered.has(store)) continue
+      for (const slot of store.hooks) {
+        slot?.cleanup?.()
+        if (slot !== undefined && slot !== null) delete slot.cleanup
+      }
+      surface.stores.delete(key)
+    }
+    const effects = []
+    for (const store of pass.order) effects.push(...store.pending.splice(0, store.pending.length))
     for (const effect of effects) effect()
   }
 
@@ -333,15 +388,15 @@ export async function renderPage({ fetch: fetchImpl, locale = 'en', document } =
       // chain it starts, both land before the next pass.
       fireDue()
       const working = drivers.filter((surface) => (
-        surface.started && (surface.store.dirty || surface.store.pending.length > 0)
+        surface.started && (surface.dirty || [...surface.stores.values()].some((store) => store.pending.length > 0))
       ))
       for (const surface of working) {
-        surface.store.dirty = false
+        surface.dirty = false
         renderSurface(surface)
       }
       await settle()
       const pending = drivers.some((surface) => (
-        surface.started && (surface.store.dirty || surface.store.pending.length > 0)
+        surface.started && (surface.dirty || [...surface.stores.values()].some((store) => store.pending.length > 0))
       ))
       if (working.length === 0 && !pending) break
     }
@@ -381,7 +436,7 @@ export async function renderPage({ fetch: fetchImpl, locale = 'en', document } =
   const driverFor = (surface) => ({
     options: surface.entry.options,
     component: surface.entry.component,
-    hooks: surface.store.hooks,
+    hooks: [],
     tree: () => surface.tree,
     /** Render with the props the shell would inject, plus `extra`. */
     async open(extra = {}) {
@@ -391,13 +446,13 @@ export async function renderPage({ fetch: fetchImpl, locale = 'en', document } =
       const injected = typeof surface.entry.options.inject === 'function' ? surface.entry.options.inject() : {}
       surface.props = { ...injected, ...extra, t: locales.t(locale) }
       surface.started = true
-      surface.store.dirty = false
+      surface.dirty = false
       renderSurface(surface)
       await drain()
       return surface.tree
     },
     async update() {
-      surface.store.dirty = false
+      surface.dirty = false
       if (surface.started) renderSurface(surface)
       await drain()
       return surface.tree
@@ -414,13 +469,14 @@ export async function renderPage({ fetch: fetchImpl, locale = 'en', document } =
      */
     async close() {
       if (!surface.started) return surface.tree
-      for (const slot of surface.store.hooks) {
-        slot?.cleanup?.()
-        if (slot !== undefined && slot !== null) delete slot.cleanup
+      for (const store of surface.stores.values()) {
+        for (const slot of store.hooks) {
+          slot?.cleanup?.()
+          if (slot !== undefined && slot !== null) delete slot.cleanup
+        }
       }
-      surface.store.hooks.length = 0
-      surface.store.pending.length = 0
-      surface.store.dirty = false
+      surface.stores.clear()
+      surface.dirty = false
       surface.started = false
       await drain()
       return surface.tree

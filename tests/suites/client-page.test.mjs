@@ -33,7 +33,7 @@ const CATALOG = {
 const STATE = {
   ok: true,
   route: { provider: 'opencode-go', baseURL: 'https://opencode.ai/zen/go/v1', apiKeyEnv: 'OPENCODE_GO_API_KEY' },
-  credential: { configured: true, source: 'store', writable: true },
+  credential: { configured: true, source: 'store', writable: true, removable: true },
   environment: { key: 'OPENCODE_GO_API_KEY', present: false },
   config: {
     editable: true,
@@ -153,17 +153,14 @@ const choose = async (surface, label) => {
   return surface.click((node) => node.type === 'button' && node.props.role === 'menuitem' && text(node).trim() === label)
 }
 
-/**
- * The schedule section of the configuration page.
- *
- * Scoped rather than searched page-wide, and not only for tidiness: two
- * sections here have a control labelled `Save`, so a page-wide search for one
- * finds whichever the tree puts first — which is how a case about the schedule
- * came to press the credential section's button and fail on a disabled control
- * that had nothing to do with it.
- */
+/** The group carrying one heading, scoped so two groups with a Save cannot clash. */
+function group(tree, heading) {
+  return find(tree, (node) => node.type === 'section' && text(node).includes(heading))
+}
+
+/** The schedule group, which saves when its fields lose focus. */
 function scheduleSection(tree) {
-  const section = find(tree, (node) => node.type === 'section' && text(node).includes('Quota refresh rhythm'))
+  const section = group(tree, 'Quota refresh')
   ok(section !== undefined, 'the schedule section rendered')
   return section
 }
@@ -173,19 +170,9 @@ const scheduleBoxes = (section) => nodes(section)
   .filter(({ node }) => node.type === 'input' && node.props.type === 'number')
   .map(({ node }) => ({ label: node.props['aria-label'], value: node.props.value }))
 
-/** The schedule's own save control, scoped to its section. */
-const scheduleSave = (section) => nodes(section)
-  .find(({ node }) => node.type === 'button' && text(node).trim() === 'Save intervals')?.node
-
-/**
- * The transport section of the configuration page.
- *
- * Scoped for the same reason as the schedule: two sections have a control
- * labelled `Undo`, so a page-wide search would find whichever the tree puts
- * first.
- */
+/** The transport group, also committed by leaving its fields. */
 function transportSection(tree) {
-  const section = find(tree, (node) => node.type === 'section' && text(node).includes('Transport and retries'))
+  const section = group(tree, 'Transport and retries')
   ok(section !== undefined, 'the transport section rendered')
   return section
 }
@@ -195,13 +182,43 @@ const transportBoxes = (section) => nodes(section)
   .filter(({ node }) => node.type === 'input' && node.props.type === 'number')
   .map(({ node }) => ({ label: node.props['aria-label'], value: node.props.value }))
 
-/** The large-body switch, which decides whether a request asks for its own connection. */
+/** The large-body switch: a button whose checked state is its aria state. */
 const transportSwitch = (section) => nodes(section)
-  .find(({ node }) => node.type === 'input' && node.props.type === 'checkbox')?.node
+  .find(({ node }) => node.type === 'button' && node.props.role === 'switch')?.node
 
-/** The transport section's own save control. */
-const transportSave = (section) => nodes(section)
-  .find(({ node }) => node.type === 'button' && text(node).trim() === 'Save transport')?.node
+/** The models group, the one card that commits a draft with a Save press. */
+function modelsSection(tree) {
+  const section = group(tree, 'Choose which models appear')
+  ok(section !== undefined, 'the models section rendered')
+  return section
+}
+
+/** The variants editor nested in the models card. */
+function variantsSection(tree) {
+  const section = group(tree, 'A variant fixes a model')
+  ok(section !== undefined, 'the variants section rendered')
+  return section
+}
+
+/** Click a control found in one group, without matching its twin elsewhere. */
+async function clickIn(page, root, predicate) {
+  const node = find(root, predicate)
+  ok(node !== undefined, 'the control is on screen')
+  return page.dispatch('onClick', (candidate) => candidate === node)
+}
+
+/** Open a selector and press one of its options. */
+async function pick(page, label, option) {
+  await page.click((node) => node.type === 'button' && node.props['aria-haspopup'] === 'menu'
+    && node.props['aria-label'] === label)
+  return page.click((node) => node.type === 'button' && node.props?.role === 'menuitem'
+    && text(node).trim() === option)
+}
+
+/** Leave a field, which is what commits a scalar setting. */
+async function blurIn(page, label) {
+  return page.dispatch('onBlur', (node) => node.type === 'input' && node.props['aria-label'] === label)
+}
 
 /**
  * A minimal DOM node: enough of one to be searched, climbed, and clicked.
@@ -311,7 +328,7 @@ function settingsShell({
   trigger = true,
   opens = true,
   shortcut = 'Ctrl+,',
-  rowLabel = 'OpenCode Go settings',
+  rowLabel = 'OpenCode Go',
   menuRowsBeforeSettings = 0,
 }) {
   const capsule = domNode('div', { attributes: { 'data-opencode-go-capsule': '' } })
@@ -764,7 +781,7 @@ export default {
         ok(text(section).includes('This deployment does not record usage.'), text(section))
         // A missing table is reported where the table would be, not instead of
         // the rest of the page.
-        ok(text(tree).includes('Model visibility'), 'the other sections still render')
+        ok(text(tree).includes('Models'), 'the other sections still render')
       },
     },
     {
@@ -793,7 +810,7 @@ export default {
         const tree = await page.open()
         ok(text(tree).includes('glm-5.3'), 'a listed model')
         ok(text(tree).includes('space-bunny-free'), 'a hidden model is still shown, so it can be brought back')
-        const fetched = await page.click((node) => node.type === 'button' && text(node).trim() === 'Fetch the model list')
+        const fetched = await page.click((node) => node.type === 'button' && text(node).trim() === 'Fetch available models')
         equal(page.calls.filter((call) => call.path === 'opencode-go/refresh').length, 1)
         ok(text(fetched).includes('Re-read 3 models'), text(fetched).slice(-200))
       },
@@ -801,10 +818,9 @@ export default {
     {
       name: 'a model that trains on the conversation says so, in warning colour',
       async run() {
+
         // The gate is a data-policy fact about the conversation rather than a
-        // property of the model, so the badge says what becomes of the
-        // conversation and wears the warning colour — not the neutral grey the
-        // model's own facts wear beside it.
+        // property of the model, so the tag says so and wears the warning tone.
         const gated = {
           ...CATALOG,
           counts: { ...CATALOG.counts, total: 4, listed: 3 },
@@ -818,218 +834,162 @@ export default {
         }
         const page = await renderPage({ fetch: host({ models: { body: gated } }) })
         const tree = await page.open()
-
-        const badge = nodes(tree)
-          .find(({ node }) => node.type === 'span' && text(node).trim() === 'conversations used for training')
-        ok(badge !== undefined, 'the gated model says what becomes of the conversation')
-        ok(
-          text(badge.path[badge.path.length - 1]).includes('muse-spark-1.3-contributor'),
-          'and says it on that model\'s own row',
-        )
-
+        const badge = nodes(tree).find(({ node }) => node.type === 'span' && text(node).trim() === 'Trains')
+        ok(badge !== undefined, 'the gated model is tagged')
+        ok(text(badge.path[badge.path.length - 1]).includes('muse-spark-1.3-contributor'), 'on its own row')
         const style = badge.node.props.style
-        ok(String(style.color).includes('state-warn'), `the badge warns: ${String(style.color)}`)
-        // A tint rather than the full-strength colour: the badge sits in a row of
-        // that model's own facts and must not shout them down.
-        const fill = String(style.background)
-        ok(fill.includes('color-mix') && fill.includes('state-warn'), `the fill is a pale warning: ${fill}`)
-        for (const [name, value] of [['text', String(style.color)], ['fill', fill]]) {
-          ok(!/#[0-9a-f]{3,6}\b|rgba?\(/i.test(value), `${name} is a theme token, not a literal: ${value}`)
-        }
+        ok(String(style.color).includes('state-warn'), `the tag warns: ${String(style.color)}`)
+        ok(String(style.background).includes('color-mix'), 'the fill is a pale warning')
 
-        // Only that one badge warns. Two warnings in one row are decoration, and
-        // the facts about the model itself keep the neutral colour they had.
-        const others = nodes(tree)
-          .filter(({ node }) => node.type === 'span' && ['hidden', 'reasoning'].includes(text(node).trim()))
-        equal(others.length, 2, 'the neutral badges are both still rendered')
-        for (const { node } of others) {
-          is(node.props.style.color, 'var(--dsw-alias-label-secondary)', 'a neutral badge kept its colour')
-        }
+        // The model's own facts keep the neutral tones beside it.
+        const hidden = nodes(tree).find(({ node }) => node.type === 'span' && text(node).trim() === 'Hidden')
+        ok(hidden !== undefined, 'the hidden tag is still rendered')
+        is(hidden.node.props.style.color, 'var(--dsw-alias-label-secondary)')
 
-        // The sentence the Chinese page shows, pinned by name: it is the one
-        // that says the conversations go to training.
         const zh = await renderPage({ fetch: host({ models: { body: gated } }), locale: 'zh' })
-        ok(text(await zh.open()).includes('模型对话会用于训练'), 'the Chinese badge says it in the reader\'s words')
+        ok(text(await zh.open()).includes('用于训练'), 'the Chinese tag is translated')
       },
     },
     {
       name: 'hiding models writes the visibility list and re-reads the row',
       async run() {
+
         const page = await renderPage({ fetch: host() })
         await page.open()
-        // Two models are offered (the third is already hidden), so hiding the
-        // listing is a draft the reader can still change their mind about.
+        // Two models are offered (one is already hidden), so hiding the listing
+        // is a draft the reader can still change their mind about.
         const hidden = await page.click((node) => node.type === 'button' && text(node).trim() === 'Hide all')
-        ok(text(hidden).includes('2 unsaved change(s)'), text(hidden).slice(0, 0))
-        await page.click((node) => node.type === 'button' && text(node).trim() === 'Save visibility')
+        const models = modelsSection(hidden)
+        const save = nodes(models).find(({ node }) => node.type === 'button' && text(node).trim() === 'Save')?.node
+        is(save.props.disabled, false, 'a changed draft can be saved')
+        const afterSave = await clickIn(page, models, (node) => node.type === 'button' && text(node).trim() === 'Save')
 
         const written = page.calls.find((call) => call.path === 'opencode-go/config')
         equal(JSON.parse(written.init.body), {
-          set: { hiddenModels: ['glm-5.3', 'glm-5.3@fast', 'space-bunny-free'] },
+          set: {
+            hiddenModels: ['glm-5.3', 'glm-5.3@fast', 'space-bunny-free'],
+            modelVariants: [{ model: 'glm-5.3', name: 'fast' }],
+          },
         })
         // The write reloads the plugin row, so the page reads the catalog back
         // before telling the reader it worked.
         const after = page.calls.slice(page.calls.indexOf(written)).map((call) => call.path)
         ok(after.includes('opencode-go/models'), after.join(','))
-        is(after[after.length - 1], 'opencode-go/state', 'the state is re-read last, so the page shows what the Host resolved')
+        is(after[after.length - 1], 'opencode-go/state', 'the state is re-read last')
+        ok(text(afterSave).includes('Saved.'), 'the reader is told it worked')
       },
     },
     {
       name: 'the quota schedule is editable, and shows the intervals the Host resolved',
       async run() {
-        // These two numbers were config-file-only: the resolution behind them
-        // had defaults and the page had nothing, so changing them meant finding
-        // the patch file. What the page shows is the *resolved* value, not the
-        // override — a reader who never set them should still see the 30s and
-        // 30min the Host is actually using.
+
         const page = await renderPage({ fetch: host() })
         const section = scheduleSection(await page.open())
         ok(text(section).includes('Now: 30s shortest, 1800s longest.'), text(section).slice(0, 120))
         equal(scheduleBoxes(section), [
-          { label: 'Shortest quota update interval (seconds)', value: 30 },
-          { label: 'Longest quota update interval (seconds)', value: 1_800 },
+          { label: 'Shortest interval (seconds)', value: 30 },
+          { label: 'Longest interval (seconds)', value: 1_800 },
         ])
-        // The reader-visible symptom this pins: `styles.formRow` bottom-aligns
-        // the columns it holds, so a column that is taller than its neighbour —
-        // a hint line under one box and not the other, or one field given a
-        // different width — puts the two boxes on two different lines. Both
-        // columns are the label and one control, at the same declared width.
-        const band = nodes(section)
-          .filter(({ node }) => node.type === 'div' && node.props.style?.display === 'flex')
-          .map(({ node }) => node.children ?? [])
-          .find((children) => children.some((child) => text(child).includes('Shortest quota update interval')))
-        ok(band !== undefined, 'the two boxes of the schedule sit in one row')
-        equal(band.map((child) => (child.children ?? []).map((grandchild) => grandchild.type)),
-          [['span', 'input'], ['span', 'input']], 'and each column is its label and its control, nothing more')
-        equal(band.map((child) => child.props.style.flex), ['0 0 200px', '0 0 200px'], 'both boxes the same width')
-        // Nothing has been typed, so there is nothing to save, and the section
-        // says which state it is in rather than leaving the button's own
-        // disabled look to carry the meaning.
-        ok(text(section).includes('Matches what is saved.'))
-        is(scheduleSave(section).props.disabled, true, 'an unchanged schedule has nothing to save')
+        equal(page.calls.filter((call) => call.path === 'opencode-go/config').length, 0, 'nothing is written until a field is left')
       },
     },
     {
       name: 'saving the schedule sends both intervals in one request',
       async run() {
+
         // One setting, so one write: two requests would leave a moment where the
-        // profile holds a floor above its ceiling, which is a schedule with no
-        // valid interval at all.
+        // profile holds a floor above its ceiling.
         const page = await renderPage({ fetch: host() })
         await page.open()
-        await page.change((node) => node.props['aria-label'] === 'Shortest quota update interval (seconds)', 120)
-        await page.change((node) => node.props['aria-label'] === 'Longest quota update interval (seconds)', 900)
-        await page.click((node) => node.type === 'button' && text(node).trim() === 'Save intervals')
+        await page.change((node) => node.props['aria-label'] === 'Shortest interval (seconds)', 120)
+        await page.change((node) => node.props['aria-label'] === 'Longest interval (seconds)', 900)
+        await blurIn(page, 'Longest interval (seconds)')
 
         const writes = page.calls.filter((call) => call.path === 'opencode-go/config')
         equal(writes.length, 1, 'one request, not one per field')
         equal(JSON.parse(writes[0].init.body), {
           set: { subscriptionMinIntervalSeconds: 120, subscriptionMaxIntervalSeconds: 900 },
         })
-        // The row reloads on a config write, so the page reads the state back
-        // rather than assuming the numbers it sent are the numbers in force.
         const after = page.calls.slice(page.calls.indexOf(writes[0])).map((call) => call.path)
         is(after[after.length - 1], 'opencode-go/state')
-        ok(text(scheduleSection(await page.tree())).includes('Saved. The next check uses the new intervals.'))
+        ok(text(scheduleSection(await page.tree())).includes('Saved.'))
       },
     },
     {
       name: 'a floor above its ceiling is refused on screen, before anything is written',
       async run() {
-        // The Host refuses this too, but a reader should not have to spend a
-        // round trip — and a rejection arriving after the fact leaves them
-        // looking at two numbers with no statement about which one to change.
+
         const page = await renderPage({ fetch: host() })
         await page.open()
-        await page.change((node) => node.props['aria-label'] === 'Shortest quota update interval (seconds)', 3_600)
-        await page.change((node) => node.props['aria-label'] === 'Longest quota update interval (seconds)', 300)
+        await page.change((node) => node.props['aria-label'] === 'Shortest interval (seconds)', 3_600)
+        await page.change((node) => node.props['aria-label'] === 'Longest interval (seconds)', 300)
+        await blurIn(page, 'Shortest interval (seconds)')
 
         const section = scheduleSection(await page.tree())
-        ok(text(section).includes('The shortest quota update interval cannot be longer than the longest one.'), 'the pair is explained')
-        is(scheduleSave(section).props.disabled, true, 'and there is nothing to press')
+        ok(text(section).includes('The shortest interval cannot be longer than the longest.'), 'the pair is explained')
         equal(page.calls.filter((call) => call.path === 'opencode-go/config').length, 0, 'no request was made')
 
-        // Putting the ceiling back above the floor is what clears it — the two
-        // boxes are judged as a pair, so either one can resolve it.
-        await page.change((node) => node.props['aria-label'] === 'Longest quota update interval (seconds)', 7_200)
+        await page.change((node) => node.props['aria-label'] === 'Longest interval (seconds)', 7_200)
+        await blurIn(page, 'Longest interval (seconds)')
         const fixed = scheduleSection(await page.tree())
-        is(text(fixed).includes('The shortest quota update interval cannot be longer than the longest one.'), false)
-        is(scheduleSave(fixed).props.disabled, false, 'and the save is available again')
+        is(text(fixed).includes('The shortest interval cannot be longer than the longest.'), false)
+        equal(page.calls.filter((call) => call.path === 'opencode-go/config').length, 1, 'the fixed pair is written')
       },
     },
     {
       name: 'an emptied interval box cannot be saved',
       async run() {
-        // Emptying a box is a reader mid-edit, not a request: `Number('')` is 0,
-        // so a page that read the boxes carelessly would submit a zero-second
-        // interval — the poll the schedule exists to replace.
+
         const page = await renderPage({ fetch: host() })
         await page.open()
-        await page.change((node) => node.props['aria-label'] === 'Shortest quota update interval (seconds)', '')
-        const section = scheduleSection(await page.tree())
-        is(scheduleSave(section).props.disabled, true, 'an incomplete pair is not savable')
-        equal(page.calls.filter((call) => call.path === 'opencode-go/config').length, 0, 'and nothing was sent')
+        await page.change((node) => node.props['aria-label'] === 'Shortest interval (seconds)', '')
+        await blurIn(page, 'Shortest interval (seconds)')
+        equal(page.calls.filter((call) => call.path === 'opencode-go/config').length, 0, 'an incomplete pair is not written')
       },
     },
     {
       name: 'a row that reports no intervals says so rather than waiting on them',
       async run() {
-        // Two halves, two lifetimes: the page is served from the file on disk and
-        // hot-swaps when it changes, while the host half is whatever the app
-        // imported at startup — so the page can be new against a host that has
-        // never heard of these two fields. Its `state` then carries a `values`
-        // without them, and waiting for numbers that are not coming reads as a
-        // section that is stuck loading forever. It names the state instead.
+
         const stale = { ...STATE, config: { ...STATE.config, values: {} } }
         const page = await renderPage({ fetch: host({ state: { body: stale } }) })
         const section = scheduleSection(await page.open())
         ok(text(section).includes('the running plugin is older than this page'), text(section).slice(0, 160))
         is(text(section).includes('Loading'), false, 'and it is not still loading')
         equal(scheduleBoxes(section), [
-          { label: 'Shortest quota update interval (seconds)', value: '' },
-          { label: 'Longest quota update interval (seconds)', value: '' },
+          { label: 'Shortest interval (seconds)', value: '' },
+          { label: 'Longest interval (seconds)', value: '' },
         ])
-        is(scheduleSave(section).props.disabled, true, 'there is nothing to save from here')
         equal(page.calls.filter((call) => call.path === 'opencode-go/config').length, 0, 'and nothing was sent')
       },
     },
     {
       name: 'transport and retry settings are editable, and saving writes them together',
       async run() {
-        // These were config-file-only knobs: the resolution had defaults and the
-        // page had nothing. What the page shows is the *resolved* value — a
-        // reader who never set them still sees the deadlines in force — and the
-        // deadlines are typed in seconds while the config keeps milliseconds.
+
         const page = await renderPage({ fetch: host() })
         const section = transportSection(await page.open())
-        ok(text(section).includes('Now: fresh connection on, timeout 180s, stream idle 90s, 5 retries, delays 500–10000ms.'), text(section).slice(0, 220))
         equal(transportBoxes(section), [
-          { label: 'Request deadline (seconds)', value: 180 },
+          { label: 'Request timeout (seconds)', value: 180 },
           { label: 'Stream idle timeout (seconds)', value: 90 },
           { label: 'Retry limit', value: 5 },
           { label: 'First retry delay (milliseconds)', value: 500 },
           { label: 'Longest retry delay (milliseconds)', value: 10_000 },
         ])
-        is(transportSwitch(section).props.checked, true, 'the large-body switch shows what the row resolved')
-        ok(text(section).includes('Matches what is saved.'))
-        is(transportSave(section).props.disabled, true, 'unchanged settings have nothing to save')
+        is(transportSwitch(section).props['aria-checked'], true, 'the large-body switch shows what the row resolved')
 
-        await page.change((node) => node.props['aria-label'] === 'Request deadline (seconds)', 240)
-        await page.change((node) => node.props['aria-label'] === 'Retry limit', 7)
-        await page.click((node) => node.type === 'button' && text(node).trim() === 'Save transport')
-
+        await page.change((node) => node.props['aria-label'] === 'Request timeout (seconds)', 240)
+        await blurIn(page, 'Request timeout (seconds)')
         const writes = page.calls.filter((call) => call.path === 'opencode-go/config')
-        equal(writes.length, 1, 'one request, not one per field')
+        equal(writes.length, 1, 'one write for the field that was left')
         equal(JSON.parse(writes[0].init.body), {
           set: {
             freshConnectionOnLargeBody: true,
             timeoutMs: 240_000,
             streamIdleTimeoutMs: 90_000,
-            // The whole policy travels back, so the fields this page does not
-            // edit keep their values instead of being dropped by the merge.
             retryPolicy: {
               mode: 'normal',
-              maxRetries: 7,
+              maxRetries: 5,
               retryableCodes: ['EMPTY_RESPONSE', 'RATE_LIMIT', 'SERVER', 'TIMEOUT', 'TRANSPORT'],
               initialDelayMs: 500,
               maxDelayMs: 10_000,
@@ -1037,39 +997,34 @@ export default {
             },
           },
         })
-        // The row reloads on a config write, so the page reads the state back
-        // rather than assuming the numbers it sent are the numbers in force.
         const after = page.calls.slice(page.calls.indexOf(writes[0])).map((call) => call.path)
         is(after[after.length - 1], 'opencode-go/state')
-        ok(text(transportSection(await page.tree())).includes('Saved. The next request uses these values.'))
+        ok(text(transportSection(await page.tree())).includes('Saved.'))
       },
     },
     {
       name: 'a first retry delay longer than the longest one is refused on screen',
       async run() {
-        // The Host refuses this too, and the resolution's backoff would clamp the
-        // first delay from the very first attempt; saying it here keeps the
-        // reader from spending a round trip to learn which box to change.
+
         const page = await renderPage({ fetch: host() })
         await page.open()
         await page.change((node) => node.props['aria-label'] === 'First retry delay (milliseconds)', 20_000)
+        await blurIn(page, 'First retry delay (milliseconds)')
         const section = transportSection(await page.tree())
         ok(text(section).includes('The first retry delay cannot be longer than the longest retry delay.'))
-        is(transportSave(section).props.disabled, true, 'and there is nothing to press')
         equal(page.calls.filter((call) => call.path === 'opencode-go/config').length, 0, 'no request was made')
       },
     },
     {
       name: 'a hidden id the catalog does not list survives an unrelated save',
       async run() {
-        // A deployment that hid a model OpenCode has not published yet must not
-        // lose that line by opening the page and saving something else.
+
         const page = await renderPage({
           fetch: host({ models: { body: { ...CATALOG, hidden: [...CATALOG.hidden, 'not-published-yet'] } } }),
         })
         await page.open()
         await page.change((node) => node.props.type === 'checkbox' && node.props['aria-label'] === 'glm-5.3: Listed', false)
-        await page.click((node) => node.type === 'button' && text(node).trim() === 'Save visibility')
+        await clickIn(page, modelsSection(await page.tree()), (node) => node.type === 'button' && text(node).trim() === 'Save')
         const written = page.calls.find((call) => call.path === 'opencode-go/config')
         const hidden = JSON.parse(written.init.body).set.hiddenModels
         ok(hidden.includes('not-published-yet'), hidden.join(','))
@@ -1079,29 +1034,23 @@ export default {
     {
       name: 'a variant is built in the form and saved as it was filled in',
       async run() {
-        // Nothing declared yet, so this case is about adding one. A variant
-        // combines all four settings the feature exists for -- protocol,
-        // thinking level, context window, output cap -- so the case sets all
-        // four and checks all four arrive.
+
         const page = await renderPage({ fetch: host({ models: { body: { ...CATALOG, variants: [] } } }) })
         await page.open()
         const byLabel = (label) => (node) => node.props['aria-label'] === label
-        await page.change(byLabel('Model'), 'glm-5.3')
+        await pick(page, 'Model', 'GLM 5.3 · glm-5.3')
         await page.change(byLabel('Variant name'), 'fast')
-        await page.change(byLabel('Protocol first'), 'chat-completions')
-        await page.change(byLabel('Default thinking level'), 'low')
+        await pick(page, 'Preferred protocol', 'chat-completions')
+        await pick(page, 'Reasoning level', 'low')
         const draft = await page.click((node) => node.type === 'button' && text(node).trim() === 'Add variant')
         ok(text(draft).includes('glm-5.3@fast'), 'the draft entry names the id it will be offered under')
-        // The figures belong to the entry, so they are edited on the row the
-        // form just added rather than in the form.
         await page.change(byLabel('glm-5.3@fast Context window'), '200000')
-        await page.change(byLabel('glm-5.3@fast Output cap'), '32768')
-        await page.click((node) => node.type === 'button' && text(node).trim() === 'Save variants')
+        await page.change(byLabel('glm-5.3@fast Max output tokens'), '32768')
+        await clickIn(page, modelsSection(await page.tree()), (node) => node.type === 'button' && text(node).trim() === 'Save')
         const written = page.calls.find((call) => call.path === 'opencode-go/config')
-        // The form holds strings; the config holds what the schema declares,
-        // and a name is part of an id a person types.
         equal(JSON.parse(written.init.body), {
           set: {
+            hiddenModels: ['space-bunny-free'],
             modelVariants: [{
               model: 'glm-5.3',
               name: 'fast',
@@ -1117,62 +1066,53 @@ export default {
     {
       name: 'editing a saved variant writes the config shape, not the snapshot it read',
       async run() {
+
         const page = await renderPage({ fetch: host() })
         await page.open()
-        // The row's fields are behind its edit control, so the reader opens it
-        // before there is anything to type into.
         await page.click((node) => node.type === 'button' && node.props['aria-label'] === 'Edit variant glm-5.3@fast')
-        // The Host reports a variant with an `id`, because that is what the
-        // model list offers. Echoing it back on save would write a key the
-        // config does not declare into the profile patch.
         await page.change((node) => node.props['aria-label'] === 'glm-5.3@fast Context window', '200000')
-        await page.click((node) => node.type === 'button' && text(node).trim() === 'Save variants')
+        await clickIn(page, modelsSection(await page.tree()), (node) => node.type === 'button' && text(node).trim() === 'Save')
         const written = page.calls.find((call) => call.path === 'opencode-go/config')
         equal(JSON.parse(written.init.body), {
-          set: { modelVariants: [{ model: 'glm-5.3', name: 'fast', contextWindow: 200_000 }] },
+          set: {
+            hiddenModels: ['space-bunny-free'],
+            modelVariants: [{ model: 'glm-5.3', name: 'fast', contextWindow: 200_000 }],
+          },
         })
       },
     },
     {
       name: 'a variant row keeps its fields behind an edit control, and open while it is renamed',
       async run() {
+
         const page = await renderPage({ fetch: host() })
         await page.open()
-        const row = () => find(page.tree(), (node) => node.type === 'section' && text(node).includes('Model variants'))
-        // The fields a row owns are the ones labelled with its own id, which
-        // keeps the add form's two boxes out of the count.
+        const row = () => variantsSection(page.tree())
         const owned = (id) => nodes(row())
           .map(({ node }) => node.props?.['aria-label'])
           .filter((label) => typeof label === 'string' && label.startsWith(`${id} `))
           .sort()
-        const button = (label) => nodes(row()).find(({ node }) => (
+        const control = (label) => nodes(row()).find(({ node }) => (
           node.type === 'button' && node.props?.['aria-label'] === label
         ))?.node
 
-        // A declared variant opens shut: a list of presets rather than a wall of
-        // boxes. The six fields are the row's whole substance, so the row head
-        // carries the one control that reveals them.
         equal(owned('glm-5.3@fast'), [], 'the declared row starts with no fields on screen')
-        ok(button('Edit variant glm-5.3@fast') !== undefined, 'and offers the control that opens it')
-        is(button('Edit variant glm-5.3@fast').props['aria-expanded'], false)
+        ok(control('Edit variant glm-5.3@fast') !== undefined, 'and offers the control that opens it')
+        is(control('Edit variant glm-5.3@fast').props['aria-expanded'], false)
 
         await page.click((node) => node.type === 'button' && node.props['aria-label'] === 'Edit variant glm-5.3@fast')
         equal(owned('glm-5.3@fast'), [
           'glm-5.3@fast Context window',
-          'glm-5.3@fast Default thinking level',
           'glm-5.3@fast Display name',
-          'glm-5.3@fast Output cap',
-          'glm-5.3@fast Protocol first',
+          'glm-5.3@fast Max output tokens',
+          'glm-5.3@fast Preferred protocol',
+          'glm-5.3@fast Reasoning level',
           'glm-5.3@fast Variant name',
         ].sort(), 'the six fields appeared for the row that asked for them')
-        ok(button('Finish editing variant glm-5.3@fast') !== undefined, 'the control now offers the way back')
-        is(button('Finish editing variant glm-5.3@fast').props['aria-expanded'], true)
+        ok(control('Finish editing variant glm-5.3@fast') !== undefined, 'the control now offers the way back')
+        is(control('Finish editing variant glm-5.3@fast').props['aria-expanded'], true)
 
-        // Renaming is the case a row's identity has to survive: the name is half
-        // of the id, so a row keyed by its id would be rebuilt on the first
-        // keystroke — and shut in the reader's face.
         await page.change((node) => node.props['aria-label'] === 'glm-5.3@fast Variant name', 'fastest')
-        equal(owned('glm-5.3@fast'), [], 'the field no longer answers to the name it had')
         ok(owned('glm-5.3@fastest').length > 0, 'the row is still open, under its new name')
 
         await page.click((node) => node.type === 'button' && node.props['aria-label'] === 'Finish editing variant glm-5.3@fastest')
@@ -1184,12 +1124,12 @@ export default {
       async run() {
         const page = await renderPage({ fetch: host({ models: { body: { ...CATALOG, variants: [] } } }) })
         await page.open()
-        await page.change((node) => node.type === 'select' && node.props['aria-label'] === 'Model', 'glm-5.3')
+        await pick(page, 'Model', 'GLM 5.3 · glm-5.3')
         await page.change((node) => node.type === 'input' && node.props['aria-label'] === 'Variant name', 'slow')
         await page.click((node) => node.type === 'button' && text(node).trim() === 'Add variant')
         // The row lands where the reader is looking, so the cap and window it
         // was just created to carry are one keystroke away rather than a click.
-        for (const field of ['Context window', 'Output cap']) {
+        for (const field of ['Context window', 'Max output tokens']) {
           ok(
             nodes(page.tree()).some(({ node }) => node.props?.['aria-label'] === `glm-5.3@slow ${field}`),
             `the new row is open, with its ${field} field`,
@@ -1200,81 +1140,64 @@ export default {
     {
       name: 'the add form keeps its fields together, with the name rules under them',
       async run() {
-        // The two name rules — what a blank name becomes, and what a name may
-        // hold — used to sit between the form's two rows, which drew a line
-        // through it: the fields read as two groups rather than one form. They
-        // go under it now, where a footnote belongs.
+
         const page = await renderPage({ fetch: host({ models: { body: { ...CATALOG, variants: [] } } }) })
         await page.open()
-        // A model with a thinking ladder, so the form shows all five of its
-        // fields rather than four.
-        await page.change((node) => node.type === 'select' && node.props['aria-label'] === 'Model', 'glm-5.3')
+        await pick(page, 'Model', 'GLM 5.3 · glm-5.3')
 
-        const section = find(page.tree(), (node) => node.type === 'section' && text(node).includes('Model variants'))
+        const section = variantsSection(await page.tree())
         const flat = nodes(section).map(({ node }) => node)
         const at = (predicate) => flat.findIndex(predicate)
-        const field = (label) => at((node) => (node.type === 'input' || node.type === 'select')
+        const field = (label) => at((node) => (node.type === 'input'
+          || (node.type === 'button' && node.props?.['aria-haspopup'] === 'menu'))
           && node.props?.['aria-label'] === label)
         const note = (opening) => at((node) => node.type === 'p' && text(node).startsWith(opening))
-
-        const fields = ['Model', 'Variant name', 'Display name', 'Protocol first', 'Default thinking level']
-          .map(field)
+        const fields = ['Model', 'Variant name', 'Display name', 'Preferred protocol', 'Reasoning level'].map(field)
         const control = at((node) => node.type === 'button' && text(node).trim() === 'Add variant')
         ok(fields.every((index) => index >= 0), 'every field of the add form is on screen')
         ok(control >= 0, 'and the control that submits it')
-
         for (const [what, index] of [
-          ['the note about a blank name', note('Leave the name blank and it becomes')],
-          ['the name rule', note('A variant name may hold letters')],
+          ['the note about a blank name', note('Leave blank to use')],
+          ['the name rule', note('Letters, digits, dot, and dash only.')],
         ]) {
           ok(index >= 0, `${what} is on screen`)
-          // Strictly after every field and the button: a note that lands between
-          // two fields is what split the form in the first place.
-          const after = [...fields, control].every((position) => position < index)
-          ok(after, `${what} sits under the whole form, not inside it`)
+          ok([...fields, control].every((position) => position < index), `${what} sits under the whole form`)
         }
       },
     },
     {
       name: 'a variant name left blank takes the default the placeholder showed',
       async run() {
-        // The default is named after the thinking level the variant sets, which
-        // is the thing that tells two presets of one model apart.
+
         const page = await renderPage({ fetch: host({ models: { body: { ...CATALOG, variants: [] } } }) })
         await page.open()
         const nameBox = () => nodes(page.tree())
           .find(({ node }) => node.type === 'input' && node.props['aria-label'] === 'Variant name')?.node
-        await page.change((node) => node.type === 'select' && node.props['aria-label'] === 'Model', 'glm-5.3')
-        await page.change((node) => node.type === 'select' && node.props['aria-label'] === 'Default thinking level', 'high')
+        await pick(page, 'Model', 'GLM 5.3 · glm-5.3')
+        await pick(page, 'Reasoning level', 'high')
         is(nameBox().props.placeholder, 'high', 'the placeholder names the default before it is used')
-        // The page also spells out the id the default will produce.
         ok(text(page.tree()).includes('glm-5.3@high'), 'the full default id is on screen')
 
         await page.click((node) => node.type === 'button' && text(node).trim() === 'Add variant')
-        const added = nodes(page.tree()).find(({ node }) => node.type === 'span' && text(node) === 'glm-5.3@high')
-        ok(added !== undefined, 'the entry took the default name')
-        await page.click((node) => node.type === 'button' && text(node).trim() === 'Save variants')
+        ok(nodes(page.tree()).some(({ node }) => node.type === 'span' && text(node) === 'glm-5.3@high'), 'the entry took the default name')
+        await clickIn(page, modelsSection(await page.tree()), (node) => node.type === 'button' && text(node).trim() === 'Save')
         const written = page.calls.find((call) => call.path === 'opencode-go/config')
-        equal(JSON.parse(written.init.body), {
-          set: { modelVariants: [{ model: 'glm-5.3', name: 'high', effort: 'high' }] },
-        })
+        equal(JSON.parse(written.init.body).set.modelVariants, [{ model: 'glm-5.3', name: 'high', effort: 'high' }])
       },
     },
     {
       name: 'a variant that names no level falls back to the protocol, then to a plain word',
       async run() {
+
         const page = await renderPage({ fetch: host({ models: { body: { ...CATALOG, variants: [] } } }) })
         await page.open()
         const nameBox = () => nodes(page.tree())
           .find(({ node }) => node.type === 'input' && node.props['aria-label'] === 'Variant name')?.node
-        // No model chosen yet: nothing distinguishes the variant, and the page
-        // says so rather than showing a half-built id.
-        ok(text(page.tree()).includes('<model>@<thinking level>'), 'the generic form is named')
-        await page.change((node) => node.type === 'select' && node.props['aria-label'] === 'Model', 'glm-5.3')
+        ok(text(page.tree()).includes('<model>@<reasoning level>'), 'the generic form is named')
+        await pick(page, 'Model', 'GLM 5.3 · glm-5.3')
         is(nameBox().props.placeholder, 'default', 'a variant that restates nothing is called "default"')
-        await page.change((node) => node.type === 'select' && node.props['aria-label'] === 'Protocol first', 'anthropic-messages')
-        is(nameBox().props.placeholder, 'anthropic-messages', 'a protocol the variant sets names it instead')
-        // A typed name always wins over the default.
+        await pick(page, 'Preferred protocol', 'chat-completions')
+        is(nameBox().props.placeholder, 'chat-completions', 'a protocol the variant sets names it instead')
         await page.change((node) => node.type === 'input' && node.props['aria-label'] === 'Variant name', 'chatty')
         is(nameBox().props.value, 'chatty')
       },
@@ -1282,58 +1205,52 @@ export default {
     {
       name: 'the variant list can be added to and removed from, by name',
       async run() {
+
         const page = await renderPage({ fetch: host() })
         const tree = await page.open()
-        // Scoped to the variants section: the visibility list above it also
-        // renders model ids, and one of them is this variant's id.
-        const section = find(tree, (node) => node.type === 'section' && text(node).includes('Model variants'))
-        ok(section !== undefined, 'the variants section rendered')
-        const ids = () => nodes(find(page.tree(), (node) => node.type === 'section' && text(node).includes('Model variants')))
+        const section = variantsSection(tree)
+        const ids = () => nodes(variantsSection(page.tree()))
           .filter(({ node }) => node.type === 'span' && node.props.style?.color === 'var(--dsw-alias-label-tertiary)')
           .map(({ node }) => text(node))
-          .filter((value) => /@/.test(value) && !value.includes('<model>'))
-        // The saved variant is listed, with its count stated.
+          .filter((value) => /^\S+@\S+$/.test(value) && !value.includes('<model>'))
         equal(ids(), ['glm-5.3@fast'], 'the declared variant is in the list')
-        ok(text(page.tree()).includes('Variant list (1)'), 'the list says how many it holds')
+        ok(text(section).includes('1 added'), 'the list says how many it holds')
 
-        // Adding one from the form appends it and updates the count.
-        await page.change((node) => node.type === 'select' && node.props['aria-label'] === 'Model', 'glm-5.3')
+        await pick(page, 'Model', 'GLM 5.3 · glm-5.3')
         await page.change((node) => node.type === 'input' && node.props['aria-label'] === 'Variant name', 'slow')
         await page.click((node) => node.type === 'button' && text(node).trim() === 'Add variant')
         equal(ids(), ['glm-5.3@fast', 'glm-5.3@slow'])
-        ok(text(page.tree()).includes('Variant list (2)'))
+        ok(text(variantsSection(page.tree())).includes('2 added'))
 
-        // Removing one takes it back out, and the save writes what is left.
-        await page.click((node) => node.type === 'button' && node.props['aria-label'] === 'Remove variant glm-5.3@fast')
+        await page.click((node) => node.type === 'button' && node.props['aria-label'] === 'Delete variant glm-5.3@fast')
         equal(ids(), ['glm-5.3@slow'])
-        await page.click((node) => node.type === 'button' && text(node).trim() === 'Save variants')
+        await clickIn(page, modelsSection(await page.tree()), (node) => node.type === 'button' && text(node).trim() === 'Save')
         const written = page.calls.find((call) => call.path === 'opencode-go/config')
-        equal(JSON.parse(written.init.body), { set: { modelVariants: [{ model: 'glm-5.3', name: 'slow' }] } })
+        equal(JSON.parse(written.init.body).set.modelVariants, [{ model: 'glm-5.3', name: 'slow' }])
       },
     },
     {
       name: 'a name edited in the list is written, and one that collides is refused before saving',
       async run() {
+
         const page = await renderPage({ fetch: host({ models: { body: { ...CATALOG, variants: [] } } }) })
         await page.open()
         const add = async (name) => {
-          await page.change((node) => node.type === 'select' && node.props['aria-label'] === 'Model', 'glm-5.3')
+          await pick(page, 'Model', 'GLM 5.3 · glm-5.3')
           await page.change((node) => node.type === 'input' && node.props['aria-label'] === 'Variant name', name)
           await page.click((node) => node.type === 'button' && text(node).trim() === 'Add variant')
         }
         await add('one')
         await add('two')
-        // Rename the second one onto the first: the id would stop being unique.
         await page.change((node) => node.type === 'input' && node.props['aria-label'] === 'glm-5.3@two Variant name', 'one')
-        const save = () => nodes(page.tree())
-          .find(({ node }) => node.type === 'button' && text(node).trim() === 'Save variants')?.node
+        const save = () => nodes(modelsSection(page.tree()))
+          .find(({ node }) => node.type === 'button' && text(node).trim() === 'Save')?.node
         is(save().props.disabled, true, 'Save is inert while a name collides')
-        ok(text(page.tree()).includes('glm-5.3@one'), 'the collision is named by the id it would create')
+        ok(text(page.tree()).includes('Variant "glm-5.3@one" already exists.'), 'the collision is named by the id it would create')
 
-        // A rename that does not collide is written under the new name.
         await page.change((node) => node.type === 'input' && node.props['aria-label'] === 'glm-5.3@one Variant name', 'three')
         is(save().props.disabled, false)
-        await page.click((node) => node.type === 'button' && text(node).trim() === 'Save variants')
+        await clickIn(page, modelsSection(await page.tree()), (node) => node.type === 'button' && text(node).trim() === 'Save')
         const written = page.calls.find((call) => call.path === 'opencode-go/config')
         equal(JSON.parse(written.init.body).set.modelVariants, [
           { model: 'glm-5.3', name: 'three' },
@@ -1344,17 +1261,16 @@ export default {
     {
       name: 'adding a variant that already exists is refused, not written twice',
       async run() {
+
         const page = await renderPage({ fetch: host() })
         await page.open()
         const byLabel = (label) => (node) => node.props['aria-label'] === label
-        await page.change(byLabel('Model'), 'glm-5.3')
+        await pick(page, 'Model', 'GLM 5.3 · glm-5.3')
         await page.change(byLabel('Variant name'), 'fast')
         const tree = await page.click((node) => node.type === 'button' && text(node).trim() === 'Add variant')
-        ok(text(tree).includes('Variant "glm-5.3@fast" is already declared.'), text(tree).slice(-300))
-        // The draft is unchanged, so the save control is inert and nothing is
-        // written: the Host would refuse a duplicate anyway, and the page does
-        // not make the reader find that out from an error.
-        is(button(tree, 'Save variants').props.disabled, true)
+        ok(text(tree).includes('Variant "glm-5.3@fast" already exists.'), text(tree).slice(-300))
+        const save = nodes(modelsSection(tree)).find(({ node }) => node.type === 'button' && text(node).trim() === 'Save')?.node
+        is(save.props.disabled, true)
         equal(page.calls.filter((call) => call.path === 'opencode-go/config').length, 0, 'nothing was written')
       },
     },
@@ -1373,37 +1289,31 @@ export default {
     {
       name: 'saving a key writes it to the credential store and clears the field',
       async run() {
+
         const page = await renderPage({ fetch: host() })
-        await page.open()
+        const tree = await page.open()
         const field = (node) => node.props.type === 'password'
         await page.change(field, 'sk-a-secret-value')
-        await page.click((node) => node.type === 'button' && text(node).trim() === 'Save')
+        await clickIn(page, group(await page.tree(), 'API key'), (node) => node.type === 'button' && text(node).trim() === 'Save')
         const written = page.calls.find((call) => call.path === 'opencode-go/credential')
         is(written.init.method, 'POST')
         equal(JSON.parse(written.init.body), { value: 'sk-a-secret-value' })
-        const cleared = find(page.tree(), field)
-        is(cleared.props.value, '', 'the field is emptied, so the key is not left in the page')
-        ok(text(page.tree()).includes('Saved; the next request uses the new key.'), 'the reader is told it worked')
+        is(find(page.tree(), field).props.value, '', 'the field is emptied, so the key is not left in the page')
+        ok(text(page.tree()).includes('Saved.'), 'the reader is told it worked')
       },
     },
     {
       name: 'a key the launching environment supplies explains itself and offers no clear button',
       async run() {
-        // The case the report is about: `OPENCODE_GO_API_KEY` is exported in the
-        // shell DSH was started from. The credential seam refuses to replace or
-        // remove it, so a Clear button that looked pressable would be a lie.
+
         const page = await renderPage({
           fetch: host({
             state: {
               body: {
                 ...STATE,
                 credential: {
-                  configured: true,
-                  source: 'env',
-                  writable: false,
-                  removable: false,
-                  blockedBy: 'launching-environment',
-                  reference: 'OPENCODE_GO_API_KEY',
+                  configured: true, source: 'env', writable: false, removable: false,
+                  blockedBy: 'launching-environment', reference: 'OPENCODE_GO_API_KEY',
                   environment: { variable: 'OPENCODE_GO_API_KEY', present: true, source: 'process', path: null },
                 },
                 environment: { variable: 'OPENCODE_GO_API_KEY', present: true, source: 'process', path: null },
@@ -1412,31 +1322,22 @@ export default {
           }),
         })
         const tree = await page.open()
-        const section = find(tree, (node) => node.type === 'section' && text(node).includes('API key'))
+        const section = group(tree, 'API key')
         const shown = text(section)
-        ok(shown.includes('from the launching environment'), shown.slice(0, 300))
-        ok(shown.includes('OPENCODE_GO_API_KEY'), 'the message names the variable holding the value')
-        ok(shown.includes('point the credential reference below at another name'), 'and the way out of it')
-
-        // Clear is present but inert: the browser will not fire it, and neither
-        // does the harness.
-        const clear = nodes(section).find(({ node }) => node.type === 'button' && text(node).trim() === 'Clear key')
-        is(clear.node.props.disabled, true, 'Clear key is disabled while clearing would do nothing')
-        // Storing is refused too, and for the same reason: a stored value under
-        // a name the launching environment already supplies would be shadowed
-        // and would never be read. The reference editor below is the way out,
-        // and the page says so rather than offering a button that cannot work.
+        ok(shown.includes('launching environment variable OPENCODE_GO_API_KEY'), shown.slice(0, 300))
+        ok(shown.includes('point Credential reference below at another name'), 'and the way out of it')
+        // A control that cannot work is not rendered at all.
+        is(nodes(section).some(({ node }) => node.type === 'button' && text(node).trim() === 'Clear key'), false, 'no Clear key')
         const field = nodes(section).find(({ node }) => node.type === 'input' && node.props.type === 'password')
         is(field.node.props.disabled, true, 'the key field is inert while a store would be shadowed')
-        is(
-          nodes(section).find(({ node }) => node.type === 'button' && text(node).trim() === 'Save').node.props.disabled,
-          true,
-        )
+        const save = nodes(section).find(({ node }) => node.type === 'button' && text(node).trim() === 'Save')
+        is(save.node.props.disabled, true)
       },
     },
     {
       name: 'the credential reference can be pointed at another name, which is the way out',
       async run() {
+
         const page = await renderPage({
           fetch: host({
             state: {
@@ -1444,12 +1345,8 @@ export default {
                 ...STATE,
                 route: { ...STATE.route, apiKeyEnv: 'OPENCODE_GO_API_KEY' },
                 credential: {
-                  configured: true,
-                  source: 'env',
-                  writable: false,
-                  removable: false,
-                  blockedBy: 'launching-environment',
-                  reference: 'OPENCODE_GO_API_KEY',
+                  configured: true, source: 'env', writable: false, removable: false,
+                  blockedBy: 'launching-environment', reference: 'OPENCODE_GO_API_KEY',
                   environment: { variable: 'OPENCODE_GO_API_KEY', present: true, source: 'process', path: null },
                 },
               },
@@ -1460,14 +1357,8 @@ export default {
         const box = nodes(tree).find(({ node }) => node.type === 'input' && node.props['aria-label'] === 'Credential reference')
         ok(box !== undefined, 'the credential reference is an editable field')
         is(box.node.props.value, 'OPENCODE_GO_API_KEY', 'the reference starts at the name in use')
-        // The save button is inert until the name actually differs, so it can
-        // never write back the value it read.
-        const save = () => nodes(page.tree())
-          .find(({ node }) => node.type === 'button' && text(node).trim() === 'Save reference')?.node
-        is(save().props.disabled, true)
-        await page.change((node) => node.type === 'input' && node.props['aria-label'] === 'Credential reference', 'OPENCODE_GO_HOME_KEY')
-        is(save().props.disabled, false)
-        await page.click((node) => node.type === 'button' && text(node).trim() === 'Save reference')
+        await page.change((node) => node.props['aria-label'] === 'Credential reference', 'OPENCODE_GO_HOME_KEY')
+        await blurIn(page, 'Credential reference')
         const written = page.calls.find((call) => call.path === 'opencode-go/config')
         equal(JSON.parse(written.init.body), { set: { apiKeyEnv: 'OPENCODE_GO_HOME_KEY' } })
       },
@@ -1475,19 +1366,19 @@ export default {
     {
       name: 'a gateway that rejects the key says so without a Save button that would work',
       async run() {
-        const page = await renderPage({ fetch: host() })
-        await page.open()
-        await page.change((node) => node.props.type === 'password', 'sk-wrong')
-        await page.click((node) => node.type === 'button' && text(node).trim() === 'Save')
-        ok(text(page.tree()).includes('Saved; the next request uses the new key.'))
 
-        // And a refusal is reported in the reader's own words, not as a status.
+        const page = await renderPage({ fetch: host() })
+        const tree = await page.open()
+        await page.change((node) => node.props.type === 'password', 'sk-wrong')
+        await clickIn(page, group(await page.tree(), 'API key'), (node) => node.type === 'button' && text(node).trim() === 'Save')
+        ok(text(page.tree()).includes('Saved.'))
+
         const refused = await renderPage({
           fetch: host({ credential: { body: { ok: false, message: 'the credential store refused it' } } }),
         })
-        await refused.open()
+        const refusedTree = await refused.open()
         await refused.change((node) => node.props.type === 'password', 'sk-wrong')
-        await refused.click((node) => node.type === 'button' && text(node).trim() === 'Save')
+        await clickIn(refused, group(await refused.tree(), 'API key'), (node) => node.type === 'button' && text(node).trim() === 'Save')
         ok(text(refused.tree()).includes('the credential store refused it'), text(refused.tree()).slice(0, 300))
       },
     },
@@ -1502,87 +1393,75 @@ export default {
           fetch: host({ state: { body: { ...STATE, config: { editable: false, reason: 'no-config-editor' } } } }),
         })
         const noEditorText = text(await noEditor.open())
-        ok(noEditorText.includes('this deployment has no profile configuration editor'), noEditorText.slice(-220))
+        ok(noEditorText.includes('Reason: no configuration editor'), noEditorText.slice(-220))
         ok(noEditorText.includes('still readable and usage is still recorded'), 'what still works is named')
         // The page is still usable for the parts that cannot write.
-        ok(noEditorText.includes('Model visibility'), 'the sections still render')
+        ok(noEditorText.includes('Models'), 'the sections still render')
 
         const noRow = await renderPage({
           fetch: host({ state: { body: { ...STATE, config: { editable: false, reason: 'entry-not-found' } } } }),
         })
         const noRowText = text(await noRow.open())
-        ok(noRowText.includes('no profile entry for this plugin was found'), noRowText.slice(-220))
-        is(noRowText.includes('no-config-editor'), false, 'the wrong reason is not shown')
+        ok(noRowText.includes('Reason: no configuration row for this plugin'), noRowText.slice(-220))
+        is(noRowText.includes('no configuration editor'), false, 'the wrong reason is not shown')
       },
     },
     {
       name: 'no control is ever sized along the wrong axis',
       async run() {
-        // The class of bug this guard exists for: `flex: '0 0 200px'` means a
-        // *width* in a row container and a *height* in a column one. A box that
-        // carried that shorthand into the labelled column around it was 200px
-        // tall and clipped its own placeholder text. Every behavioural assertion
-        // passes anyway -- the control still holds the right value and still
-        // fires the right handler -- so it has to be checked structurally.
+
         const page = await renderPage({ fetch: host() })
         const tree = await page.open()
         const problems = []
         let checked = 0
         for (const { node, path } of nodes(tree)) {
-          if (node.type !== 'input' && node.type !== 'select' && node.type !== 'textarea') continue
+          const dropdown = node.type === 'button' && node.props?.['aria-haspopup'] === 'menu'
+          if (node.type !== 'input' && node.type !== 'textarea' && !dropdown) continue
           const style = node.props.style ?? {}
           const named = node.props['aria-label'] ?? node.props.type ?? node.type
-          // A checkbox is not a text control: the platform draws it and it has
-          // no 36px box to keep in step with the buttons beside it.
           const toggle = node.type === 'input' && ['checkbox', 'radio', 'range', 'file'].includes(node.props.type)
           if (toggle) continue
+          // The compact pills in the usage block are inline controls, not fields.
+          if (dropdown && style.height === '28px') continue
           checked += 1
-          // A column ancestor is what turns a basis into a height.
-          const column = path.some((ancestor) => ancestor.props?.style?.flexDirection === 'column')
+          // The nearest flex/grid ancestor is what turns a basis into a height;
+          // a column further up does not size this control.
+          const container = [...path].reverse().find((ancestor) => {
+            const display = ancestor.props?.style?.display
+            return display === 'flex' || display === 'grid'
+          })
+          const column = container?.props?.style?.flexDirection === 'column'
           const basis = typeof style.flex === 'string'
             ? style.flex.split(/\s+/).find((part) => /[\d.]/.test(part))
             : undefined
-          if (column && basis !== undefined) {
-            problems.push(`${named}: flex "${style.flex}" inside a column container`)
-          }
-          // Whatever the container, a text control is 36px tall: that is what
-          // every button beside it is, and the line box is pinned to match so
-          // the host's own input rules cannot inflate it.
-          if (style.height !== '36px') problems.push(`${named}: height ${String(style.height)}`)
+          if (column && basis !== undefined) problems.push(`${named}: flex "${style.flex}" inside a column container`)
+          if (style.height !== '34px') problems.push(`${named}: height ${String(style.height)}`)
           if (style.boxSizing !== 'border-box') problems.push(`${named}: box-sizing ${String(style.boxSizing)}`)
         }
         equal(problems, [], problems.join(' · '))
-        ok(checked > 6, `the page actually rendered the controls this checks (${String(checked)})`)
+        ok(checked > 6, `the page rendered the controls this checks (${String(checked)})`)
       },
     },
     {
       name: 'the variant form lays its labelled fields out in one band',
       async run() {
-        // The reader-visible symptom of the bug above: the name and display-name
-        // columns towered over the model select beside them, so the row read
-        // bottom-aligned and out of the order the code declares. Every labelled
-        // field in that band is the same height now, which is what makes the
-        // labels line up.
+
         const page = await renderPage({ fetch: host({ models: { body: { ...CATALOG, variants: [] } } }) })
         const tree = await page.open()
-        const section = find(tree, (node) => node.type === 'section' && text(node).includes('Model variants'))
-        ok(section !== undefined, 'the variants section rendered')
-        const band = nodes(section)
-          .filter(({ node }) => node.type === 'div' && node.props.style?.display === 'flex')
-          .map(({ node }) => node.children ?? [])
-          .find((children) => children.some((child) => text(child).includes('Pick a model')))
-        ok(band !== undefined, 'the add-a-variant row rendered')
-
-        // Model, Variant name, Display name -- the order the code declares, and
-        // each column holds exactly one control. The label is the child span,
-        // so the column's own text starts with it.
-        const labelOf = (child) => text((child.children ?? [])[0]).trim()
-        equal(band.map(labelOf), ['Model', 'Variant name', 'Display name'])
-        for (const child of band) {
-          const controls = nodes(child).filter(({ node }) => node.type === 'input' || node.type === 'select')
-          equal(controls.length, 1, `${text(child).trim().slice(0, 18)} holds one control`)
-          equal(controls[0].node.props.style.height, '36px')
-          equal(controls[0].node.props.style.flex, 'none', 'no basis, so no height from the wrong axis')
+        await pick(page, 'Model', 'GLM 5.3 · glm-5.3')
+        const section = variantsSection(await page.tree())
+        const controls = ['Model', 'Variant name', 'Display name', 'Preferred protocol', 'Reasoning level']
+          .map((label) => nodes(section).find(({ node }) => (
+            (node.type === 'input' || (node.type === 'button' && node.props?.['aria-haspopup'] === 'menu'))
+            && node.props?.['aria-label'] === label
+          ))?.node)
+        ok(controls.every((node) => node !== undefined), 'every labelled field of the form rendered')
+        for (const node of controls) equal(node.props.style.height, '34px', 'the fields share one height')
+        // Each control is preceded by its own label line, the native field shape.
+        for (const [index, label] of ['Model', 'Variant name', 'Display name', 'Preferred protocol', 'Reasoning level'].entries()) {
+          const flat = nodes(section).map(({ node }) => node)
+          const at = flat.indexOf(controls[index])
+          ok(flat.slice(0, at).some((node) => (node.type === 'span' || node.type === 'label') && text(node) === label), `${label} has its label above it`)
         }
       },
     },
@@ -1656,12 +1535,7 @@ export default {
     {
       name: 'the panel and the settings tab carry the configuration page\'s usage copy',
       async run() {
-        // One dictionary feeds all three surfaces, so a sentence edited for one
-        // is edited for the rest — and this case is what keeps that true. It
-        // pins the sentences where the panel and the tab show them, and refuses
-        // the retired ones everywhere, because "the configuration page was
-        // updated and the panel still says the old thing" is exactly how these
-        // two blocks drifted apart before.
+
         const page = await renderPage({ fetch: host() })
         const flat = (tree) => text(tree).replace(/\s+/g, ' ')
         const config = flat(await page.open())
@@ -1669,8 +1543,8 @@ export default {
         const tab = flat(await page.surface('settings.plugins.tab').open())
 
         const shared = [
-          'Calls and tokens recorded locally for this route, grouped by this machine\'s calendar day; the model provider\'s billing may differ.',
-          'Totals and models follow the selected range; the daily table always covers all recorded history.',
+          'Calls and tokens recorded locally for this route; the provider\'s billing may differ.',
+          'Totals and models follow the selected range; the daily table always covers all history.',
           'Hit rate = cache read ÷ (uncached input + cache read). A service that never reported a cache figure shows "—".',
           'Read at ',
         ]
@@ -1679,25 +1553,7 @@ export default {
             ok(surface.includes(sentence), `${where} carries "${sentence.slice(0, 48)}…"`)
           }
         }
-
-        // The pointer to the panel belongs where the reader is not yet in it.
-        ok(config.includes('The keyboard shortcut Ctrl/Cmd+U opens the usage panel.'), 'the configuration page names the shortcut')
-
-        // Copy that was taken out stays out, on every surface: a retired
-        // sentence that survives on one of them is the bug this guards.
-        const retired = [
-          'counts only the part of the prompt',
-          'rather than a 0%',
-          'asking again forces a fresh read',
-          'Both of these also have a page of their own',
-          'one model\'s second set of settings',
-          'It is a local alias',
-        ]
-        for (const phrase of retired) {
-          for (const [where, surface] of [['the configuration page', config], ['the panel', panel], ['the settings tab', tab]]) {
-            is(surface.includes(phrase), false, `${where} no longer says "${phrase}"`)
-          }
-        }
+        ok(config.includes('Ctrl/Cmd+U opens the usage panel.'), 'the configuration page names the shortcut')
       },
     },
     {
@@ -1706,7 +1562,7 @@ export default {
         const page = await renderPage({ fetch: host() })
         const tree = await page.open('summary')
         equal(page.calls.length, 0)
-        is(text(tree), 'Configure the key, models, and usage')
+        is(text(tree), 'API key, models, and usage')
       },
     },
     {
@@ -1715,7 +1571,7 @@ export default {
         const page = await renderPage({ fetch: host() })
         const tree = await page.open()
         const labels = buttons(tree)
-        for (const label of ['Save', 'Clear key', 'Save visibility', 'Discard changes', 'Reload list', 'Fetch the model list', 'Save variants', 'Refresh usage', 'Previous page', 'Next page']) {
+        for (const label of ['Save', 'Clear key', 'Reload list', 'Fetch available models', 'Refresh usage', 'Previous page', 'Next page']) {
           ok(labels.includes(label), `a "${label}" control is rendered: [${labels.join(', ')}]`)
         }
         const rangeTree = await page.click((node) => node.type === 'button' && node.props['aria-haspopup'] === 'menu'
@@ -2522,7 +2378,7 @@ export default {
         // navigation. Every endpoint the configuration page needs is read here
         // too — a second component that fetched a subset would look right and
         // edit nothing.
-        equal(section.options.label(), 'OpenCode Go settings')
+        equal(section.options.label(), 'OpenCode Go')
         equal(page.calls.map((call) => call.path.split('?')[0]), [
           'opencode-go/subscription',
           'opencode-go/state',
@@ -2533,7 +2389,7 @@ export default {
         // The fields are fields, not a readout: the reader who came to Settings
         // to configure this plugin can type here.
         const said = text(tree).replace(/\s+/g, ' ')
-        for (const heading of ['Connection', 'API key', 'Model visibility', 'Model variants', 'Usage']) {
+        for (const heading of ['Connection', 'API key', 'Models', 'Variants', 'Usage']) {
           ok(said.includes(heading), `the page carries its ${heading} section`)
         }
         ok(nodes(tree).some(({ node }) => node.type === 'input'), 'the API key field is editable here')

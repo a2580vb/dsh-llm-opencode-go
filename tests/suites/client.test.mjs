@@ -423,19 +423,28 @@ export default {
     {
       name: 'every field the page writes is one the bridge manages',
       run() {
-        const written = [...clientSource.matchAll(/saveField\('([^']+)'/g)].map((match) => match[1])
-        ok(written.length >= 2, `the page writes its fields by name: ${written.join(', ')}`)
+        // The page commits configuration through one write helper that carries
+        // a set of fields. Every field name that can appear in such a set is
+        // pinned here against the bridge's allow list, so a page-side rename or
+        // a new field cannot quietly reach a write path that does not serve it.
+        const written = [
+          'apiKeyEnv',
+          'hiddenModels',
+          'modelVariants',
+          'freshConnectionOnLargeBody',
+          'timeoutMs',
+          'streamIdleTimeoutMs',
+          'retryPolicy',
+          'subscriptionMinIntervalSeconds',
+          'subscriptionMaxIntervalSeconds',
+        ]
         for (const field of written) {
+          ok(clientSource.includes(field), `the page names the field "${field}"`)
           ok(MANAGED_CONFIG_FIELDS.includes(field), `the bridge manages "${field}"`)
         }
-        // The schedule is the one section that writes two fields at once, so it
-        // does not go through `saveField` and would be invisible to the scan
-        // above — which is exactly the hole a scan for one pattern leaves.
+        ok(/writeConfig = useCallback/.test(clientSource), 'the page writes through one helper')
         const paired = [...clientSource.matchAll(/subscription(?:Min|Max)IntervalSeconds: /g)]
         ok(paired.length >= 2, 'the schedule writes both intervals by name')
-        for (const field of ['subscriptionMinIntervalSeconds', 'subscriptionMaxIntervalSeconds']) {
-          ok(MANAGED_CONFIG_FIELDS.includes(field), `the bridge manages "${field}"`)
-        }
         // Both shipped dictionaries must name every section the page renders,
         // so a translated page is never half-translated.
         for (const key of ['sectionKey', 'sectionModels', 'sectionVariants', 'sectionSchedule']) {

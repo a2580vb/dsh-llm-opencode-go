@@ -48,7 +48,7 @@ restart.
 | **Reasoning** | Per-protocol effort mapping, including Anthropic thinking budgets |
 | **Streaming** | SSE → `StreamChunk`, with usage, finish reason, and an idle watchdog |
 | **Failures** | Stable provider-neutral codes (`AUTH`, `RATE_LIMIT`, `QUOTA`, `CONTEXT_WINDOW_EXCEEDED`, …) |
-| **Configuration UI** | One page in the web client, with a row in Settings' own navigation and a Configure control on the plugin's row: API key, credential reference, model visibility, model variants, fetching the model list, usage |
+| **Configuration UI** | One page in the web client, with a row in Settings' own navigation and a Configure control on the plugin's row: API key, credential reference, model visibility and variants, fetching the model list, usage |
 | **Fast entries** | A quota capsule at the sidebar's foot (one ring per window — `5H / Wk / Mo` — with what is left of each), a usage panel of its own (from that row, or the keyboard), and a usage page under Settings |
 | **Runtime** | Node.js ≥ 20; no runtime dependencies |
 

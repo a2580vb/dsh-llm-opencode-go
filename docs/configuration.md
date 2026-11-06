@@ -124,7 +124,7 @@ same window at the same moment spend one request between them.
 
 The plugin ships a page in the Harness web client. It opens from two places, both
 registering the *same component* — so the two cannot drift — but hosting it in
-different chrome: a row of Settings' own navigation (**OpenCode Go settings**,
+different chrome: a row of Settings' own navigation (**OpenCode Go**,
 beside the pages the shell ships), or the sidebar's **Plugins** page, where the
 `dsh-llm-opencode-go` bundle's `opencode-go` row has a **Configure** control. The
 capsule's gear and the usage panel's *Plugin settings* button open that first
@@ -142,17 +142,20 @@ covers the facts that are per-deployment and change often:
 |---|---|
 | **API key** | Stored write-only through the credential seam under `apiKeyEnv`. The page reports whether it is configured, where it comes from, and whether it can be replaced — never the value. |
 | **Credential reference** | Which `apiKeyEnv` the key is stored under. Editable, so a name other than the one the launching environment supplies can be used. |
-| **Model visibility** | One switch per catalog model, written to `hiddenModels`. The page shows the whole catalog, including models this deployment already hides. |
-| **Model variants** | Named presets of one model, written to `modelVariants`, in an editable list: add a model, name it, then open any row's **Edit** to change its fields, or **Remove** to drop it. |
-| **Quota refresh rhythm** | The two intervals that pace the capsule's quota checks, written to `subscriptionMinIntervalSeconds` and `subscriptionMaxIntervalSeconds`. They are one setting, so they are saved together, and a floor above its ceiling is refused on the page rather than silently resolved. |
-| **Transport and retries** | One switch for `freshConnectionOnLargeBody` — a request body of 256 KiB or more asks for its own connection — plus the two deadlines (`timeoutMs`, `streamIdleTimeoutMs`) and the retry policy's limit and delays (`retryPolicy`). The deadlines are typed in seconds and written in milliseconds, and the whole policy is written back, so fields the page does not edit keep their values. |
-| **Fetch the model list** | Re-reads `GET /models` on demand and reports what appeared and what went away. |
-| **Usage** | Two things side by side: the service's own metered quota for the subscription, and the calls and tokens this plugin counted itself, per model and per day. This is the same block the panel under [fast entries](#fast-entries) carries. |
+| **Models** | A checkbox per catalog model decides what the picker lists, written to `hiddenModels`. The page shows the whole catalog, including models this deployment already hides. The same card edits `modelVariants`, and its one **Save** writes both fields in a single configuration change. |
+| **Model variants** | Named presets of one model, written to `modelVariants`, in an editable list inside the Models card: pick a model, name it, then open a row's **Edit** to change its fields, or **Delete** to drop it. |
+| **Quota refresh** | The two intervals that pace the capsule's quota checks, written to `subscriptionMinIntervalSeconds` and `subscriptionMaxIntervalSeconds`. Each field saves when it loses focus (or on Enter), and a floor above its ceiling is refused on the page before any write. |
+| **Transport and retries** | One switch for `freshConnectionOnLargeBody` — a request body of 256 KiB or more asks for its own connection — plus the two deadlines (`timeoutMs`, `streamIdleTimeoutMs`) and the retry policy's limit and delays (`retryPolicy`). The switch applies when toggled; each number applies when its field is left. The deadlines are typed in seconds and written in milliseconds, and the whole policy is written back, so fields the page does not edit keep their values. |
+| **Fetch available models** | Re-reads `GET /models` on demand and reports what appeared and what went away. |
+| **Usage and history** | Two things side by side: the service's own metered quota for the subscription, and the calls and tokens this plugin counted itself, per model and per day. This is the same block the panel under [fast entries](#fast-entries) carries. |
 
 Writing an ordinary config field reloads that plugin row — the Loader reconciles
 it through the profile patch — after which the page re-reads what the Host
-reports, and says so when the read back fails. The key is the exception: it goes
-to the credential store and applies to the next request.
+reports, and says so when the read back fails. The page stages edits in one of
+two ways: a scalar field saves when it loses focus (or on Enter), while the key
+and the Models card keep a draft and commit it with their single **Save** (the
+Models save sends `hiddenModels` and `modelVariants` in one change). The key is
+the exception: it goes to the credential store and applies to the next request.
 
 The card this bundle gets in that list, and the header of the `opencode-go` row's
 own page, carry the one-line description the package declares in
@@ -167,15 +170,15 @@ The credential seam layers a reference, most trusted first:
 
 | Layer | What a write there does | What the page shows |
 |---|---|---|
-| the launching environment | nothing — a process cannot change its own inherited environment | **Clear key** is disabled, and the message names the variable and points at the reference field |
+| the launching environment | nothing — a process cannot change its own inherited environment | **Clear key** is not rendered, and the message names the variable and points at the reference field |
 | the managed store (`~/.dsh/.credentials.yaml`) | this is the value the route reads | **Clear key** removes it |
-| a `.env` file (project first, then home) | stores, and is immediately shadowed back by the file | **Clear key** is disabled, and the message names the file |
+| a `.env` file (project first, then home) | stores, and is immediately shadowed back by the file | **Clear key** is not rendered, and the message names the file |
 
 The page can remove only the middle layer, and reports which layer it found in the
 other two cases. When a value is supplied from outside, the way out is the
 **Credential reference** field: point the route at a name nothing shadows
-(`OPENCODE_GO_HOME_KEY`, say), press **Save reference**, and store the key under
-that name. It is an ordinary config field, so the Loader applies it on reload — no
+(`OPENCODE_GO_HOME_KEY`, say), leave the field — it saves when it loses focus —
+and store the key under that name. It is an ordinary config field, so the Loader applies it on reload — no
 restart and no editing of your shell profile.
 
 ### The page's own endpoints
