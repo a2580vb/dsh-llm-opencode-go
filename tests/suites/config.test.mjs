@@ -34,6 +34,7 @@ export default {
         is(config.sendClientHeader, true)
         is(config.hideTrainingModels, false)
         is(config.healthCheck, 'off')
+        is(config.usageNumberFormat, 'compact')
         ok(Object.isFrozen(config))
       },
     },
@@ -129,11 +130,15 @@ export default {
       },
     },
     {
-      name: 'an unknown session mode, model source, or protocol is refused by name',
+      name: 'an unknown session mode, model source, protocol, or number format is refused by name',
       run: async () => {
         await rejectsWith(Promise.resolve().then(() => resolveConfig({ sessionHeader: 'always' })), 'sessionHeader')
         await rejectsWith(Promise.resolve().then(() => resolveConfig({ modelSource: 'auto' })), 'modelSource')
         await rejectsWith(Promise.resolve().then(() => resolveConfig({ defaultProtocol: 'grpc' })), 'defaultProtocol')
+        is(resolveConfig({ usageNumberFormat: 'full' }).usageNumberFormat, 'full')
+        await rejectsWith(Promise.resolve().then(() => resolveConfig({ usageNumberFormat: 'words' })), 'usageNumberFormat')
+        const issues = Config['~standard'].validate({ usageNumberFormat: 'words' }).issues
+        ok(issues.some((issue) => String(issue.message).includes('usageNumberFormat')), 'the schema names the field too')
       },
     },
     {

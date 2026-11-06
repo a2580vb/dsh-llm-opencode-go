@@ -37,13 +37,14 @@ const STATE = {
   environment: { key: 'OPENCODE_GO_API_KEY', present: false },
   config: {
     editable: true,
-    fields: ['apiKeyEnv', 'hiddenModels', 'modelVariants', 'freshConnectionOnLargeBody', 'timeoutMs', 'streamIdleTimeoutMs', 'retryPolicy', 'subscriptionMinIntervalSeconds', 'subscriptionMaxIntervalSeconds'],
+    fields: ['apiKeyEnv', 'hiddenModels', 'modelVariants', 'freshConnectionOnLargeBody', 'timeoutMs', 'streamIdleTimeoutMs', 'retryPolicy', 'subscriptionMinIntervalSeconds', 'subscriptionMaxIntervalSeconds', 'usageNumberFormat'],
     // What the row resolves to, which is what the schedule and transport
     // sections edit. The real bridge always reports these, so a fixture without
     // them would test a page nobody is served.
     values: {
       subscriptionMinIntervalSeconds: 30,
       subscriptionMaxIntervalSeconds: 1_800,
+      usageNumberFormat: 'compact',
       freshConnectionOnLargeBody: true,
       timeoutMs: 180_000,
       streamIdleTimeoutMs: 90_000,
@@ -72,13 +73,15 @@ const CACHED = { requests: 4, failures: 1, inputTokens: 400, outputTokens: 100, 
 const USAGE = {
   ok: true,
   window: 7,
+  numberFormat: 'compact',
   today: '2026-01-15',
-  windows: [1, 7, 30],
+  windows: [1, 7, 30, 'all'],
   days: [{ day: '2026-01-15', counters: { ...CACHED } }],
+  historyDays: [{ day: '2026-01-15', counters: { ...CACHED } }],
   models: [{ model: 'glm-5.3', counters: { ...CACHED } }],
   totals: { ...CACHED },
   firstDay: '2026-01-15',
-  retentionDays: 30,
+  retentionDays: null,
   retention: ['2026-01-15'],
 }
 
@@ -118,15 +121,36 @@ const SUBSCRIPTION = {
   }
 }
 
-/** The usage requests the page made, as window numbers. */
+/** The usage requests the page made, as window numbers or `all`. */
 const windowsAsked = (calls) => calls
   .filter((call) => call.path.startsWith('opencode-go/usage'))
-  .map((call) => Number(new URLSearchParams(String(call.path).split('?')[1]).get('days')))
+  .map((call) => {
+    const days = new URLSearchParams(String(call.path).split('?')[1]).get('days')
+    return days === 'all' ? days : Number(days)
+  })
 
 /** The button whose label is `label`. */
 const button = (tree, label) => {
   const match = nodes(tree).find(({ node }) => node.type === 'button' && text(node).trim() === label)
   return match?.node
+}
+
+/** The preference group that contains a particular option. */
+const choiceGroup = (label) => {
+  if (['Full numbers', 'Show units'].includes(label)) return 'Number format'
+  if (['10 per page', '30 per page', '100 per page'].includes(label)) return 'Days per page'
+  return 'Range'
+}
+
+/** The DSH-style menu trigger for the group containing `label`. */
+const choice = (tree, label) => find(tree, (node) => node.type === 'button'
+  && node.props['aria-haspopup'] === 'menu' && node.props['aria-label'] === choiceGroup(label))
+
+/** Open a preference menu and choose one of its rows. */
+const choose = async (surface, label) => {
+  await surface.click((node) => node.type === 'button' && node.props['aria-haspopup'] === 'menu'
+    && node.props['aria-label'] === choiceGroup(label))
+  return surface.click((node) => node.type === 'button' && node.props.role === 'menuitem' && text(node).trim() === label)
 }
 
 /**
@@ -454,12 +478,93 @@ export default {
         equal(byDay[0], ['Day', ...columns.slice(1)])
         equal(byDay[1], ['2026-01-15', '4', '1', '400', '100', '100', '20', '20%', '500'], byDay[1].join(','))
 
-        // The selected window is the one markable as current, so a reader can
-        // tell what the numbers cover.
-        const thirty = button(tree, '30 days')
-        const seven = button(tree, '7 days')
-        is(seven.props.style.background, 'var(--dsw-alias-button-primary-fill)')
-        is(thirty.props.style.background, 'transparent')
+        // The range uses the DSH menu trigger and a rounded, right-aligned menu.
+        const range = choice(tree, '30 days')
+        is(range.props.value, '7')
+        is(range.props['aria-label'], 'Range')
+        is(range.props.style.background, 'var(--dsw-alias-bg-module-platform)')
+        const opened = await page.click((node) => node.type === 'button' && node.props['aria-haspopup'] === 'menu'
+          && node.props['aria-label'] === 'Range')
+        const menu = find(opened, (node) => node.props?.role === 'menu' && node.props['aria-label'] === 'Range')
+        is(menu.props.style.borderRadius, 'var(--dsw-radius-lg)')
+        is(menu.props.style.right, 0)
+        equal(nodes(menu).filter(({ node }) => node.props?.role === 'menuitem').map(({ node }) => text(node).trim()),
+          ['Today', '7 days', '30 days', 'All history'])
+      },
+    },
+    {
+      name: 'token figures default to units and the chosen number format is persisted',
+      async run() {
+        const large = {
+          requests: 4,
+          failures: 1,
+          inputTokens: 1_250_000,
+          outputTokens: 2_500_000_000_000,
+          cacheReadTokens: 1_200,
+          cacheWriteTokens: 1_500_000_000,
+          cacheReported: 4,
+          totalTokens: 2_501_501_251_200,
+        }
+        let savedFormat = 'compact'
+        const base = host({
+          usage: {
+            body: {
+              ...USAGE,
+              totals: large,
+              models: [{ model: 'glm-5.3', counters: large }],
+              days: [{ day: '2026-01-15', counters: large }],
+            },
+          },
+        })
+        const fetch = async (path, init) => {
+          if (path === 'opencode-go/config' && init?.method === 'POST') {
+            savedFormat = JSON.parse(init.body).set.usageNumberFormat
+          }
+          const answer = await base(path, init)
+          if (String(path).startsWith('opencode-go/usage')) {
+            return { ...answer, body: { ...answer.body, numberFormat: savedFormat } }
+          }
+          return answer
+        }
+        const usageSection = (root) => find(root, (node) => node.type === 'section' && text(node).includes('Usage'))
+        const compactRow = ['Total', '4', '1', '1.25M', '2.5T', '1.2K', '1.5B', '0%', '2.5T']
+        const fullRow = ['Total', '4', '1', '1250000', '2500000000000', '1200', '1500000000', '0%', '2501501251200']
+        const page = await renderPage({ fetch })
+        const tree = await page.open()
+        equal(rows(tables(usageSection(tree))[0])[1], compactRow, 'units are the default')
+        is(choice(tree, 'Show units').props.value, 'true')
+
+        const fullValue = nodes(tables(usageSection(tree))[0]).find(({ node }) => node.type === 'span'
+          && text(node) === '2.5T' && node.props.title === '2501501251200')
+        ok(fullValue !== undefined, 'the shortened total carries its full value as a tooltip')
+        is(fullValue.node.props['aria-label'], '2501501251200', 'and as its accessible name')
+
+        const fullTree = await choose(page, 'Full numbers')
+        equal(rows(tables(usageSection(fullTree))[0])[1], fullRow)
+        is(choice(fullTree, 'Show units').props.value, 'false')
+        const writes = page.calls.filter((call) => call.path === 'opencode-go/config')
+        equal(writes.map((call) => JSON.parse(call.init.body).set), [{ usageNumberFormat: 'full' }])
+        equal(windowsAsked(page.calls), [7], 'changing the format does not re-read the counters')
+
+        const reopened = await renderPage({ fetch })
+        const reopenedTree = await reopened.open()
+        equal(rows(tables(usageSection(reopenedTree))[0])[1], fullRow, 'the saved format survives reopening')
+        const shortenedTree = await choose(reopened, 'Show units')
+        equal(rows(tables(usageSection(shortenedTree))[0])[1], compactRow)
+        is(savedFormat, 'compact')
+
+        const failing = await renderPage({
+          fetch: async (path, init) => {
+            if (path === 'opencode-go/config') {
+              return { status: 400, body: { ok: false, message: 'the setting is read-only' } }
+            }
+            return base(path, init)
+          },
+        })
+        await failing.open()
+        const failedTree = await choose(failing, 'Full numbers')
+        is(choice(failedTree, 'Show units').props.value, 'true', 'a failed write rolls the display back')
+        ok(text(failedTree).includes('Could not save the number format: the setting is read-only'), text(failedTree))
       },
     },
     {
@@ -553,14 +658,86 @@ export default {
       async run() {
         const page = await renderPage({ fetch: host() })
         await page.open()
-        await page.click((node) => node.type === 'button' && text(node).trim() === '30 days')
+        await choose(page, '30 days')
         equal(windowsAsked(page.calls), [7, 30])
         // The table itself follows the window it was read for, rather than
         // whatever the Host answered first.
         const section = find(page.tree(), (node) => node.type === 'section' && text(node).includes('Usage'))
         ok(text(section).includes('2026-01-15'), 'the table is still on screen')
-        is(button(page.tree(), '30 days').props.style.background, 'var(--dsw-alias-button-primary-fill)')
-        is(button(page.tree(), '7 days').props.style.background, 'transparent')
+        is(choice(page.tree(), '30 days').props.value, '30')
+      },
+    },
+    {
+      name: 'all history asks for every recorded day rather than a numeric window',
+      async run() {
+        const historyDays = [
+          { day: '2025-11-01', counters: { ...CACHED, requests: 2, totalTokens: 250 } },
+          { day: '2026-01-15', counters: { ...CACHED } },
+        ]
+        const history = {
+          ...USAGE,
+          window: 'all',
+          days: historyDays,
+          historyDays,
+        }
+        const page = await renderPage({ fetch: host({ usage: { body: history } }) })
+        await page.open()
+        const tree = await choose(page, 'All history')
+        equal(windowsAsked(page.calls), [7, 'all'])
+        is(choice(tree, 'All history').props.value, 'all')
+        const section = find(tree, (node) => node.type === 'section' && text(node).includes('Usage'))
+        const dayRows = rows(tables(section)[2])
+        equal(dayRows.map((row) => row[0]), ['Day', '2026-01-15', '2025-11-01'], 'newest days come first')
+
+        // A new page on an older Host says why the option is absent rather than
+        // promising a report that Host cannot serve.
+        const legacy = await renderPage({ fetch: host({ usage: { body: { ...USAGE, windows: [1, 7, 30] } } }) })
+        const legacyTree = await legacy.open()
+        ok(text(legacyTree).includes('Restart DSH'), 'the older Host gets a restart explanation')
+        const opened = await legacy.click((node) => node.type === 'button' && node.props['aria-haspopup'] === 'menu'
+          && node.props['aria-label'] === 'Range')
+        const menu = find(opened, (node) => node.props?.role === 'menu' && node.props['aria-label'] === 'Range')
+        equal(nodes(menu).filter(({ node }) => node.props?.role === 'menuitem').map(({ node }) => text(node).trim()),
+          ['Today', '7 days', '30 days'])
+
+        const days = Array.from({ length: 105 }, (_, index) => ({
+          day: new Date(Date.UTC(2025, 0, index + 1)).toISOString().slice(0, 10),
+          counters: { ...CACHED },
+        }))
+        const expected = days.map((entry) => entry.day).reverse()
+        const paged = await renderPage({
+          fetch: host({ usage: { body: { ...USAGE, days: days.slice(-1), historyDays: days } } }),
+        })
+        let pagedTree = await paged.open()
+        const dailyRows = (tree) => {
+          const usage = find(tree, (node) => node.type === 'section' && text(node).includes('Usage'))
+          return rows(tables(usage)[2]).slice(1).map((row) => row[0])
+        }
+        equal(dailyRows(pagedTree), expected.slice(0, 10), 'the first page is the newest ten days')
+        is(choice(pagedTree, '10 per page').props.value, '10')
+        ok(text(pagedTree).includes('Page 1 of 11'), text(pagedTree))
+        is(button(pagedTree, 'Previous page').props.disabled, true)
+
+        pagedTree = await paged.click((node) => node.type === 'button' && text(node).trim() === 'Next page')
+        is(dailyRows(pagedTree)[0], expected[10])
+        ok(text(pagedTree).includes('Page 2 of 11'), text(pagedTree))
+
+        pagedTree = await choose(paged, '30 per page')
+        equal(dailyRows(pagedTree).length, 30)
+        is(dailyRows(pagedTree)[0], expected[0], 'changing the page size returns to the first page')
+        ok(text(pagedTree).includes('Page 1 of 4'), text(pagedTree))
+        pagedTree = await paged.click((node) => node.type === 'button' && text(node).trim() === 'Next page')
+        is(dailyRows(pagedTree)[0], expected[30])
+
+        pagedTree = await choose(paged, '100 per page')
+        equal(dailyRows(pagedTree).length, 100)
+        ok(text(pagedTree).includes('Page 1 of 2'), text(pagedTree))
+        pagedTree = await paged.click((node) => node.type === 'button' && text(node).trim() === 'Next page')
+        equal(dailyRows(pagedTree), expected.slice(100), 'the last page contains only the remaining days')
+        is(button(pagedTree, 'Next page').props.disabled, true)
+        pagedTree = await paged.click((node) => node.type === 'button' && text(node).trim() === 'Previous page')
+        equal(dailyRows(pagedTree).length, 100)
+        equal(windowsAsked(paged.calls), [7], 'pagination never re-reads the usage endpoint')
       },
     },
     {
@@ -568,13 +745,13 @@ export default {
       async run() {
         const page = await renderPage({ fetch: host() })
         await page.open()
-        await page.click((node) => node.type === 'button' && text(node).trim() === 'Today')
+        await choose(page, 'Today')
         await page.click((node) => node.type === 'button' && text(node).trim() === 'Refresh usage')
         equal(windowsAsked(page.calls), [7, 1, 1])
         // Pressing the window already showing is the other way a reader
         // re-reads it, and the one the shared store cannot infer: the window
         // they are on is by definition not a dependency change.
-        await page.click((node) => node.type === 'button' && text(node).trim() === 'Today')
+        await choose(page, 'Today')
         equal(windowsAsked(page.calls), [7, 1, 1, 1])
       },
     },
@@ -604,7 +781,7 @@ export default {
         })
         await page.open()
         failNext = true
-        await page.click((node) => node.type === 'button' && text(node).trim() === '30 days')
+        await choose(page, '30 days')
         const section = find(page.tree(), (node) => node.type === 'section' && text(node).includes('Usage'))
         ok(text(section).includes('Could not read usage: the file is gone'), text(section))
       },
@@ -1492,8 +1669,8 @@ export default {
         const tab = flat(await page.surface('settings.plugins.tab').open())
 
         const shared = [
-          'Calls and tokens recorded locally, grouped by this machine\'s calendar day and kept for 30 days.'
-          + ' It counts this plugin\'s route only; the model provider\'s billing may differ.',
+          'Calls and tokens recorded locally for this route, grouped by this machine\'s calendar day; the model provider\'s billing may differ.',
+          'Totals and models follow the selected range; the daily table always covers all recorded history.',
           'Hit rate = cache read ÷ (uncached input + cache read). A service that never reported a cache figure shows "—".',
           'Read at ',
         ]
@@ -1538,8 +1715,19 @@ export default {
         const page = await renderPage({ fetch: host() })
         const tree = await page.open()
         const labels = buttons(tree)
-        for (const label of ['Save', 'Clear key', 'Save visibility', 'Discard changes', 'Reload list', 'Fetch the model list', 'Save variants', 'Refresh usage', 'Today', '7 days', '30 days']) {
+        for (const label of ['Save', 'Clear key', 'Save visibility', 'Discard changes', 'Reload list', 'Fetch the model list', 'Save variants', 'Refresh usage', 'Previous page', 'Next page']) {
           ok(labels.includes(label), `a "${label}" control is rendered: [${labels.join(', ')}]`)
+        }
+        const rangeTree = await page.click((node) => node.type === 'button' && node.props['aria-haspopup'] === 'menu'
+          && node.props['aria-label'] === 'Range')
+        const formatTree = await page.click((node) => node.type === 'button' && node.props['aria-haspopup'] === 'menu'
+          && node.props['aria-label'] === 'Number format')
+        const pageSizeTree = await page.click((node) => node.type === 'button' && node.props['aria-haspopup'] === 'menu'
+          && node.props['aria-label'] === 'Days per page')
+        const options = [...nodes(rangeTree), ...nodes(formatTree), ...nodes(pageSizeTree)]
+          .filter(({ node }) => node.props?.role === 'menuitem').map(({ node }) => text(node).trim())
+        for (const label of ['Today', '7 days', '30 days', 'All history', 'Full numbers', 'Show units', '10 per page', '30 per page', '100 per page']) {
+          ok(options.includes(label), `a "${label}" option is rendered: [${options.join(', ')}]`)
         }
       },
     },
@@ -1849,14 +2037,13 @@ export default {
         await panel.open()
         await tab.open()
 
-        await panel.click((node) => node.type === 'button' && text(node).trim() === '30 days')
+        await choose(panel, '30 days')
 
         equal(windowsAsked(page.calls), [7, 7, 7, 30], 'the panel asked for its own window')
-        is(button(panel.tree(), '30 days').props.style.background, 'var(--dsw-alias-brand-primary)')
+        is(choice(panel.tree(), '30 days').props.value, '30')
         // The other two surfaces are still on 7 days, and still say so.
         for (const [where, tree] of [['the configuration page', page.tree()], ['the settings tab', tab.tree()]]) {
-          is(button(tree, '7 days').props.style.background, 'var(--dsw-alias-button-primary-fill)', where)
-          is(button(tree, '30 days').props.style.background, 'transparent', where)
+          is(choice(tree, '7 days').props.value, '7', where)
         }
       },
     },

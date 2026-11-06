@@ -3,16 +3,16 @@
  *
  * The store is the one place in this plugin that writes a fact about a call
  * *and* reads it back, so the cases here are about the properties a usage table
- * has to have: a day boundary a person recognises, a file that cannot grow
- * without limit, damage that costs history rather than a request, and a write
- * that fails without failing the call it counted.
+ * has to have: a day boundary a person recognises, complete per-day history,
+ * damage that costs history rather than a request, and a write that fails
+ * without failing the call it counted.
  */
 
 import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
-import { RETENTION_DAYS, UsageStore, dayKey, usagePath } from '../../lib/usage/store.js'
+import { UsageStore, dayKey, usagePath } from '../../lib/usage/store.js'
 import { mapOpenAiUsage } from '../../lib/protocol/shared.js'
 import { equal, is, ok } from '../helpers.mjs'
 
@@ -309,6 +309,11 @@ export default {
         is(week.days[0].day, '2026-01-12')
         // A window is inclusive of today: `days: 3` reaches back two days.
         equal((await store.summary({ days: 3 })).days.map((entry) => entry.day), ['2026-01-14', '2026-01-15'])
+        // The complete history is a separate report, not a large numeric window.
+        const all = await store.summary({ days: 'all' })
+        is(all.window, 'all')
+        equal(all.days.map((entry) => entry.day), ['2026-01-12', '2026-01-14', '2026-01-15'])
+        is(all.totals.requests, 3)
       },
     },
     {
@@ -320,6 +325,7 @@ export default {
         is((await store.summary({ days: 0 })).window, 7)
         is((await store.summary({ days: -3 })).window, 7)
         is((await store.summary({ days: 30 })).window, 30)
+        is((await store.summary({ days: 'all' })).window, 'all')
       },
     },
     {
@@ -371,22 +377,23 @@ export default {
       },
     },
     {
-      name: 'days outside the retention window are dropped when the file is written',
+      name: 'the file and the all-history report keep days older than 30 days',
       async run() {
         const { store, clock, directory } = await storeUnderTest()
         clock.value = Date.UTC(2026, 0, 1, 12, 0, 0)
-        store.record(call('ancient', { inputTokens: 1 }))
+        store.record(call('old', { inputTokens: 1 }))
         await store.flush()
-        clock.value = Date.UTC(2026, 0, 1, 12, 0, 0) + (RETENTION_DAYS + 2) * 86_400_000
+        clock.value = Date.UTC(2026, 1, 15, 12, 0, 0)
         store.record(call('recent', { inputTokens: 1 }))
         await store.flush()
 
         const raw = JSON.parse(await readFile(join(directory, 'usage.json'), 'utf8'))
-        equal(Object.keys(raw.days).length, 1, 'only the day inside the window is kept')
-        ok(Object.keys(raw.days)[0] > '2026-01-01', Object.keys(raw.days)[0])
-        // The old day is gone from the report too, which is the point: the file
-        // cannot grow without limit, and neither does the table.
-        is((await store.summary({ days: 30 })).totals.requests, 1)
+        equal(Object.keys(raw.days), ['2026-01-01', '2026-02-15'])
+        is((await store.summary({ days: 30 })).totals.requests, 1, 'the rolling window still selects recent days')
+        const all = await store.summary({ days: 'all' })
+        is(all.totals.requests, 2, 'the complete report includes both days')
+        equal(all.models.map((entry) => entry.model).sort(), ['old', 'recent'])
+        is(all.retentionDays, null, 'history has no age-based expiry')
       },
     },
     {

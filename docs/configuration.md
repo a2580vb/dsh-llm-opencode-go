@@ -18,6 +18,7 @@ view, or read `Config` from the plugin for the authoritative list.
 | `modelsCacheSeconds` | `21600` | Discovered-catalog lifetime |
 | `modelsCachePath` | `~/.dsh/cache/opencode-go-models.json` | Cache file; an unwritable path only warns |
 | `usagePath` | `~/.dsh/cache/opencode-go-usage.json` | Where the usage counters live; an unwritable path only warns |
+| `usageNumberFormat` | `compact` | Token display in the usage UI: `compact` uses decimal `K/M/B/T` units; `full` shows complete numbers. The page saves this choice here |
 | `diagnostics` | `failures` | What the diagnostics log keeps: `off` \| `failures` \| `all` (see [Diagnostics log](#diagnostics-log)) |
 | `diagnosticsPath` | `~/.dsh/logs/opencode-go.jsonl` | Where that log lives; an unwritable path only warns |
 | `subscriptionCacheSeconds` | `60` | How long the page reuses a subscription-quota answer before asking the service again |
@@ -190,7 +191,7 @@ while the client is open:
 | `/opencode-go/config` | `POST` | writes one managed field into the profile patch |
 | `/opencode-go/credential` | `POST` | stores the API key; `DELETE` clears it |
 | `/opencode-go/refresh` | `POST` | re-reads `GET /models` and reports what changed |
-| `/opencode-go/usage` | `GET` | the usage table for `?days=1`, `7`, or `30` |
+| `/opencode-go/usage` | `GET` | the usage table for `?days=1`, `7`, `30`, or `all` |
 | `/opencode-go/subscription` | `GET` | the subscription's own quota, read from the service; `?refresh=1` bypasses the cache |
 | `/opencode-go/activity` | `GET` | whether that quota answer has gone old — answered from memory, never from the service |
 
@@ -295,11 +296,17 @@ and a per-day series.
 | **A failure** | A call that ended in an error, including one the provider refused before any stream. |
 | **The model** | The id the harness asked for, so a variant appears under its own alias. |
 | **The day** | This machine's local calendar day, so a token spent at 23:00 belongs to the evening it was spent. |
-| **The window** | 1, 7, or 30 days. The page can ask for nothing else; a 30-day retention window is dropped from the file as it is written. |
+| **The range** | Today, 7 days, 30 days, or **All history**, applied to totals and per-model counters. Numeric ranges end today. |
+| **History retention** | Every per-day, per-model aggregate is kept. Writes do not remove older days, so the file grows with active days and models rather than requests. |
+| **Token number format** | Decimal `K/M/B/T` units by default, with a full-number alternative. Only token columns are shortened; call counts, failure counts, and hit rates stay unchanged. A shortened value carries its full number in its tooltip and accessible name. The choice is persisted in `usageNumberFormat` and shared by every usage surface. |
+| **Daily pagination** | Always the complete history, independent of the selected range. Newest day first, 10 days per page by default, with 30- and 100-day options. Previous/next controls page through the days already read without another Host request. |
 | **A write** | Debounced a few seconds and flushed on unload, so a stream never waits on an `fs` call and a reload does not lose the tail. |
 | **Uncached input** | The part of the prompt the service did not serve from cache. Not the whole prompt: see below. |
 | **Cache read / write** | What the service said it read from, and wrote to, its prompt cache. |
 | **Hit rate** | Cache read ÷ (uncached input + cache read) — the share of the prompt that came from cache. Shown as `—` when no call reported a cache figure at all. |
+
+The range and number format use DSH-style rounded menus in the same label-left,
+control-right preference layout as the Harness settings pages.
 
 A call whose stream the caller abandoned is not counted: this table is about what
 the route spent, not about an outcome nobody observed. Counting starts before the

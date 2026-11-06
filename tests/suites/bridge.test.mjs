@@ -53,6 +53,7 @@ export default {
           'retryPolicy',
           'subscriptionMinIntervalSeconds',
           'subscriptionMaxIntervalSeconds',
+          'usageNumberFormat',
         ])
       },
     },
@@ -93,6 +94,7 @@ export default {
           'retryPolicy',
           'subscriptionMinIntervalSeconds',
           'subscriptionMaxIntervalSeconds',
+          'usageNumberFormat',
         ])
         is(res.json.config.values.apiKeyEnv, 'OC_KEY')
         equal(res.json.config.values.hiddenModels, ['space-bunny-free'])
@@ -104,6 +106,7 @@ export default {
         is(res.json.config.values.retryPolicy.maxRetries, 5)
         is(res.json.config.values.retryPolicy.initialDelayMs, 500)
         is(res.json.config.values.retryPolicy.maxDelayMs, 10_000)
+        is(res.json.config.values.usageNumberFormat, 'compact')
       },
     },
     {
@@ -224,11 +227,16 @@ export default {
         is(res.captured.statusCode, 200)
         is(res.json.ok, true)
         is(res.json.window, 30)
-        equal(res.json.windows, [1, 7, 30])
+        is(res.json.numberFormat, 'compact')
+        equal(res.json.windows, [1, 7, 30, 'all'])
         is(res.json.totals.requests, 4)
         is(res.json.totals.totalTokens, 500)
         equal(res.json.models.map((entry) => entry.model), ['glm-5.3'])
         is(res.json.days[0].day, '2026-01-15')
+        is(res.json.historyDays[0].day, '2026-01-15')
+        const all = await call(instance, local({ url: `${UI_ROUTES.usage}?days=all` }))
+        is(all.captured.statusCode, 200)
+        is(all.json.window, 'all')
       },
     },
     {
@@ -237,16 +245,23 @@ export default {
         const seen = []
         const { instance } = bridgeUnderTest({ usage: async (days) => {
           seen.push(days)
-          return { window: days, totals: fakeCounters(), days: [], models: [], retentionDays: 30 }
+          return {
+            window: days,
+            totals: fakeCounters(),
+            days: days === 'all' ? [{ day: '2025-01-01', counters: fakeCounters() }] : [],
+            models: [],
+            retentionDays: null,
+          }
         } })
         for (const query of ['', '?days=0', '?days=-1', '?days=365', '?days=abc', '?days=']) {
           const res = await call(instance, local({ url: `${UI_ROUTES.usage}${query}` }))
           is(res.captured.statusCode, 200, `${query} is answered`)
+          is(res.json.days.length, 0, 'the selected range stays separate')
+          is(res.json.historyDays[0].day, '2025-01-01', 'daily history still comes from all days')
         }
-        // One bounded read per request: a page cannot ask for a window this
-        // build does not offer, so a long-lived deployment cannot be asked to
-        // summarise its whole history.
-        equal(seen, [7, 7, 7, 7, 7, 7])
+        // Only the named windows are accepted; arbitrary numeric ranges fall
+        // back instead of becoming another report shape.
+        equal(seen, Array.from({ length: 6 }, () => [7, 'all']).flat())
         const { instance: exact } = bridgeUnderTest()
         is((await call(exact, local({ url: `${UI_ROUTES.usage}?days=1` }))).json.window, 1)
       },
@@ -488,6 +503,24 @@ export default {
         equal(editor.writes, [{ apiKeyEnv: 'OC_OTHER_KEY' }])
         equal(res.json.config.override, { apiKeyEnv: 'OC_OTHER_KEY' })
         is(res.json.config.values.apiKeyEnv, 'OPENCODE_GO_API_KEY')
+
+        const format = await call(instance, local({
+          method: 'POST',
+          url: UI_ROUTES.config,
+          headers: { host: '127.0.0.1:1', 'content-type': 'application/json' },
+          body: { set: { usageNumberFormat: 'full' } },
+        }))
+        is(format.captured.statusCode, 200)
+        is(editor.writes[1].usageNumberFormat, 'full')
+        const invalid = await call(instance, local({
+          method: 'POST',
+          url: UI_ROUTES.config,
+          headers: { host: '127.0.0.1:1', 'content-type': 'application/json' },
+          body: { set: { usageNumberFormat: 'words' } },
+        }))
+        is(invalid.captured.statusCode, 400)
+        is(invalid.json.error, 'invalid-field-value')
+        is(editor.writes.length, 2, 'the invalid format was not written')
       },
     },
     {

@@ -40,6 +40,8 @@
 #   retryPolicy        { mode, maxRetries, ... }
 #   usagePath          where the usage counters live
 #                      (default ~/.dsh/cache/opencode-go-usage.json)
+#   usageNumberFormat  token display in the usage UI: 'compact' | 'full'
+#                      (default: compact, using decimal K/M/B/T units)
 #   diagnostics        what the diagnostics log keeps: 'off' | 'failures' | 'all'
 #                      (default: failures). One JSON line per attempt outcome with
 #                      its timing, the stage it reached, and the cause chain under

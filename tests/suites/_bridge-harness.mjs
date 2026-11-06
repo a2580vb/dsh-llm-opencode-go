@@ -221,7 +221,7 @@ export function bridgeUnderTest(overrides = {}) {
       models: [{ model: 'glm-5.3', counters: fakeCounters({ requests: 4, inputTokens: 400, outputTokens: 100, totalTokens: 500 }) }],
       totals: fakeCounters({ requests: 4, inputTokens: 400, outputTokens: 100, totalTokens: 500 }),
       firstDay: '2026-01-15',
-      retentionDays: 30,
+      retentionDays: null,
       retention: ['2026-01-15'],
     })),
     subscription: 'subscription' in overrides ? overrides.subscription : (async () => ({
