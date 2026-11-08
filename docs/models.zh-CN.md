@@ -26,11 +26,10 @@ OpenCode Go 提供三种线格式协议。它的目录在每行的 `api` 映射�
 | `claude-haiku-5-5`、`minimax-m3`、`qwen3.7-plus`、`qwen3.8-flash`、`qwen3.8-max` | anthropic、responses、chat-completions |
 | `muse-spark-1.3-contributor`、`muse-spark-1.2-contributor` | responses、chat-completions、anthropic，且仅在 workspace 允许「用请求数据训练的 provider」时可用（见[会训练请求数据的模型](#会训练请求数据的模型)） |
 
-内置目录为 `GET /models` 在 2026-11-08 列出的每一个 id 都保留了一行，所以没有在服模型需要先失败一次
-才能发现自己的协议。服务不再提供的 id 不在其中；仍点名某个旧 id 的会话会从 `lib/model/limits.js`
-的实测表里解析出它的容量，而调用本身会收到服务返回的 `MODEL_DEPRECATED` 或
-`MODEL_UNAVAILABLE`（见[可靠性](reliability.zh-CN.md#失败)）。服务变更后用[开发](development.zh-CN.md#重新实测线上事实)
-里描述的探针重新实测即可。
+内置目录为 `GET /models` 在 2026-11-08 列出的每一个 id 都有一行**在服**记录，所以没有在服模型
+需要先失败一次才能发现自己的协议。这张表只增不删：服务不再提供某个模型时，它的行会保留下来并标上
+`retired`，带着最后一次实测的协议列表——仍点名它的会话因此还能解析（见[已失效模型](#已失效模型)）。
+服务变更后用[开发](development.zh-CN.md#重新实测线上事实)里描述的探针重新实测即可。
 
 `api` 映射还会点名每种协议自己的 SDK base URL（`/inference/go/openai/…`、
 `/inference/go/anthropic/…`、`/inference/go/google/…`）。那些是目录给 SDK 的入口；中继在统一的
@@ -54,6 +53,43 @@ config:
   未知，会依次尝试每一个协议。
 
 两种情况都不需要插件发新版本就能用上新模型。
+
+## 已失效模型
+
+内置目录只增不删。服务停止提供某个模型时，它的行不会被删除，而是标上 `retired`，保留最后一次作答
+用的协议与它在 `lib/model/limits.js` 里的容量。已失效的行与「未知 id」正好相反——它被完整描述，
+只有服务能拒掉它：
+
+- **不在列表中。** 模型选择器不会出现已失效的 id。配置页仍显示它的行，带一个警告色的 `已失效`
+  标签（服务点名了继任者时是 `已失效 → <继任者>`），复选框被禁用；如果部署自己的
+  `hiddenModels` 也点了它，快照里的 `hiddenReason` 会报 `configured` 而不是 `retired`，
+  因为那次选择更早。
+- **仍可解析。** 仍点名该 id 的会话会解析出它最后的实测容量——`lib/model/limits.js` 里当前表或
+  已下线表的那一行，两者都没有时用同族数字。解析一个已失效模型不是错误；错的只是线上调用。
+- **由服务拒绝。** 调用会按该行最后一次的协议顺序尝试，并以服务自己的 `MODEL_DEPRECATED`
+  （带它点名的继任者）或 `MODEL_UNAVAILABLE` 结束。不会再试别的协议，适配器也不会自己造一个
+  「未知模型」错误——服务给什么答案，就是实际发生了什么。
+- **由发现解除，不由配置解除。** 若之后的 `GET /models` 又列出了这个 id，它的行会自动恢复为
+  在服。改 `models` 或 `modelOverrides` 都解不开这个标记：是否失效是关于服务的事实，不是部署的
+  设置。
+
+有六个已失效 id 给出了迁移目标：
+
+| 已失效 id | 继任者 |
+|---|---|
+| `glm-5.1` | `glm-5.3` |
+| `kimi-k2.6` | `kimi-k2.7-code` |
+| `mimo-v2.5` | `mimo-v2.6-flash` |
+| `mimo-v2.5-pro` | `mimo-v2.6-pro` |
+| `minimax-m2.7` | `minimax-m3.1-flash` |
+| `qwen3.7-max` | `qwen3.8-max` |
+
+其余九个没有继任者：`deepseek-v4-flash`、`deepseek-v4-flash-vision-exp`、`deepseek-flash`、
+`grok-4.6`、`minimax-m2.5`、`qwen3.6-plus`、`space-bunny-free`、`longcat-2.5-preview-free`、
+`omen-alpha`。
+
+维护规则两个方向都一样：新出现的模型加一行，服务判定失效的模型做标记——任何一行都不会被删掉，
+所以锁定某个 id 的会话永远能解析出它当时在用的东西。
 
 ## 会训练请求数据的模型
 
@@ -118,9 +154,9 @@ live 行里的 `created` 是请求时刻，不是模型的发布时间；发布�
 
 它背后还有一份快照。`lib/model/limits.js` 保存着在 `CAPABILITY_SOURCE` 所记日期
 （`models.dev/opencode-go@2026-11-08`）从 OpenCode 目录（`models.dev`）实测来的同一组事实。
-发现没有描述某个模型的时候由它作答——没有网络的部署、只回 id 的网关、或在行里带上这些事实之前
-写下的缓存文件——因为需要上下文窗口的调用不能等一个第三方 endpoint，而没有外网的部署也得能
-显示真实上限。每个模型解析出的都是自己的数字：
+发现没有描述某个模型的时候由它作答——`modelSource: config` 模式下没有写容量的条目、没有网络的
+部署、只回 id 的网关、或在行里带上这些事实之前写下的缓存文件——因为需要上下文窗口的调用不能等
+一个第三方 endpoint，而没有外网的部署也得能显示真实上限。每个模型解析出的都是自己的数字：
 
 | 模型 | 上下文 | 输出上限 | 模型输入 |
 |---|---|---|---|

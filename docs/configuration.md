@@ -142,7 +142,7 @@ covers the facts that are per-deployment and change often:
 |---|---|
 | **API key** | Stored write-only through the credential seam under `apiKeyEnv`. The page reports whether it is configured, where it comes from, and whether it can be replaced — never the value. |
 | **Credential reference** | Which `apiKeyEnv` the key is stored under. Editable, so a name other than the one the launching environment supplies can be used. |
-| **Models** | A checkbox per catalog model decides what the picker lists, written to `hiddenModels`. The page shows the whole catalog, including models this deployment already hides. The same card edits `modelVariants`, and its one **Save** writes both fields in a single configuration change. |
+| **Models** | A checkbox per catalog model decides what the picker lists, written to `hiddenModels`. The page shows the whole catalog, including models this deployment already hides; a model the service has retired stays for history, with a warning-coloured `retired` tag (or `retired → <successor>` when the service names one) and a disabled checkbox. The same card edits `modelVariants`, and its one **Save** writes both fields in a single configuration change. |
 | **Model variants** | Named presets of one model, written to `modelVariants`, in an editable list inside the Models card: pick a model, name it, then open a row's **Edit** to change its fields, or **Delete** to drop it. |
 | **Quota refresh** | The two intervals that pace the capsule's quota checks, written to `subscriptionMinIntervalSeconds` and `subscriptionMaxIntervalSeconds`. Each field saves when it loses focus (or on Enter), and a floor above its ceiling is refused on the page before any write. |
 | **Transport and retries** | One switch for `freshConnectionOnLargeBody` — a request body of 256 KiB or more asks for its own connection — plus the two deadlines (`timeoutMs`, `streamIdleTimeoutMs`) and the retry policy's limit and delays (`retryPolicy`). The switch applies when toggled; each number applies when its field is left. The deadlines are typed in seconds and written in milliseconds, and the whole policy is written back, so fields the page does not edit keep their values. |
@@ -190,7 +190,7 @@ while the client is open:
 | Endpoint | Method | Answers |
 |---|---|---|
 | `/opencode-go/state` | `GET` | the route, the `apiKeyEnv` in use, the credential's status — never its value — and the profile override of each managed field |
-| `/opencode-go/models` | `GET` | the whole catalog, listed and hidden, with the reason each hidden model is hidden |
+| `/opencode-go/models` | `GET` | the whole catalog, listed and hidden, with the reason each hidden model is hidden and, for a retired one, the replacement the service named |
 | `/opencode-go/config` | `POST` | writes one managed field into the profile patch |
 | `/opencode-go/credential` | `POST` | stores the API key; `DELETE` clears it |
 | `/opencode-go/refresh` | `POST` | re-reads `GET /models` and reports what changed |
@@ -261,6 +261,15 @@ OpenCode has not published yet starts working the moment it appears; a startup
 warning names ids nothing in the catalog matches, which is usually a typo. The
 configuration page writes this field, and both sides read the same listing
 decision.
+
+A model the service has retired is kept out of the picker whatever this field
+says, and the card still renders its row — with a `retired` tag and a disabled
+checkbox — so the record stays visible (see [Retired
+models](models.md#retired-models)). The two histories also compose: if an id was
+hidden here before its model retired, the page reports it as `configured` rather
+than as retired, and **Show all** keeps that hidden id instead of dropping it,
+because a retired row can never be re-listed. **Hide all** adds every model the
+service still serves and leaves a retired id out of the list either way.
 
 ## Usage
 
@@ -474,9 +483,13 @@ field the entry states wins, and a field it omits keeps what the live row (or th
 built-in fallback) said. A `models` entry for `gpt-5.6-luna` that names only its
 `contextWindow` therefore changes the window and keeps the live three-protocol
 list, the service's other capacity figures, and its reasoning ladder. An entry
-for an id no source describes creates the record from the top-level defaults,
-which is how a compatible gateway names its own models. `modelOverrides` applies
-the same refinement as a map, without listing the whole model:
+that states no capacity keeps the measured table's figures for the id, or its
+family's, and only an id nothing describes falls back to the top-level defaults —
+which is how a compatible gateway names its own models. Refining a retired model
+changes fields but not its state: only discovery, seeing the service serve the id
+again, clears the mark (see [Retired models](models.md#retired-models)).
+`modelOverrides` applies the same refinement as a map, without listing the whole
+model:
 
 ```yaml
 config:

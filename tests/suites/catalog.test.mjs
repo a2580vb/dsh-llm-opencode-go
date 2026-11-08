@@ -2,7 +2,7 @@
 
 import { PROTOCOLS, normalizeProtocol, resolveConfig } from '../../lib/config.js'
 import { catalogModelInfo, resolvedInputModalities, resolvedModelInfo, supportsImages, trainingConsentNote } from '../../lib/model/capabilities.js'
-import { FALLBACK_MODELS, buildCatalog, displayName, preferredProtocol, requiresTrainingConsent, splitVariantId, unmatchedVariantModels, wireModelId } from '../../lib/model/catalog.js'
+import { FALLBACK_MODELS, buildCatalog, discoveryRecord, displayName, hiddenReason, preferredProtocol, requiresTrainingConsent, splitVariantId, unmatchedVariantModels, wireModelId } from '../../lib/model/catalog.js'
 import { parseModelList } from '../../lib/model/cache.js'
 import { CAPABILITY_SOURCE, capabilityFor, isMeasured, measuredIds } from '../../lib/model/limits.js'
 import { orderAttempts } from '../../lib/index.js'
@@ -106,6 +106,77 @@ export default {
           PROTOCOLS.RESPONSES,
           PROTOCOLS.ANTHROPIC,
         ])
+      },
+    },
+    {
+      name: 'the built-in catalog is append-only: retired rows stay, marked',
+      run() {
+        const records = new Map(FALLBACK_MODELS.map((record) => [record.id, record]))
+        const flash = records.get('deepseek-v4-flash')
+        ok(flash !== undefined, 'the retired id still has a row')
+        is(flash.retired, true)
+        // Its last measured figures come from the table, so an old session
+        // resolves the capacity it always had.
+        is(flash.contextWindow, 1_000_000)
+        is(flash.maxTokens, 384_000)
+        // A retirement that names a successor carries it, so the page can point
+        // at what to use instead.
+        is(records.get('minimax-m2.7').retired, true)
+        is(records.get('minimax-m2.7').replacement, 'minimax-m3.1-flash')
+        is(records.get('deepseek-v4-flash').replacement, undefined)
+        // Active rows say so explicitly, so the flag is a fact rather than a
+        // missing field.
+        is(records.get('glm-5.3').retired, false)
+        is(records.get('deepseek-v4.1-flash').retired, false)
+      },
+    },
+    {
+      name: 'a retired model is hidden from the listing and answered by id',
+      run() {
+        const config = resolveConfig({})
+        const records = buildCatalog(config, [])
+        is(hiddenReason(records.get('deepseek-v4-flash'), config), 'retired')
+        // A deployment's own hidden list is reported first, because that choice
+        // predates the retirement.
+        is(hiddenReason(records.get('deepseek-v4-flash'), resolveConfig({ hiddenModels: ['deepseek-v4-flash'] })), 'configured')
+        is(hiddenReason(records.get('glm-5.3'), config), undefined)
+        // Choosing a protocol is not a statement about whether the model exists.
+        const overridden = resolveConfig({ protocolOverrides: { 'deepseek-v4-flash': 'anthropic' } })
+        const shaped = buildCatalog(overridden, []).get('deepseek-v4-flash')
+        is(shaped.retired, true)
+        is(shaped.protocols[0], 'anthropic')
+        is(hiddenReason(shaped, overridden), 'retired')
+      },
+    },
+    {
+      name: 'only a live discovery row can revive a retired model',
+      run() {
+        const config = resolveConfig({})
+        const base = buildCatalog(config, []).get('deepseek-v4-flash')
+        // A row restored from a version 1 cache is a historical name list, not a
+        // statement about what the service serves now.
+        const legacy = discoveryRecord({ id: 'deepseek-v4-flash', name: 'Legacy', legacy: true }, config, base)
+        is(legacy.retired, true)
+        const live = discoveryRecord({ id: 'deepseek-v4-flash', name: 'Back' }, config, base)
+        is(live.retired, false)
+      },
+    },
+    {
+      name: 'discovery un-retires a model the service lists again',
+      run() {
+        const config = resolveConfig({})
+        const records = buildCatalog(config, [{
+          id: 'deepseek-v4-flash',
+          limit: { context: 1_000_000, output: 384_000 },
+        }])
+        const record = records.get('deepseek-v4-flash')
+        is(record.retired, false)
+        is(hiddenReason(record, config), undefined)
+        // A config entry alone does not bring it back: only the service listing
+        // the id does.
+        const configured = buildCatalog(resolveConfig({ models: [{ id: 'deepseek-v4-flash', name: 'Pinned' }] }), [])
+        is(configured.get('deepseek-v4-flash').retired, true)
+        is(configured.get('deepseek-v4-flash').name, 'Pinned')
       },
     },
     {

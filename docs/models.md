@@ -32,13 +32,12 @@ Grouped by the entry each row names, the modeled order is:
 | `claude-haiku-5-5`, `minimax-m3`, `qwen3.7-plus`, `qwen3.8-flash`, `qwen3.8-max` | anthropic, responses, chat-completions |
 | `muse-spark-1.3-contributor`, `muse-spark-1.2-contributor` | responses, chat-completions, anthropic, and only while the workspace allows providers that train on request data (see [Models that train on request data](#models-that-train-on-request-data)) |
 
-The built-in catalog has a row for every id `GET /models` listed on 2026-11-08,
-so no served model has to discover its own protocol by failing first. Ids the
-service no longer serves are absent from it; a session that still names one
-resolves its capacity from the measured table in `lib/model/limits.js` and
-receives `MODEL_DEPRECATED` or `MODEL_UNAVAILABLE` from the service (see
-[Reliability](reliability.md#failures)). Re-measure after a service change with
-the probe described in
+The built-in catalog has an **active** row for every id `GET /models` listed on
+2026-11-08, so no served model has to discover its own protocol by failing first.
+The table is append-only: a model the service retires keeps its row, marked
+`retired`, with the protocols it last answered on, so a session that still names
+it keeps resolving (see [Retired models](#retired-models)). Re-measure after a
+service change with the probe described in
 [Development](development.md#re-measuring-the-live-facts).
 
 The `api` map also names a per-protocol SDK base URL
@@ -69,6 +68,53 @@ A model the catalog does not describe falls into one of two cases:
   unknown, so it tries every protocol in order.
 
 Neither case needs a plugin release before the model can be used.
+
+## Retired models
+
+The built-in catalog is append-only. When the service stops serving a model, its
+row is not deleted: it is marked `retired`, keeping the protocols it last
+answered on and its capacity in `lib/model/limits.js`. A retired row is the
+opposite of an unknown id — it is fully described, and only the service can
+refuse it:
+
+- **Not listed.** The model picker leaves a retired id out. The configuration
+  page still shows its row, with a warning-coloured `retired` tag (or
+  `retired → <successor>` when the service names one) and a disabled checkbox;
+  when the deployment's own `hiddenModels` also names it, the snapshot's
+  `hiddenReason` says `configured` rather than `retired`, because that choice was
+  made first.
+- **Resolvable.** A session that still names the id resolves to its last
+  measured capacity — its row in `lib/model/limits.js`, current or delisted, or
+  its family's figures when neither has a row. Resolving a retired model is not
+  an error; only the wire call is.
+- **Refused by the service.** The call is attempted with the retired row's last
+  protocol order and ends with the service's own `MODEL_DEPRECATED` (carrying the
+  replacement it names) or `MODEL_UNAVAILABLE`. No other protocol is tried, and
+  the adapter does not invent an unknown-model error of its own — the service's
+  answer is what says what happened.
+- **Cleared by discovery, not configuration.** If a later `GET /models` lists
+  the id again, its row becomes active again automatically. Editing `models` or
+  `modelOverrides` cannot clear the mark: retirement is a fact about the service,
+  not a deployment setting.
+
+Six retired ids name the successor to move to:
+
+| Retired id | Replacement |
+|---|---|
+| `glm-5.1` | `glm-5.3` |
+| `kimi-k2.6` | `kimi-k2.7-code` |
+| `mimo-v2.5` | `mimo-v2.6-flash` |
+| `mimo-v2.5-pro` | `mimo-v2.6-pro` |
+| `minimax-m2.7` | `minimax-m3.1-flash` |
+| `qwen3.7-max` | `qwen3.8-max` |
+
+The other nine have none: `deepseek-v4-flash`, `deepseek-v4-flash-vision-exp`,
+`deepseek-flash`, `grok-4.6`, `minimax-m2.5`, `qwen3.6-plus`, `space-bunny-free`,
+`longcat-2.5-preview-free`, `omen-alpha`.
+
+The maintenance rule is the same in both directions: a model that appears gets a
+new row, and a model the service retires gets marked — no row is ever removed, so
+a session pinned to an id can always resolve what it was using.
 
 ## Models that train on request data
 
@@ -147,11 +193,11 @@ the snapshot was taken still reports its own figures.
 Behind that sits a snapshot. `lib/model/limits.js` carries the same facts
 measured from the OpenCode catalogue (`models.dev`) on the date in
 `CAPABILITY_SOURCE` (`models.dev/opencode-go@2026-11-08`). It answers whenever
-discovery has not described a model — a deployment with no network, a gateway
-that answers with ids only, or a cache file written before rows carried facts —
-because a call that needs a context window must not wait on a third-party
-endpoint, and a deployment with no egress must still show real limits. Every
-resolved model reports its own:
+discovery has not described a model — a `modelSource: config` entry that states
+no capacity, a deployment with no network, a gateway that answers with ids only,
+or a cache file written before rows carried facts — because a call that needs a
+context window must not wait on a third-party endpoint, and a deployment with no
+egress must still show real limits. Every resolved model reports its own:
 
 | Model | Context | Output cap | Model input |
 |---|---|---|---|

@@ -16,7 +16,7 @@
 ## 验证
 
 ```sh
-npm test            # 443 项离线检查：配置、SSE 分帧、目录、三种协议、适配器、插件本体、配置桥接、客户端 bundle、显示元数据、诊断日志、版本一致性，以及本仓库自己的 CI
+npm test            # 450 项离线检查：配置、SSE 分帧、目录、三种协议、适配器、插件本体、配置桥接、客户端 bundle、显示元数据、诊断日志、版本一致性，以及本仓库自己的 CI
 npm run test:cordis # 43 项检查，把插件挂到 Harness 自己的 cordis 上
 npm run test:live   # 对线上服务的实测套件；需要 OC_KEY
 npm run check:pack  # `npm publish` 会真正上传的那个 tarball
@@ -186,8 +186,15 @@ node scripts/snapshot-models.mjs [--write]                      # 兜底快照�
 `.live-cache/probe-image.png` 是未纳入版本控制的草稿区），把打印出来的回答与图片内容对一遍即可。
 
 `snapshot-models.mjs` 维护那份兜底：把 `lib/model/limits.js` 与 OpenCode 目录（`models.dev`）
-对比，打印 `new`、`changed`、`gone`，加 `--write` 则重写当前表与已下线表，并把
-`CAPABILITY_SOURCE` 挪到新日期。
+对比，打印 `new`、`changed`、`gone`；加 `--write` 则把目录当前的行写进当前表、把目录不再列出的行
+移进已下线表，并把 `CAPABILITY_SOURCE` 挪到新日期。文件里已经实测到的东西不会被删掉：已失效模型
+的容量仍可供点名它的会话读取。
+
+目录本身也遵守同一条只增不删的规则。新模型作为新行加进 `FALLBACK_MODELS`；服务停止提供的模型
+保留自己的行，标上 `retired` 并带上服务点名的继任者，而不是被删除。正是这行让仍锁定该 id 的会话
+能解析出它最后的实测数字，并拿到服务自己的 `MODEL_DEPRECATED` / `MODEL_UNAVAILABLE`，而不是一个
+「未知模型」错误；只有之后某次 `GET /models` 重新列出该 id 才会解除标记。见
+[已失效模型](models.zh-CN.md#已失效模型)。
 
 ## 目录结构
 

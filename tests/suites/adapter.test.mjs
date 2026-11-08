@@ -998,7 +998,18 @@ export default {
         equal(snapshot.hidden, ['glm-5.3'])
         is(snapshot.counts.hidden, 1)
         is(snapshot.counts.hiddenByTraining, snapshot.models.filter((model) => model.trainingGated).length)
-        is(snapshot.counts.listed, total - snapshot.counts.hidden - snapshot.counts.hiddenByTraining)
+        is(
+          snapshot.counts.listed,
+          total - snapshot.counts.hidden - snapshot.counts.hiddenByTraining - snapshot.counts.retired,
+        )
+        // A retired model stays in the snapshot as history, with the replacement
+        // the service named for it.
+        const retired = snapshot.models.find((model) => model.id === 'minimax-m2.7')
+        is(retired.hidden, true)
+        is(retired.hiddenReason, 'retired')
+        is(retired.retired, true)
+        is(retired.replacement, 'minimax-m3.1-flash')
+        ok(snapshot.counts.retired >= 15, `the retired rows are counted: ${snapshot.counts.retired}`)
         // The listing the harness reads and the snapshot the page renders agree,
         // which is what keeps the page from claiming a model is offered when the
         // runtime drops it.
@@ -1007,6 +1018,21 @@ export default {
           listed.map((model) => model.id).sort(),
           snapshot.models.filter((model) => !model.hidden).map((model) => model.id).sort(),
         )
+      },
+    },
+    {
+      name: 'a retired model stays resolvable but is never offered',
+      async run() {
+        const { adapter } = adapterWith([])
+        const listed = await adapter.listModels('opencode-go')
+        ok(!listed.some((model) => model.id === 'deepseek-v4-flash'), 'a retired id is not offered')
+        ok(listed.every((model) => !model.id.startsWith('mimo-v2.5')), 'nor is any other retired id')
+        // Resolving one still answers, so a session pinned to it reaches the
+        // service and hears the retirement from the service itself.
+        const info = await adapter.resolveModel('opencode-go', 'deepseek-v4-flash', undefined)
+        is(info.id, 'deepseek-v4-flash')
+        is(info.context?.contextWindow, 1_000_000)
+        is(info.defaultMaxTokens, 384_000)
       },
     },
     {

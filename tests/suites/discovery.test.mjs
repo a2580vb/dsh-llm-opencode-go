@@ -19,6 +19,7 @@ import {
   buildCatalog,
   discoveryRecord,
   harnessModalities,
+  hiddenReason,
   preferredProtocol,
 } from '../../lib/model/catalog.js'
 import { equal, is, ok } from '../helpers.mjs'
@@ -265,7 +266,41 @@ export default {
             throw new Error('a fresh version 1 cache must not be re-fetched')
           },
         })
-        equal(await cache.discover(), [{ id: 'legacy-model', name: 'Legacy Model' }])
+        const rows = await cache.discover()
+        // The provenance marker is what keeps such a row from reviving a
+        // retired model; it is not a service fact and is never written back.
+        equal(rows, [{ id: 'legacy-model', name: 'Legacy Model', legacy: true }])
+      },
+    },
+    {
+      name: 'a version 1 cache row cannot revive a retired model',
+      async run() {
+        const path = scratch.path('models')
+        await writeFile(path, JSON.stringify({
+          version: 1,
+          baseURL: 'https://relay.test/v1',
+          fetchedAt: Date.now(),
+          ids: [{ id: 'deepseek-v4-flash' }],
+        }), 'utf8')
+        const config = resolveConfig({
+          baseURL: 'https://relay.test/v1',
+          apiKeyEnv: 'TEST_KEY',
+          modelsCachePath: path,
+        })
+        const cache = new ModelCache(config, {
+          authHeaders: async () => ({}),
+          logger: silent,
+          fetch: async () => {
+            throw new Error('a fresh version 1 cache must not be re-fetched')
+          },
+        })
+        const record = buildCatalog(config, await cache.discover()).get('deepseek-v4-flash')
+        is(record.retired, true)
+        is(hiddenReason(record, config), 'retired')
+        // A live row — one the service answers with today — does revive it.
+        const live = buildCatalog(config, [{ id: 'deepseek-v4-flash', limit: { context: 1_000_000, output: 384_000 } }])
+          .get('deepseek-v4-flash')
+        is(live.retired, false)
       },
     },
   ]),

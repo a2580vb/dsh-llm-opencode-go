@@ -27,7 +27,12 @@ A model the service has retired is named as such rather than as a malformed
 request: `410 ModelDeprecated` becomes `MODEL_DEPRECATED` and its message carries
 the id the service says to use instead, while `400 Model is unavailable.` becomes
 `MODEL_UNAVAILABLE`. Neither is retried over another protocol — the model is gone
-from every endpoint, so a second attempt would only repeat the refusal.
+from every endpoint, so a second attempt would only repeat the refusal. The
+catalog keeps the retired row (marked `retired`) rather than dropping the model,
+so a session that still names it resolves its last measured figures and reaches
+the service; the failure it gets is the classification above, not an
+unknown-model error. Only a later `GET /models` listing clears the mark; see
+[Retired models](models.md#retired-models).
 
 Failures are reported by the **shape** the harness reads — an `Error` with own
 `code` and `failure` data properties — not by class identity. The plugin
@@ -62,8 +67,10 @@ timing, and the cause chain — and nothing about a call is written anywhere els
   real figures. `lib/model/limits.js` holds the same facts measured from the
   OpenCode catalogue on the date in `CAPABILITY_SOURCE`
   (`models.dev/opencode-go@2026-11-08`) and answers when discovery has not
-  described a model: no network, an empty answer, or a cache file written before
-  rows carried facts. Three consequences:
+  described a model: a `modelSource: config` entry that states no capacity, no
+  network, an empty answer, or a cache file written before rows carried facts.
+  The tables also keep the rows of models the service no longer serves, so a
+  retired id still resolves its last measured figures. Three consequences:
   - a model neither source describes is served its **family's** measured figures
     (`qwen…`, `glm-…`, `grok-…`, …) rather than the global assumption;
   - a model no family matches takes `defaultContextWindow` and `defaultMaxTokens`,

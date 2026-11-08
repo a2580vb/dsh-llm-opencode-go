@@ -816,6 +816,45 @@ export default {
       },
     },
     {
+      name: 'a retired model is shown as history, never as a choice',
+      async run() {
+        const retired = {
+          ...CATALOG,
+          counts: { total: 4, listed: 2, hidden: 1, hiddenByTraining: 0, retired: 1, variants: 1 },
+          models: [...CATALOG.models, {
+            id: 'deepseek-v4-flash',
+            name: 'DeepSeek V4 Flash',
+            hidden: true,
+            hiddenReason: 'retired',
+            retired: true,
+            replacement: 'deepseek-v4.1-flash',
+            trainingGated: false,
+            protocols: ['chat-completions', 'responses', 'anthropic'],
+          }],
+          hidden: ['space-bunny-free', 'deepseek-v4-flash'],
+        }
+        const page = await renderPage({ fetch: host({ models: { body: retired } }) })
+        const tree = await page.open()
+        ok(text(tree).includes('deepseek-v4-flash'), 'the retired model stays visible as history')
+        const tag = nodes(tree).find(({ node }) => node.type === 'span'
+          && text(node).trim() === 'retired → deepseek-v4.1-flash')
+        ok(tag !== undefined, 'the row names what the service says to use instead')
+        ok(String(tag.node.props.style.color).includes('state-warn'), `the tag warns: ${String(tag.node.props.style.color)}`)
+        const row = nodes(tree).find(({ node }) => node.type === 'input' && node.props.type === 'checkbox'
+          && String(node.props['aria-label']).startsWith('deepseek-v4-flash:'))
+        ok(row !== undefined, 'the row has its own checkbox')
+        is(row.node.props.disabled, true, 'a retired row is not a decision')
+        is(row.node.props.checked, false, 'and it is never shown as offered')
+        // "Show all" brings the offerable models back but keeps the historical
+        // hidden id: this configuration is append-only as well.
+        const shown = await page.click((node) => node.type === 'button' && text(node).trim() === 'Show all')
+        const models = modelsSection(shown)
+        await clickIn(page, models, (node) => node.type === 'button' && text(node).trim() === 'Save')
+        const written = page.calls.find((call) => call.path === 'opencode-go/config')
+        equal(JSON.parse(written.init.body).set.hiddenModels, ['deepseek-v4-flash'])
+      },
+    },
+    {
       name: 'a model that trains on the conversation says so, in warning colour',
       async run() {
 

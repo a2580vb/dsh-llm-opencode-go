@@ -17,7 +17,7 @@ plugin, how to re-measure the live facts, and how the code is laid out.
 ## Verification
 
 ```sh
-npm test            # 443 offline checks: config, SSE framing, catalog, all three protocols, adapter, plugin body, the settings bridge, the client bundle, the display metadata, the diagnostics log, release coherence and the repository's own CI
+npm test            # 450 offline checks: config, SSE framing, catalog, all three protocols, adapter, plugin body, the settings bridge, the client bundle, the display metadata, the diagnostics log, release coherence and the repository's own CI
 npm run test:cordis # 43 checks mounting the plugin on the harness's own cordis
 npm run test:live   # the live suite; needs OC_KEY
 npm run check:pack  # what `npm publish` would upload
@@ -253,8 +253,18 @@ is untracked scratch) and read the printed answer against what the picture holds
 
 `snapshot-models.mjs` maintains the fallback: it compares `lib/model/limits.js`
 with the OpenCode catalogue (`models.dev`), prints what changed — `new`,
-`changed`, `gone` — and rewrites the current and delisted tables with `--write`,
-moving `CAPABILITY_SOURCE` to the new date.
+`changed`, `gone` — and, with `--write`, writes the catalogue's current rows into
+the current table, moves the rows it no longer lists into the delisted table, and
+moves `CAPABILITY_SOURCE` to the new date. Nothing measured is deleted from the
+file: a retired model's capacity stays readable to a session that still names it.
+
+The catalog itself follows the same append-only rule. A new model arrives as a
+new row in `FALLBACK_MODELS`; a model the service retires keeps its row, marked
+`retired` with the successor the service named, rather than being deleted. The
+row is what lets a session still pinned to the id resolve its last measured
+figures and receive the service's own `MODEL_DEPRECATED` / `MODEL_UNAVAILABLE`
+instead of an unknown-model error, and only a later `GET /models` listing clears
+the mark. See [Retired models](models.md#retired-models).
 
 ## Architecture
 
