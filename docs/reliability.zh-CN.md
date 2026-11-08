@@ -2,7 +2,7 @@
 
 > 返回 [README](../README.zh-CN.md)。
 
-本页列出插件的失败码，以及由实测协议、容量快照和 workspace 政策带来的限制。
+本页列出插件的失败码，以及由实测协议、服务自己公布的容量数字和 workspace 政策带来的限制。
 
 ## 失败
 
@@ -11,13 +11,18 @@
 `AUTH` · `QUOTA` · `RATE_LIMIT` · `CONTEXT_WINDOW_EXCEEDED` · `INVALID_REQUEST`
 · `SERVER` · `TRANSPORT` · `ABORTED` · `TIMEOUT` · `MALFORMED_RESPONSE` ·
 `STREAM_CLOSED` · `EMPTY_RESPONSE` · `UNSUPPORTED_CONTENT` · `UNSUPPORTED_OPTION`
-· `PROTOCOL_UNSUPPORTED` · `TRAINING_CONSENT_REQUIRED` · `MISSING_CREDENTIAL` ·
-`INVALID_CREDENTIAL`
+· `PROTOCOL_UNSUPPORTED` · `MODEL_DEPRECATED` · `MODEL_UNAVAILABLE` ·
+`TRAINING_CONSENT_REQUIRED` · `MISSING_CREDENTIAL` · `INVALID_CREDENTIAL`
 
 凭据解析不出来时，会在任何网络 I/O 之前以 `MISSING_CREDENTIAL` 失败；凭据中含有 HTTP 请求头
 无法承载的字符时以 `INVALID_CREDENTIAL` 失败。这两条消息都不包含密钥的任何部分。重试无法绕过的
 那种拒绝——workspace 尚未允许会训练请求数据的模型——是 `TRAINING_CONSENT_REQUIRED`，它的消息
 直接点名要开启的设置项；见[会训练请求数据的模型](models.zh-CN.md#会训练请求数据的模型)。
+
+服务已经下线的模型会按它自己的身份上报，而不是被当成「请求格式错误」：`410 ModelDeprecated`
+成为 `MODEL_DEPRECATED`，消息里带上服务给出的替代 id；`400 Model is unavailable.` 成为
+`MODEL_UNAVAILABLE`。这两种都不会换一个协议重试——模型在所有端点上都已经消失，再试一次只会
+重复同一条拒绝。
 
 失败按 Harness 读取的**形状**上报：一个带有自有 `code` 和 `failure` 数据属性的 `Error`，而不是
 按类身份。本插件因此定义自己的失败类型，不依赖任何 Harness 包。
@@ -29,22 +34,30 @@
 
 ## 限制
 
-- **协议能力是实测出来的，不是官方公布的。** OpenCode Go 的 `/models` 响应只列 id，所以
-  `lib/model/catalog.js` 里的映射来自对线上服务逐个端点的探测。模型换了协议就需要一条
-  `protocolOverrides` 或重新实测。两种「未知」的应对方式不同：服务**列出了**、但本插件尚未实测
-  的 id 只拿到 `defaultProtocol`，没有回退；而哪里都找不到的 id——既不在内置目录、也不在已发现
-  的列表里——会依次尝试每一个协议。
-- **容量是一份快照，不是订阅。** `lib/model/limits.js` 保存着在 `CAPABILITY_SOURCE` 所记日期从
-  OpenCode 目录实测来的上下文窗口、输出上限和 provider 模态列表，用
-  `node scripts/snapshot-models.mjs --write` 刷新。由此带来三个后果：
-  - 快照之后发布的模型会先拿到**同族**的实测数字（`qwen…`、`glm-…`、`grok-…` 等），而不是全局
-    假定值；
+- **协议偏好是公布的，协议接受面是实测的。** `GET /models` 在每行的 `api` 映射里点名一个线协议
+  入口，调用就从那个入口开始。它不是能力上限：2026-11-08 服务列出的每一个模型实测都接受三种协议，
+  所以记录把其余两个留在它后面，只在服务回 `400 ModelProtocolUnsupported` 时才换到下一个入口。
+  服务变更后用 `scripts/probe-protocols.mjs` 重新实测。两种「未知」的应对方式不同：服务**列出了**、
+  但内置目录没有行的 id，从它 live 行点名的入口开始（行里没点名时用 `defaultProtocol`），其余协议
+  留在后面；而哪里都找不到的 id——既不在内置目录、也不在已发现的列表里——会依次尝试每一个协议。
+- **容量来自服务，快照是它的兜底。** 发现到的行带着模型的 `limit`（上下文与输出上限，少数模型还有
+  输入上限）、`modalities`、`capabilities`（含该模型自己的思考阶梯）与 `api`；
+  `lib/model/cache.js` 保存这些行，目录直接读它们，所以快照之后发布的模型也能报告真实数字。
+  `lib/model/limits.js` 保存着在 `CAPABILITY_SOURCE` 所记日期（`models.dev/opencode-go@2026-11-08`）
+  从 OpenCode 目录实测来的同一组事实，在发现没有描述某个模型时作答：没有网络、答案为空、或缓存是
+  行里还没有这些事实之前写入的。由此带来三个后果：
+  - 两个来源都没描述的模型会先拿到**同族**的实测数字（`qwen…`、`glm-…`、`grok-…` 等），而不是
+    全局假定值；
   - 同族也匹配不上的模型才取 `defaultContextWindow` 与 `defaultMaxTokens`，这也是这两个值唯一
     仍是猜测的情形；
-  - 服务列出、目录却没描述的 id，可以用 `models` / `modelOverrides` 配置解决，无需等插件发版。
+  - 服务列出、两个来源都没描述的 id，可以用 `models` / `modelOverrides` 配置解决，无需等插件发版。
   上限到达线上的方式不同：Messages 总会发送一个（`max_tokens`，缺省时回退到模型的值），而
   Chat Completions 与 Responses 在调用没有声明上限时就省略该字段，所以这个决定权在中继而不是
   本插件。
+- **思考阶梯是逐模型的。** 服务在 `capabilities.reasoning.effort` 里公布每个模型自己的档位列表；
+  解析出的元数据公布的就是这份列表，并按它首选协议能表达的等级收窄。`none` 是服务表达「可以关掉
+  思考」的方式，本适配器用「省略参数」表达它，因此从不公布；`xhigh` 和其它档位一样是合法等级。
+  服务给了 `supported: true` 却没给列表的模型，保留内置的那一份。
 - **有两个模型被 workspace 策略门控，而不是被本插件门控。** 中继只在 workspace 允许「用请求数据
   训练的 provider」时才会服务 `…-contributor` 这两个 id，并且在请求到达模型之前就用自己的错误拒掉。
   适配器把这条拒绝单独归类（`TRAINING_CONSENT_REQUIRED`），在消息里写清要开启的设置项及其位置，
@@ -61,7 +74,7 @@
   Messages 拒绝没有 `tool_result` 跟随的 `tool_use` 块。因此转换器在发出请求前会先通读历史，把缺少
   配对的调用、以及缺少调用的结果一并省略：单独发出任何一半都会让整轮失败，而两者都无法被重建。
   历史中的一个空洞只会让那一次调用从对话记录里消失。
-- **线路上只有 `text` 与 `image`。** 目录给若干模型标了 `video`、`audio`、`pdf` 输入。这些会被记录
+- **线路上只有 `text` 与 `image`。** 服务给若干模型标了 `video`、`audio`、`pdf` 输入。这些会被记录
   并上报，但这里没有任何协议有对应字段，所以没有请求会携带它们，模型声明的 `inputModalities` 也
   永远不会声称支持。见[多模态](models.zh-CN.md#多模态模型能接受什么与一条路由能发什么)。
 - **图片输入取决于部署，而不只取决于模型。** `sendImages` 默认 `auto`：只有当 attachment seam 被

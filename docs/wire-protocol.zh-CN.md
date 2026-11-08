@@ -14,6 +14,12 @@
 
 Messages 端点使用自己的一套请求头：它会以 `AuthError: Missing API key` 拒绝 bearer token。
 
+三个端点都接受 `GET /models` 列出的每一个模型：目录的 `api` 映射点名的只是每个模型的首选入口，
+不是白名单，2026-11-08 的探测中每个在服 id 的三种协议全部被接受。该映射还会点名每种协议自己的
+SDK base URL（`/inference/go/openai/…`、`/inference/go/anthropic/…`）；中继在统一的 `{baseURL}`
+下同样服务这三种协议，本插件用的就是后者。优先级顺序与 `ModelProtocolUnsupported` 时的回退见
+[模型](models.zh-CN.md#按模型选择协议)。
+
 每个请求还会带上：
 
 ```http
@@ -56,9 +62,12 @@ OpenCode 的中继会把共享同一个 `x-opencode-session` 值的所有请求�
 | Responses | `reasoning.effort` | `low`、`medium`、`high`、`xhigh`、`max`（`minimal` 会被拒绝） |
 | Messages | `thinking.budget_tokens` | 由等级映射而来：1024 / 4096 / 8192 / 16384 / 32768 / 64000 |
 
-模型解析出的元数据只公布其协议能表达的等级，因为运行时会在任何网络 I/O 之前用那个集合校验请求的
-思考等级。Anthropic 的 budget 会被严格限制在 `max_tokens` 以下；如果输出上限连最小的 budget 都
-装不下，就省略 thinking，而不是发一个 API 必然拒绝的请求。
+模型解析出的元数据公布的是服务为该模型公布的那份档位列表（`capabilities.reasoning.effort`），
+并按它首选协议能表达的等级收窄，因为运行时会在任何网络 I/O 之前用那个集合校验请求的思考等级。
+`none` 是服务表达「关掉思考」的档位，这里用「省略参数」来表达，因此从不公布；`xhigh` 与其它
+档位一样是合法等级。服务标了「支持思考」却没给列表的模型，保留内置的那一份。Anthropic 的 budget
+会被严格限制在 `max_tokens` 以下；如果输出上限连最小的 budget 都装不下，就省略 thinking，而不是
+发一个 API 必然拒绝的请求。
 
 **推理历史**只在协议支持的情况下回放：Chat Completions 接收 `reasoning_content`，Messages 接收
 带 provider 签发签名的 thinking block（按 block 的确切文本寻址，在没有保留签名时降级为纯文本）。

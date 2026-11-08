@@ -10,14 +10,14 @@ plugin, how to re-measure the live facts, and how the code is laid out.
 | | |
 |---|---|
 | **Version** | 0.2.3 (package `dsh-llm-opencode-go`) |
-| **Protocol map** | Measured per model against the live service; kept in `lib/model/catalog.js` |
-| **Capacity and modalities** | A snapshot of the OpenCode catalogue (`models.dev`), dated in `CAPABILITY_SOURCE` in `lib/model/limits.js` (currently `models.dev/opencode-go@2026-10-02`) |
+| **Protocol map** | One preferred entry per model, taken from the live `api` map and measured against the service; kept in `lib/model/catalog.js` |
+| **Capacity, modalities, and reasoning ladders** | Read from the live `GET /models` rows; the `models.dev` snapshot in `lib/model/limits.js` is the fallback, dated in `CAPABILITY_SOURCE` (currently `models.dev/opencode-go@2026-11-08`) |
 | **Known limits** | See [Reliability](reliability.md#limits) and [Models](models.md) |
 
 ## Verification
 
 ```sh
-npm test            # 427 offline checks: config, SSE framing, catalog, all three protocols, adapter, plugin body, the settings bridge, the client bundle, the display metadata, the diagnostics log, release coherence and the repository's own CI
+npm test            # 443 offline checks: config, SSE framing, catalog, all three protocols, adapter, plugin body, the settings bridge, the client bundle, the display metadata, the diagnostics log, release coherence and the repository's own CI
 npm run test:cordis # 43 checks mounting the plugin on the harness's own cordis
 npm run test:live   # the live suite; needs OC_KEY
 npm run check:pack  # what `npm publish` would upload
@@ -92,12 +92,14 @@ and hard to see:
   field, where they can wrap and be read.
 
 `npm run test:live` spends real quota. It checks, against the live relay: model
-discovery and caching, a round trip over each of the three protocols, a full
-tool-calling round trip per protocol, protocol fallback recovery, cache reuse on
-a repeated session id, a history holding a tool call that was never dispatched,
-that every model reports its own measured context window, cap, and modalities,
-that every advertised reasoning effort is accepted, and that a workspace-gated
-model either answers or is refused as needing that workspace's consent.
+discovery and the caching of the service's row facts, a model added after the
+snapshot resolving with its live facts, a round trip over each of the three
+protocols, a full tool-calling round trip per protocol, a model forced onto a
+non-preferred protocol still serving, cache reuse on a repeated session id, a
+history holding a tool call that was never dispatched, that every model reports
+its own context window, output cap, and modalities, that every advertised
+reasoning effort is accepted, and that a workspace-gated model either answers or
+is refused as needing that workspace's consent.
 
 ```sh
 OC_KEY=oc_sk_... npm run test:live
@@ -224,25 +226,35 @@ with a module error.
 
 ## Re-measuring the live facts
 
-Two facts about this service are measured rather than published, and both have a
-tracked probe. They need a key and spend real quota:
+The service publishes each model's capacity, modalities, and reasoning ladder in
+`GET /models`, so the probes cover what a row cannot settle: how the relay
+actually accepts each protocol, and the request shapes for image input. They need
+a key and spend real quota:
 
 ```sh
 OC_KEY=oc_sk_... node scripts/probe-protocols.mjs [model ...]   # one probe per served model
 OC_KEY=oc_sk_... node scripts/probe-image.mjs                   # image shapes, all three protocols
-node scripts/snapshot-models.mjs [--write]                      # capacity snapshot vs the catalogue
+node scripts/snapshot-models.mjs [--write]                      # fallback snapshot vs the catalogue
 ```
 
-`probe-protocols.mjs` answers `served=[…]` per model, which is what
-`FALLBACK_MODELS` is written from. `probe-image.mjs` posts a PNG over each
-protocol and checks the model can actually read it — twice per protocol, once
-with the image in a user turn and once with it carried by a tool result, because
-those are two different shapes and only the second one carries what `read_image`
-answers with. Point it at any picture with `OC_IMAGE=path/to.png` (the default,
-`.live-cache/probe-image.png`, is untracked scratch) and read the printed answer
-against what the picture holds. `snapshot-models.mjs` prints what changed since
-the snapshot was taken — `new`, `changed`, `gone` — and rewrites the two tables
-with `--write`.
+`probe-protocols.mjs` answers `served=[…]` per model. The `api` map in a live row
+is a preference, not a whitelist, so that measured list is what the remaining
+protocols behind the preferred entry are kept for. The probe keeps every request
+above the service's minimum output budget (16 tokens, so it sends 32) and fails
+on a stream error event as well as on the HTTP status, because a request shape
+the service rejects otherwise reads like a protocol refusal.
+
+`probe-image.mjs` posts a PNG over each protocol and checks the model can
+actually read it — twice per protocol, once with the image in a user turn and
+once with it carried by a tool result, because those are two different shapes and
+only the second one carries what `read_image` answers with. Point it at any
+picture with `OC_IMAGE=path/to.png` (the default, `.live-cache/probe-image.png`,
+is untracked scratch) and read the printed answer against what the picture holds.
+
+`snapshot-models.mjs` maintains the fallback: it compares `lib/model/limits.js`
+with the OpenCode catalogue (`models.dev`), prints what changed — `new`,
+`changed`, `gone` — and rewrites the current and delisted tables with `--write`,
+moving `CAPABILITY_SOURCE` to the new date.
 
 ## Architecture
 
@@ -255,9 +267,9 @@ lib/
 │   ├── errors.js             the failure type and brand helpers this plugin owns
 │   └── mapping.js            HTTP status / transport failure → stable code
 ├── model/
-│   ├── catalog.js            the measured protocol map and record merging
-│   ├── limits.js             the measured capacity and modality snapshot
-│   ├── cache.js              GET /models, memory + on-disk cache
+│   ├── catalog.js            protocol preference order and record merging
+│   ├── limits.js             the capacity, modality, and reasoning fallback snapshot
+│   ├── cache.js              GET /models rows, memory + on-disk cache
 │   ├── capabilities.js       records → harness model metadata
 │   └── images.js             durable references → request bytes
 ├── protocol/

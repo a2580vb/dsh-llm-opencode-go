@@ -117,9 +117,17 @@ const userTurn = (text) => ({ role: 'user', content: [{ type: 'text', text }] })
   report('GET /models discovery', models.length > 20, `${models.length} models, cache at ${CACHE_PATH}`)
   const luna = await adapter.resolveModel(config.provider, 'gpt-5.6-luna', undefined)
   report(
-    'gpt-5.6-luna resolves as Responses-only with a context window',
+    'gpt-5.6-luna resolves with the service’s capacity and preferred entry',
     luna.context?.contextWindow > 0,
     `contextWindow=${luna.context?.contextWindow} efforts=${luna.reasoning?.efforts.map((effort) => effort.id).join('/')}`,
+  )
+  // A model the 2026-11 catalogue added: it has no history in the built-in table
+  // beyond its capacity row, so resolving it proves discovery feeds the catalog.
+  const haiku = await adapter.resolveModel(config.provider, 'claude-haiku-5-5', undefined)
+  report(
+    'a model added after the snapshot resolves with its live facts',
+    haiku.context?.contextWindow === 1_000_000 && haiku.reasoning?.efforts.length > 0,
+    `contextWindow=${haiku.context?.contextWindow} efforts=${haiku.reasoning?.efforts.map((effort) => effort.id).join('/')}`,
   )
 
   // The catalogue's figures, not one assumed window shared by every model.
@@ -135,7 +143,7 @@ const userTurn = (text) => ({ role: 'user', content: [{ type: 'text', text }] })
   )
   // The declared modalities follow the request path: this builder mounts a
   // minimal attachment seam, so a vision model declares image input.
-  const vision = models.find((model) => model.id === 'deepseek-v4-flash-vision-exp')
+  const vision = models.find((model) => model.id === 'deepseek-v4.1-flash')
   const textOnly = models.find((model) => model.id === 'glm-5.3')
   report(
     'a vision model declares image input while a text-only model does not',
@@ -145,7 +153,7 @@ const userTurn = (text) => ({ role: 'user', content: [{ type: 'text', text }] })
   // The same catalog without the attachment seam: the declaration follows the
   // request path, so the vision model reports text-only and says why.
   const withoutSeam = buildAdapter({ attachments: () => NO_SEAM })
-  const gated = await withoutSeam.adapter.resolveModel(config.provider, 'deepseek-v4-flash-vision-exp', undefined)
+  const gated = await withoutSeam.adapter.resolveModel(config.provider, 'deepseek-v4.1-flash', undefined)
   report(
     'without an attachment seam, the same model reports text-only with a note',
     gated.inputModalities.includes('image') === false && String(gated.description ?? '').length > 0,
@@ -157,10 +165,10 @@ const userTurn = (text) => ({ role: 'user', content: [{ type: 'text', text }] })
 // 2. Every protocol, in a real round trip
 // ---------------------------------------------------------------------------
 const PROTOCOL_CASES = [
-  { model: 'glm-5.3', protocol: PROTOCOLS.CHAT, label: 'glm-5.3 (chat-completions)' },
-  { model: 'deepseek-v4-flash', protocol: PROTOCOLS.CHAT, label: 'deepseek-v4-flash (chat-completions)' },
+  { model: 'kimi-k3', protocol: PROTOCOLS.CHAT, label: 'kimi-k3 (chat-completions)' },
+  { model: 'deepseek-v4.1-flash', protocol: PROTOCOLS.CHAT, label: 'deepseek-v4.1-flash (chat-completions)' },
   { model: 'gpt-5.6-luna', protocol: PROTOCOLS.RESPONSES, label: 'gpt-5.6-luna (responses)' },
-  { model: 'minimax-m2.7', protocol: PROTOCOLS.ANTHROPIC, label: 'minimax-m2.7 (anthropic)' },
+  { model: 'minimax-m3', protocol: PROTOCOLS.ANTHROPIC, label: 'minimax-m3 (anthropic)' },
   { model: 'qwen3.8-max', protocol: PROTOCOLS.ANTHROPIC, label: 'qwen3.8-max (anthropic)' },
 ]
 
@@ -194,7 +202,7 @@ for (const testCase of PROTOCOL_CASES) {
 // 3. Tool calling round trip: call, result, follow-up
 // ---------------------------------------------------------------------------
 for (const testCase of [
-  { model: 'deepseek-v4-flash', protocol: PROTOCOLS.CHAT },
+  { model: 'kimi-k3', protocol: PROTOCOLS.CHAT },
   { model: 'gpt-5.6-luna', protocol: PROTOCOLS.RESPONSES },
   // The Responses round trip that carries reasoning back: DeepSeek's thinking
   // mode refuses the follow-up without it, so this is the case that proves the
@@ -269,12 +277,14 @@ for (const testCase of [
 }
 
 // ---------------------------------------------------------------------------
-// 4. Protocol fallback: a Responses-only model asked to start at chat
+// 4. A non-preferred protocol still serves
 // ---------------------------------------------------------------------------
 {
   const { adapter, config } = buildAdapter({
-    // Deliberately wrong: gpt-5.6-luna refuses chat-completions. The adapter
-    // must discover that for itself and reach the model over Responses.
+    // The service accepts every protocol for the models it lists, so this is a
+    // supported call rather than a fallback; the ModelProtocolUnsupported retry
+    // itself is unit-tested in the protocol suites, where a refusal can be
+    // produced without a live service.
     protocolOverrides: { 'gpt-5.6-luna': PROTOCOLS.CHAT },
     modelsCachePath: CACHE_PATH,
   })
@@ -287,9 +297,9 @@ for (const testCase of [
       sessionId: 'live-fallback-session',
     })
     const text = out.blocks.filter((block) => block.type === 'text').map((block) => block.text).join('')
-    report('protocol fallback recovers from ModelProtocolUnsupported', /OK/i.test(text), `text=${JSON.stringify(text.slice(0, 40))}`)
+    report('a model forced onto a non-preferred protocol still serves', /OK/i.test(text), `text=${JSON.stringify(text.slice(0, 40))}`)
   } catch (error) {
-    report('protocol fallback recovers from ModelProtocolUnsupported', false, `${error.code ?? 'ERROR'}: ${error.message}`)
+    report('a model forced onto a non-preferred protocol still serves', false, `${error.code ?? 'ERROR'}: ${error.message}`)
   }
 }
 
@@ -453,9 +463,15 @@ for (const testCase of [
 {
   try {
     const raw = JSON.parse(await readFile(CACHE_PATH, 'utf8'))
-    report('the discovered catalog was cached on disk', Array.isArray(raw.ids) && raw.ids.length > 20, `${raw.ids.length} ids, version ${raw.version}`)
+    const rows = Array.isArray(raw.rows) ? raw.rows : []
+    const rich = rows.filter((row) => Number.isInteger(row?.limit?.context) && row.limit.context > 0)
+    report(
+      'the discovered catalog was cached with the service’s facts',
+      raw.version === 2 && rows.length > 20 && rich.length === rows.length,
+      `${rows.length} rows, ${rich.length} with a live context window, version ${raw.version}`,
+    )
   } catch (error) {
-    report('the discovered catalog was cached on disk', false, error.message)
+    report('the discovered catalog was cached with the service’s facts', false, error.message)
   }
 }
 

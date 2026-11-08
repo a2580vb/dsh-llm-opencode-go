@@ -9,14 +9,14 @@
 | | |
 |---|---|
 | **版本** | 0.2.3（包名 `dsh-llm-opencode-go`） |
-| **协议映射** | 对线上服务逐模型实测，写在 `lib/model/catalog.js` |
-| **容量与模态** | 来自 OpenCode 目录（`models.dev`）的快照，日期记在 `lib/model/limits.js` 的 `CAPABILITY_SOURCE`（当前为 `models.dev/opencode-go@2026-10-02`） |
+| **协议映射** | 每个模型一个首选入口，取自 live 的 `api` 映射并经过实测，写在 `lib/model/catalog.js` |
+| **容量、模态与思考阶梯** | 读自 live 的 `GET /models` 行；`lib/model/limits.js` 里的 `models.dev` 快照是兜底，日期记在 `CAPABILITY_SOURCE`（当前为 `models.dev/opencode-go@2026-11-08`） |
 | **已知限制** | 见[可靠性](reliability.zh-CN.md#限制)与[模型](models.zh-CN.md) |
 
 ## 验证
 
 ```sh
-npm test            # 427 项离线检查：配置、SSE 分帧、目录、三种协议、适配器、插件本体、配置桥接、客户端 bundle、显示元数据、诊断日志、版本一致性，以及本仓库自己的 CI
+npm test            # 443 项离线检查：配置、SSE 分帧、目录、三种协议、适配器、插件本体、配置桥接、客户端 bundle、显示元数据、诊断日志、版本一致性，以及本仓库自己的 CI
 npm run test:cordis # 43 项检查，把插件挂到 Harness 自己的 cordis 上
 npm run test:live   # 对线上服务的实测套件；需要 OC_KEY
 npm run check:pack  # `npm publish` 会真正上传的那个 tarball
@@ -68,11 +68,12 @@ npm run check:pack  # `npm publish` 会真正上传的那个 tarball
 - **塞不下的 placeholder 就是一句被截断的话。** 套件会按列声明的宽度估算每个 placeholder，过长的
   提示在这里就被抓住。关于「允许输入什么」的规则应该放在字段下方的提示文字里，那里能换行、能读。
 
-`npm run test:live` 会消耗真实配额。它针对线上中继检查：模型发现与缓存、三种协议各自的往返、
-每种协议的完整工具调用往返、协议回退恢复、重复 session id 上的缓存复用、历史中存在「被记录但
-从未派发」的工具调用时请求仍被接受、每个模型都报告自己的实测上下文窗口与模态、每一个对外
-公布的思考等级都被接受，以及被 workspace 门控的模型要么正常作答、要么被明确报成「需要该
-workspace 的同意」。
+`npm run test:live` 会消耗真实配额。它针对线上中继检查：模型发现与服务行事实的缓存、快照之后
+新增的模型能解析出自己的 live 事实、三种协议各自的往返、每种协议的完整工具调用往返、被强行指定
+到非首选协议的模型仍然可用、重复 session id 上的缓存复用、历史中存在「被记录但从未派发」的
+工具调用时请求仍被接受、每个模型都报告自己的上下文窗口、输出上限与模态、每一个对外公布的思考
+等级都被接受，以及被 workspace 门控的模型要么正常作答、要么被明确报成「需要该 workspace 的
+同意」。
 
 ```sh
 OC_KEY=oc_sk_... npm run test:live
@@ -165,21 +166,28 @@ npm 那一侧有两个一次性设置：包必须在 **Trusted Publishers** 里�
 
 ## 重新实测线上事实
 
-关于这个服务有两类事实来自实测而非公布，各自都有一个纳入版本控制的探针。它们都需要 key 并消耗
-真实配额：
+服务会在 `GET /models` 里公布每个模型的容量、模态与思考阶梯，所以探针覆盖的是行本身定不下来的
+事实：中继实际接受哪些协议，以及图片输入的请求形状。它们都需要 key 并消耗真实配额：
 
 ```sh
 OC_KEY=oc_sk_... node scripts/probe-protocols.mjs [model ...]   # 对每个在服务的模型逐个探测协议
 OC_KEY=oc_sk_... node scripts/probe-image.mjs                   # 三种协议的图片请求形状
-node scripts/snapshot-models.mjs [--write]                      # 容量快照与线上目录的差异
+node scripts/snapshot-models.mjs [--write]                      # 兜底快照与线上目录的差异
 ```
 
-`probe-protocols.mjs` 会逐模型给出 `served=[…]`，`FALLBACK_MODELS` 就是照它写的。
-`probe-image.mjs` 会把一张 PNG 按每种协议发出去，验证模型是否真的能读图——每种协议发两次：一次图片
-在用户那一轮，一次图片由工具结果带出，因为这是两种不同的形状，而只有后一种才承载 `read_image`
-的返回。用 `OC_IMAGE=path/to.png` 可以换任意一张图（默认的 `.live-cache/probe-image.png` 是未纳入
-版本控制的草稿区），把打印出来的回答与图片内容对一遍即可。`snapshot-models.mjs` 会打印快照之后的
-变化（`new`、`changed`、`gone`），加 `--write` 则重写两张表。
+`probe-protocols.mjs` 会逐模型给出 `served=[…]`。live 行里的 `api` 只是偏好、不是白名单，所以
+首选入口背后保留其余协议，依据的正是这份实测清单。探针会让每个请求的预算高于服务的最小输出限制
+（16 token，所以发 32），并且除了 HTTP 状态之外还会在流里出现 error 事件时判失败——否则一个被
+服务拒绝的请求形状读起来就像一次协议拒绝。
+
+`probe-image.mjs` 会把一张 PNG 按每种协议发出去，验证模型是否真的能读图——每种协议发两次：一次
+图片在用户那一轮，一次图片由工具结果带出，因为这是两种不同的形状，而只有后一种才承载
+`read_image` 的返回。用 `OC_IMAGE=path/to.png` 可以换任意一张图（默认的
+`.live-cache/probe-image.png` 是未纳入版本控制的草稿区），把打印出来的回答与图片内容对一遍即可。
+
+`snapshot-models.mjs` 维护那份兜底：把 `lib/model/limits.js` 与 OpenCode 目录（`models.dev`）
+对比，打印 `new`、`changed`、`gone`，加 `--write` 则重写当前表与已下线表，并把
+`CAPABILITY_SOURCE` 挪到新日期。
 
 ## 目录结构
 
@@ -192,9 +200,9 @@ lib/
 │   ├── errors.js             本插件自有的失败类型与 brand 辅助
 │   └── mapping.js            HTTP 状态 / 传输失败 → 稳定错误码
 ├── model/
-│   ├── catalog.js            实测得到的协议映射与记录合并
-│   ├── limits.js             实测得到的容量与模态快照
-│   ├── cache.js              GET /models，内存 + 磁盘缓存
+│   ├── catalog.js            协议偏好顺序与记录合并
+│   ├── limits.js             容量、模态与思考阶梯的兜底快照
+│   ├── cache.js              GET /models 的行，内存 + 磁盘缓存
 │   ├── capabilities.js       记录 → Harness 模型元数据
 │   └── images.js             持久引用 → 请求字节
 ├── protocol/

@@ -14,7 +14,7 @@ view, or read `Config` from the plugin for the authoritative list.
 | `attribution` | absent | Extra product token appended to the `User-Agent`, e.g. `deepseek-harness/0.2.0` |
 | `timeoutMs` | `600000` | Deadline for connect + response headers |
 | `streamIdleTimeoutMs` | `300000` | Maximum provider idle time between stream reads |
-| `modelSource` | `discover` | `discover` = `GET /models` + built-in fallback; `config` = the `models` list alone |
+| `modelSource` | `discover` | `discover` = the live `GET /models` rows over the built-in fallback; `config` = the `models` list alone |
 | `modelsCacheSeconds` | `21600` | Discovered-catalog lifetime |
 | `modelsCachePath` | `~/.dsh/cache/opencode-go-models.json` | Cache file; an unwritable path only warns |
 | `usagePath` | `~/.dsh/cache/opencode-go-usage.json` | Where the usage counters live; an unwritable path only warns |
@@ -24,13 +24,13 @@ view, or read `Config` from the plugin for the authoritative list.
 | `subscriptionCacheSeconds` | `60` | How long the page reuses a subscription-quota answer before asking the service again |
 | `subscriptionMinIntervalSeconds` | `30` | The shortest wait between two of the page's own quota checks (see [Fast entries](#fast-entries)) |
 | `subscriptionMaxIntervalSeconds` | `1800` | The longest a quota answer may go unchecked, however quiet the route is |
-| `models` | `[]` | Advisory catalog entries; the whole catalog when `modelSource: config` |
+| `models` | `[]` | Catalog entries that refine the records they name in `discover` mode; the whole catalog when `modelSource: config` |
 | `modelOverrides` | `{}` | Reshape one catalog model without restating the rest |
 | `protocolOverrides` | `{}` | `{"<model id>": "<protocol>"}` shorthand |
 | `defaultProtocol` | `chat-completions` | Protocol for an entry that names none |
-| `defaultContextWindow` | `262144` | Capacity used when neither the measured table nor a family names the model |
+| `defaultContextWindow` | `262144` | Capacity used when neither the live row, the snapshot, nor a family names the model |
 | `defaultMaxTokens` | `32768` | Output cap under the same condition |
-| `reasoningEfforts` | `[minimal, low, medium, high, max]` | Selectable thinking levels; narrowed per protocol |
+| `reasoningEfforts` | `[minimal, low, medium, high, max]` | Thinking levels for a record that states none; a model whose row publishes its own ladder advertises that instead, narrowed per protocol |
 | `sessionHeader` | `session-id` | `session-id` \| `uuid` \| `off` |
 | `sendClientHeader` | `true` | Send `x-opencode-client` |
 | `freshConnectionOnLargeBody` | `false` | Ask for a fresh connection when a request body reaches 256 KiB; for network paths that reset a large upload on a reused keep-alive socket (see [Reliability](reliability.md#limits)) |
@@ -218,7 +218,14 @@ plugin is complete and this whole surface is absent.
 ## Fetching the model list
 
 A deployment in `modelSource: discover` reads `GET /models` once and keeps the
-answer for `modelsCacheSeconds`. The configuration page can also re-read it on
+answer for `modelsCacheSeconds`. Each row carries the model's display name, a
+description, its `limit`, `modalities`, reasoning ladder, and the catalogue's
+preferred `api` entry; discovery keeps those facts and the catalog reads them, so
+a model released after the fallback snapshot was taken still reports its own
+capacity and modalities. A gateway that still answers with ids only, or a cache
+file written before rows carried these facts, is still usable: those models fall
+back to the built-in table and the `models.dev` snapshot in
+`lib/model/limits.js`. The configuration page can also re-read the list on
 demand, which is the one thing the page does that costs a request:
 
 - **What it reports** is what changed, counted over the *listing* rather than
@@ -245,7 +252,7 @@ listing, whatever the individual switches say.
 ```yaml
 config:
   hiddenModels:
-    - space-bunny-free
+    - step-5-preview
     - glm-5.2
 ```
 
@@ -462,13 +469,14 @@ the launching shell first.
 
 ## Shaping the catalog
 
-`models` entries **replace** the catalog record for the ids they name in
-`discover` mode, so an entry is the whole truth about that model: a field it does
-not state comes from the top-level defaults rather than from the measured record.
-A `models` entry for `gpt-5.6-luna` that names only its `contextWindow` therefore
-loses the measured `[responses]` protocol list and its `reasoning: true` flag
-unless it restates them. `modelOverrides` is the merging counterpart — it changes
-the fields it names on the existing record and leaves everything else intact:
+In `discover` mode a `models` entry **refines** the record for the id it names: a
+field the entry states wins, and a field it omits keeps what the live row (or the
+built-in fallback) said. A `models` entry for `gpt-5.6-luna` that names only its
+`contextWindow` therefore changes the window and keeps the live three-protocol
+list, the service's other capacity figures, and its reasoning ladder. An entry
+for an id no source describes creates the record from the top-level defaults,
+which is how a compatible gateway names its own models. `modelOverrides` applies
+the same refinement as a map, without listing the whole model:
 
 ```yaml
 config:
@@ -481,11 +489,12 @@ config:
       efforts: [low, medium, high]
 ```
 
-An entry may also paste a catalogue record verbatim: `limit: { context, output }`
-is accepted as a synonym for `contextWindow` / `maxTokens`, and
+An entry may also paste a catalogue record: `limit: { context, output }` is
+accepted as a synonym for `contextWindow` / `maxTokens`, and
 `modalities: { input: [...] }` (or a bare `modalities: [...]`) records the
-provider's own list. Only `text` and `image` mean anything to this adapter, so a
-pasted list is kept whole while the sendable subset is what gets declared.
+provider's own list in this package's vocabulary — `text`, `image`, `video`,
+`audio`, `pdf`. Only `text` and `image` are sendable, so a list naming more is
+kept whole while the sendable subset is what gets declared.
 
 With `modelSource: config`, `models` becomes the entire catalog and `GET /models`
 is never called — the right posture for a compatible gateway.

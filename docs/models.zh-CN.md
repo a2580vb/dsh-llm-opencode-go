@@ -2,45 +2,54 @@
 
 > 返回 [README](../README.zh-CN.md)。
 
-本页描述模型目录：每个模型走哪种线协议、哪些模型受训练数据政策门控、目录上报的容量与输入模态。
-这些事实来自同一组实测量（`lib/model/catalog.js`、`lib/model/limits.js`）。
+本页描述模型目录：服务为每个模型公布了什么、适配器如何发起调用、哪些模型受训练数据政策门控，以及
+目录上报的容量与输入模态。目录由 live 的 `GET /models` 行搭起，实测协议表与 `models.dev` 容量快照
+作为它的兜底（`lib/model/catalog.js`、`lib/model/limits.js`）。
 
 ## 按模型选择协议
 
-OpenCode Go 提供三种线格式协议，并且对**哪个模型能走哪个协议**非常严格。一个只会说
-`/responses` 的模型不会降级到 `/chat/completions`，而是直接回答：
+OpenCode Go 提供三种线格式协议。它的目录在每行的 `api` 映射里点名一个**首选入口**——
+`chat-completions`、`responses` 或 `messages`——但那只是推荐，不是能力上限：2026-11-08 的探测中，
+服务列出的每一个模型都接受了全部三种协议。所以每个模型携带的是一份有序协议列表，首选入口在前，
+其余两个在它后面。如果调用仍然以这种方式被拒绝，它会回答：
 
 ```json
 {"type":"error","error":{"type":"ModelProtocolUnsupported","message":"Model does not support this protocol."}}
 ```
 
-所以每个模型携带的是一份有序的协议列表，而不是一个全局的 endpoint 选择。请求以这种方式被拒绝时，
-适配器记录日志，并用该模型的下一个协议重试同一调用。以下是逐个模型对线上实测的结果：
+适配器记录日志，并用该模型的下一个协议重试同一调用。按每行点名的入口分组，建模的顺序是：
 
-| 模型 | 提供的协议 |
+| 模型 | 协议（按顺序） |
 |---|---|
-| `deepseek-v4-pro`、`deepseek-v4-flash`、`deepseek-v4.1-flash`、`deepseek-flash`、`deepseek-v4-flash-vision-exp` | responses、chat-completions、anthropic |
-| `gpt-6-luna`、`gpt-5.6-luna`、`grok-4.7`、`grok-4.6` | responses |
-| `minimax-m2.7` | anthropic |
-| `minimax-m2.5`、`minimax-m3`、`kimi-k3`、`qwen3.6-plus`、`qwen3.7-max`、`qwen3.8-max`、`qwen3.8-flash`、`qwen3.7-plus`、`space-bunny-free` | chat-completions、anthropic |
-| `glm-5.3`、`glm-5.3-flash`、`glm-5.2`、`glm-5.1`、`kimi-k2.7-code`、`kimi-k2.6`、`mimo-v2.6-pro`、`mimo-v2.6-flash`、`mimo-v2.5-pro`、`mimo-v2.5`、`longcat-*`、`hy3`、`hy4-preview`、`omen-alpha` | chat-completions |
-| `muse-spark-1.3-contributor`、`muse-spark-1.2-contributor` | responses，且仅在 workspace 允许「用请求数据训练的 provider」时可用（见[会训练请求数据的模型](#会训练请求数据的模型)） |
+| `beam-free`、`deepseek-v4.1-flash`、`deepseek-v4-pro`、`glm-5.2`、`glm-5.3`、`glm-5.3-flash`、`hy3`、`hy4`、`hy4-preview`、`iceman-contributor-free`、`kimi-k2.7-code`、`kimi-k3`、`kimi-k3.1-pro`、`longcat-2.0`、`mimo-v2.6-flash`、`mimo-v2.6-pro`、`minimax-m3.1-flash`、`step-5-preview` | chat-completions、responses、anthropic |
+| `crouton-alpha-free`、`gemini-4-argon`、`gpt-5.6-luna`、`gpt-6-luna`、`grok-4.7` | responses、chat-completions、anthropic |
+| `claude-haiku-5-5`、`minimax-m3`、`qwen3.7-plus`、`qwen3.8-flash`、`qwen3.8-max` | anthropic、responses、chat-completions |
+| `muse-spark-1.3-contributor`、`muse-spark-1.2-contributor` | responses、chat-completions、anthropic，且仅在 workspace 允许「用请求数据训练的 provider」时可用（见[会训练请求数据的模型](#会训练请求数据的模型)） |
 
-`GET /models` 返回的每一个 id 在这张表里都有对应行。服务变更后用[开发](development.zh-CN.md#重新实测线上事实)
+内置目录为 `GET /models` 在 2026-11-08 列出的每一个 id 都保留了一行，所以没有在服模型需要先失败一次
+才能发现自己的协议。服务不再提供的 id 不在其中；仍点名某个旧 id 的会话会从 `lib/model/limits.js`
+的实测表里解析出它的容量，而调用本身会收到服务返回的 `MODEL_DEPRECATED` 或
+`MODEL_UNAVAILABLE`（见[可靠性](reliability.zh-CN.md#失败)）。服务变更后用[开发](development.zh-CN.md#重新实测线上事实)
 里描述的探针重新实测即可。
 
-优先级顺序是 responses → chat-completions → anthropic。用 `protocolOverrides` 可以钉住另一个：
+`api` 映射还会点名每种协议自己的 SDK base URL（`/inference/go/openai/…`、
+`/inference/go/anthropic/…`、`/inference/go/google/…`）。那些是目录给 SDK 的入口；中继在统一的
+`baseURL` 下同样服务这些协议，本插件用的就是后者，因此不需要换 host。唯一一行点名 Google
+`generate-content` 的模型（`gemini-4-argon`）在这里同样走三种协议——本适配器没有 Google 传输层，
+所以它的行以 responses 开头。
+
+用 `protocolOverrides` 可以改某个模型的开场协议，该模型的其它协议仍留在后面作为回退：
 
 ```yaml
 config:
   protocolOverrides:
-    deepseek-v4-flash: chat-completions
+    gpt-5.6-luna: chat-completions
 ```
 
 目录没有描述的模型分两种情况：
 
-- **服务列出了、但本插件尚未实测的 id**：只带 `defaultProtocol`（默认 `chat-completions`），
-  没有协议回退。
+- **服务列出了、但本插件没有内置行的 id**：它 live 行里的 `api` 入口先上，其余协议留在后面；
+  行里没有本适配器能承载的入口时，用 `defaultProtocol` 开场，其余的同样留在后面。
 - **哪里都找不到的 id**——新到 `GET /models` 都还没收录，或者走的是没有发现能力的网关：协议
   未知，会依次尝试每一个协议。
 
@@ -84,37 +93,58 @@ config:
 
 ## 容量与多模态
 
-`GET /models` 只公布 id：
+`GET /models` 会描述每一个模型。一行（裁到本适配器会读的字段）看起来像：
 
 ```json
-{"id":"deepseek-v4.1-flash","object":"model","created":1790899718,"owned_by":"opencode"}
+{
+  "id": "deepseek-v4.1-flash",
+  "name": "DeepSeek V4.1 Flash",
+  "description": "DeepSeek V4.1 Flash model for reasoning and agentic coding",
+  "limit": { "context": 1000000, "output": 384000 },
+  "modalities": { "input": ["text", "image/jpeg", "image/png"], "output": ["text"] },
+  "capabilities": {
+    "tools": { "supported": true },
+    "reasoning": { "supported": true, "effort": ["low", "high", "max"] }
+  },
+  "api": { "chat-completions": { "base_url": "https://opencode.ai/inference/go/openai/v1" } }
+}
 ```
 
-没有上下文窗口、没有输出上限、也没有多模态信息。这些数字在 OpenCode 自己随包发布的目录
-（`models.dev`）里，所以 `lib/model/limits.js` 以**快照**的形式带上它们，而不是每次请求去拉：
-需要上下文窗口的调用不能等一个第三方 endpoint，没有外网的部署也得能显示真实上限。每个模型解析出的
-都是自己的数字：
+live 行里的 `created` 是请求时刻，不是模型的发布时间；发布时间由 `release_date` 与
+`last_updated` 表达。发现到的行是模型事实的第一来源：`limit` 给出上下文窗口与输出上限（少数模型
+还有 `limit.input` 这个单次输入上限，本适配器不为它单独建模），`modalities` 给出 provider 的输入
+列表，`capabilities.reasoning.effort` 给出思考阶梯，`api` 点名首选协议。发现路径把这些行保存进
+缓存，所以快照之后才发布的模型也能报告自己的数字。
+
+它背后还有一份快照。`lib/model/limits.js` 保存着在 `CAPABILITY_SOURCE` 所记日期
+（`models.dev/opencode-go@2026-11-08`）从 OpenCode 目录（`models.dev`）实测来的同一组事实。
+发现没有描述某个模型的时候由它作答——没有网络的部署、只回 id 的网关、或在行里带上这些事实之前
+写下的缓存文件——因为需要上下文窗口的调用不能等一个第三方 endpoint，而没有外网的部署也得能
+显示真实上限。每个模型解析出的都是自己的数字：
 
 | 模型 | 上下文 | 输出上限 | 模型输入 |
 |---|---|---|---|
 | `deepseek-v4.1-flash` | 1,000,000 | 384,000 | text、image |
 | `gpt-5.6-luna` | 1,050,000 | 128,000 | text、image、pdf |
 | `grok-4.7` | 500,000 | 500,000 | text、image、pdf |
-| `minimax-m2.7` | 204,800 | 131,072 | text |
+| `claude-haiku-5-5` | 1,000,000 | 128,000 | text、image、pdf |
 | `kimi-k2.7-code` | 262,144 | 262,144 | text、image、video |
 | `mimo-v2.6-pro` | 1,048,576 | 131,072 | text、image、audio、video |
 | `hy3` | 256,000 | 128,000 | text |
 
-快照完全没听说过的模型——比它更晚发布的——会先匹配到**同族**的实测数字（`qwen…`、`glm-…`、
-`grok-…` 等），最后才退回 `defaultContextWindow`。经由会公布自身容量的网关接入的模型，则直接
-从响应里读取；见[配置](configuration.zh-CN.md#调整目录)。
+两个来源都没描述过的模型——两边之后才发布的那个——会先匹配到**同族**的实测数字（`qwen…`、
+`glm-…`、`grok-…` 等），最后才退回 `defaultContextWindow`。会公布同一组字段的兼容网关也按同样的
+方式读取；见[配置](configuration.zh-CN.md#调整目录)。行里的 `capabilities.reasoning.effort` 就是
+该模型「对外公布的思考阶梯」，见[线协议](wire-protocol.zh-CN.md#推理)。
 
 ### 多模态：模型能接受什么，与一条路由能发什么
 
-目录里列出的能力，有些是这里任何线协议都没有对应字段的——`video`、`audio`、`pdf`——所以两个事实
-被分开保存：
+live 行用 MIME 类型列输入模态（`image/jpeg`、`application/pdf`、`video/mp4` 等）；快照用目录
+词表列同样的能力（`image`、`pdf`、`video` 等）。两者都会归一化成同一份列表——归一之后，服务公布的
+能力里仍有一些是这里任何线协议都没有对应字段的——`video`、`audio`、`pdf`——所以两个事实被分开
+保存：
 
-- **`providerModalities`** 是目录自己的列表，原样保留。
+- **`providerModalities`** 是 provider 自己的列表，归一成这些名字后原样保留。
 - **`inputModalities`** 是本适配器真正能放进请求里的东西。Harness 只建模两种，本适配器也只对两种
   有线路表达，所以解析出的模型只声明 `['text']` 或 `['text', 'image']`。
 
@@ -131,7 +161,7 @@ config:
 | 取值 | 效果 |
 |---|---|
 | `auto`（默认） | 当**本部署能解析图片字节**（即挂载了 attachment seam）时，为视觉模型声明 `image`；否则报告为纯文本，并说明省略了什么。 |
-| `always` | 只要目录条目接受图片就声明 `image`，无论有没有挂载 seam。此时含图片的请求会带着原因失败，而不是静默地只发文本。 |
+| `always` | 只要该模型的行接受图片就声明 `image`，无论有没有挂载 seam。此时含图片的请求会带着原因失败，而不是静默地只发文本。 |
 | `off` | 从不声明 `image`。 |
 
 如果你的部署把图片挂在别处而不是 attachment seam，就设为 `always`：

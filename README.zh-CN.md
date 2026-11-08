@@ -4,7 +4,7 @@
 
 [![npm 版本](https://img.shields.io/npm/v/dsh-llm-opencode-go)](https://www.npmjs.com/package/dsh-llm-opencode-go)
 [![npm 下载量](https://img.shields.io/npm/dm/dsh-llm-opencode-go)](https://www.npmjs.com/package/dsh-llm-opencode-go)
-[![离线检查](https://img.shields.io/badge/offline_checks-427-brightgreen)](docs/development.zh-CN.md)
+[![离线检查](https://img.shields.io/badge/offline_checks-443-brightgreen)](docs/development.zh-CN.md)
 [![ci](https://github.com/a2580vb/dsh-llm-opencode-go/actions/workflows/ci.yml/badge.svg)](https://github.com/a2580vb/dsh-llm-opencode-go/actions/workflows/ci.yml)
 [![许可证](https://img.shields.io/badge/license-MIT-blue)](LICENSE)
 
@@ -37,12 +37,12 @@
 |---|---|
 | **Provider 路由** | `opencode-go`（可配置） |
 | **协议** | OpenAI Responses、OpenAI 兼容 Chat Completions、Anthropic Messages |
-| **模型发现** | `GET /models`，带内存缓存 + 磁盘缓存 |
+| **模型发现** | `GET /models`：每个模型的显示名、描述、容量、模态、思考阶梯与推荐协议，带内存缓存 + 磁盘缓存 |
 | **会话亲和** | `x-opencode-session`，每个会话一个稳定 id |
 | **工具调用** | 每一次已派发的调用都完整往返：定义、分片参数、工具结果、后续轮次 |
-| **推理** | 按协议映射思考等级，包含 Anthropic thinking budget |
+| **推理** | 使用服务公布的逐模型档位，按协议翻译，包含 Anthropic thinking budget |
 | **流式** | SSE → `StreamChunk`，带 usage、结束原因和空闲看门狗 |
-| **失败** | 稳定的 provider 无关错误码（`AUTH`、`RATE_LIMIT`、`QUOTA`、`CONTEXT_WINDOW_EXCEEDED` 等） |
+| **失败** | 稳定的 provider 无关错误码（`AUTH`、`RATE_LIMIT`、`QUOTA`、`CONTEXT_WINDOW_EXCEEDED`、`MODEL_DEPRECATED`、`MODEL_UNAVAILABLE` 等） |
 | **图形化配置** | Web 客户端里的一页，设置导航里有自己的一行，Plugins 页上本插件的行上也有配置控件：API 密钥、凭据引用、模型可见性与变体、获取可用模型、用量 |
 | **快速入口** | 侧边栏底部的额度胶囊（每个窗口一枚环：`5H / 周 / 月`，各自显示剩余）、一个独立的用量面板（从该处或快捷键打开）、设置里的一个用量页 |
 | **运行环境** | Node.js ≥ 20；无运行时依赖 |
@@ -104,7 +104,7 @@ config:
 
 细节都在 [`docs/`](docs/models.zh-CN.md) 里，按需查阅：
 
-- [模型](docs/models.zh-CN.md)——按模型选协议、训练数据门控、容量快照、text/image 划分
+- [模型](docs/models.zh-CN.md)——服务公布的模型事实、协议偏好与回退、训练数据门控、容量快照、text/image 划分
 - [配置](docs/configuration.zh-CN.md)——完整字段表、塑造目录、图片输入、图形化配置与快速入口
 - [线协议](docs/wire-protocol.zh-CN.md)——endpoint 与鉴权、`x-opencode-session`、推理与工具调用翻译
 - [可靠性](docs/reliability.zh-CN.md)——稳定错误码与限制

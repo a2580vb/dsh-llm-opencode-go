@@ -51,50 +51,61 @@ export default {
       },
     },
     {
-      name: 'the measured fallback maps every model family to the protocol it serves',
+      name: 'the fallback table prefers the entry the service catalogue names',
       run() {
         const records = new Map(FALLBACK_MODELS.map((record) => [record.id, record]))
-        // Responses-only.
+        // The catalogue's preferred entry, as the service's own `api` map names it.
         is(preferredProtocol(records.get('gpt-5.6-luna')), PROTOCOLS.RESPONSES)
-        is(preferredProtocol(records.get('grok-4.6')), PROTOCOLS.RESPONSES)
-        // Chat Completions only.
+        is(preferredProtocol(records.get('grok-4.7')), PROTOCOLS.RESPONSES)
         is(preferredProtocol(records.get('glm-5.3')), PROTOCOLS.CHAT)
         is(preferredProtocol(records.get('kimi-k2.7-code')), PROTOCOLS.CHAT)
-        // Messages only.
-        is(preferredProtocol(records.get('minimax-m2.7')), PROTOCOLS.ANTHROPIC)
-        // Every protocol.
-        equal(records.get('deepseek-v4-flash').protocols, [PROTOCOLS.RESPONSES, PROTOCOLS.CHAT, PROTOCOLS.ANTHROPIC])
+        is(preferredProtocol(records.get('minimax-m3')), PROTOCOLS.ANTHROPIC)
+        is(preferredProtocol(records.get('claude-haiku-5-5')), PROTOCOLS.ANTHROPIC)
+        // Measured on 2026-11-08: every served model accepts all three protocols,
+        // so the rest of the list stays behind the preferred entry as fallbacks.
+        equal(records.get('deepseek-v4.1-flash').protocols, [PROTOCOLS.CHAT, PROTOCOLS.RESPONSES, PROTOCOLS.ANTHROPIC])
+        equal(records.get('gpt-5.6-luna').protocols, [PROTOCOLS.RESPONSES, PROTOCOLS.CHAT, PROTOCOLS.ANTHROPIC])
+        equal(records.get('minimax-m3').protocols, [PROTOCOLS.ANTHROPIC, PROTOCOLS.RESPONSES, PROTOCOLS.CHAT])
       },
     },
     {
       name: 'only the DeepSeek family asks for its own reasoning back on the Responses wire',
       run() {
         const records = buildCatalog(resolveConfig({}), [])
-        for (const id of ['deepseek-v4-pro', 'deepseek-v4-flash', 'deepseek-v4.1-flash', 'deepseek-flash', 'deepseek-v4-flash-vision-exp']) {
+        for (const id of ['deepseek-v4-pro', 'deepseek-v4.1-flash']) {
           is(records.get(id).requiresReasoningReplay, true, `${id} needs its reasoning replayed`)
         }
-        for (const id of ['gpt-5.6-luna', 'grok-4.7', 'glm-5.3', 'minimax-m2.7']) {
+        for (const id of ['gpt-5.6-luna', 'grok-4.7', 'glm-5.3', 'minimax-m3']) {
           is(records.get(id).requiresReasoningReplay, false, `${id} keeps its reasoning upstream`)
         }
         // The fact follows the id through every reshape a deployment can apply.
         const shaped = buildCatalog(resolveConfig({
           modelVariants: [{ model: 'deepseek-v4.1-flash', name: 'max', effort: 'max' }],
           protocolOverrides: { 'deepseek-v4.1-flash': 'chat-completions' },
-          modelOverrides: { 'deepseek-v4-flash': { contextWindow: 1_000 } },
+          modelOverrides: { 'deepseek-v4-pro': { contextWindow: 1_000 } },
         }), [])
         is(shaped.get('deepseek-v4.1-flash@max').requiresReasoningReplay, true, 'a variant keeps it')
         is(shaped.get('deepseek-v4.1-flash').requiresReasoningReplay, true, 'a protocol override keeps it')
-        is(shaped.get('deepseek-v4-flash').requiresReasoningReplay, true, 'a model override keeps it')
+        is(shaped.get('deepseek-v4-pro').requiresReasoningReplay, true, 'a model override keeps it')
         // A `models` entry for an id the fallback does not describe derives it too.
         is(buildCatalog(resolveConfig({ models: [{ id: 'deepseek-next' }] }), []).get('deepseek-next').requiresReasoningReplay, true)
       },
     },
     {
-      name: 'a model that only serves one protocol is never offered another first',
+      name: 'a record tries its preferred entry first, then the protocols behind it',
       run() {
-        const records = buildCatalog(resolveConfig({}), [])
-        const attempts = orderAttempts(records.get('gpt-5.6-luna'), resolveConfig({}))
-        equal(attempts, [PROTOCOLS.RESPONSES])
+        const config = resolveConfig({})
+        const records = buildCatalog(config, [])
+        equal(orderAttempts(records.get('gpt-5.6-luna'), config), [
+          PROTOCOLS.RESPONSES,
+          PROTOCOLS.CHAT,
+          PROTOCOLS.ANTHROPIC,
+        ])
+        equal(orderAttempts(records.get('glm-5.3'), config), [
+          PROTOCOLS.CHAT,
+          PROTOCOLS.RESPONSES,
+          PROTOCOLS.ANTHROPIC,
+        ])
       },
     },
     {
@@ -345,9 +356,10 @@ export default {
           ['deepseek-v4.1-flash', 1_000_000, 384_000],
           ['gpt-5.6-luna', 1_050_000, 128_000],
           ['grok-4.7', 500_000, 500_000],
-          ['minimax-m2.7', 204_800, 131_072],
+          ['minimax-m3', 1_000_000, 131_072],
           ['hy3', 256_000, 128_000],
           ['kimi-k2.7-code', 262_144, 262_144],
+          ['claude-haiku-5-5', 1_000_000, 128_000],
         ]
         for (const [id, contextWindow, maxTokens] of cases) {
           const record = records.get(id)
@@ -440,21 +452,44 @@ export default {
       name: 'a text-only model is never reported as image-capable',
       run() {
         const records = buildCatalog(resolveConfig({}), [])
-        const flash = records.get('deepseek-v4-flash')
-        equal([...flash.providerModalities], ['text'])
-        is(supportsImages(flash), false)
-        is(resolvedInputModalities(flash, { imageRoute: true, mode: 'auto' }).includes('image'), false)
-        is(resolvedInputModalities(flash, { imageRoute: true, mode: 'always' }).includes('image'), false)
+        const textOnly = records.get('glm-5.3')
+        equal([...textOnly.providerModalities], ['text'])
+        is(supportsImages(textOnly), false)
+        is(resolvedInputModalities(textOnly, { imageRoute: true, mode: 'auto' }).includes('image'), false)
+        is(resolvedInputModalities(textOnly, { imageRoute: true, mode: 'always' }).includes('image'), false)
       },
     },
     {
       name: 'sendImages off suppresses the modality even for a vision model on a ready route',
       run() {
         const records = buildCatalog(resolveConfig({}), [])
-        const vision = records.get('deepseek-v4-flash-vision-exp')
+        const vision = records.get('deepseek-v4.1-flash')
         is(supportsImages(vision), true)
         equal(resolvedInputModalities(vision, { imageRoute: true, mode: 'off' }), ['text'])
         equal(resolvedInputModalities(vision, { imageRoute: false, mode: 'always' }), ['text', 'image'])
+      },
+    },
+    {
+      name: 'a config entry that states no capacity inherits the measured row',
+      run() {
+        const records = buildCatalog(resolveConfig({
+          modelSource: 'config',
+          models: [{ id: 'gpt-5.6-luna', name: 'Luna' }],
+        }), [])
+        const record = records.get('gpt-5.6-luna')
+        is(record.contextWindow, 1_050_000)
+        is(record.maxTokens, 128_000)
+        ok(
+          String(record.capacitySource).includes('models.dev/opencode-go'),
+          `the source names the measured table: ${record.capacitySource}`,
+        )
+        // An id nothing measured still gets the configured defaults.
+        const unknown = buildCatalog(resolveConfig({
+          modelSource: 'config',
+          models: [{ id: 'brand-new-gateway-model' }],
+        }), []).get('brand-new-gateway-model')
+        is(unknown.contextWindow, 262_144)
+        is(unknown.maxTokens, 32_768)
       },
     },
     {
@@ -515,7 +550,7 @@ export default {
         const records = buildCatalog(resolveConfig({}), [])
         for (const id of ['muse-spark-1.3-contributor', 'muse-spark-1.2-contributor']) {
           is(records.get(id).trainingConsent, true, id)
-          equal([...records.get(id).protocols], ['responses'], `${id} is Responses-only`)
+          equal([...records.get(id).protocols], ['responses', 'chat-completions', 'anthropic'], `${id} keeps every protocol behind Responses`)
           is(requiresTrainingConsent(id), true, id)
         }
         // The flag follows the service's own id list, so every other model — including
@@ -551,7 +586,7 @@ export default {
         }), [])
         is(overridden.get('muse-spark-1.3-contributor').trainingConsent, true, 'a protocol override keeps it')
         // The override is preferred, not exclusive: the rest of the list follows.
-        equal([...overridden.get('muse-spark-1.3-contributor').protocols], ['anthropic', 'responses'])
+        equal([...overridden.get('muse-spark-1.3-contributor').protocols], ['anthropic', 'responses', 'chat-completions'])
       },
     },
     {

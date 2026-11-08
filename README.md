@@ -4,7 +4,7 @@
 
 [![npm version](https://img.shields.io/npm/v/dsh-llm-opencode-go)](https://www.npmjs.com/package/dsh-llm-opencode-go)
 [![npm downloads](https://img.shields.io/npm/dm/dsh-llm-opencode-go)](https://www.npmjs.com/package/dsh-llm-opencode-go)
-[![offline checks](https://img.shields.io/badge/offline_checks-427-brightgreen)](docs/development.md#verification)
+[![offline checks](https://img.shields.io/badge/offline_checks-443-brightgreen)](docs/development.md#verification)
 [![ci](https://github.com/a2580vb/dsh-llm-opencode-go/actions/workflows/ci.yml/badge.svg)](https://github.com/a2580vb/dsh-llm-opencode-go/actions/workflows/ci.yml)
 [![license](https://img.shields.io/badge/license-MIT-blue)](LICENSE)
 
@@ -42,12 +42,12 @@ restart.
 |---|---|
 | **Provider route** | `opencode-go` (configurable) |
 | **Protocols** | OpenAI Responses, OpenAI-compatible Chat Completions, Anthropic Messages |
-| **Model discovery** | `GET /models`, with a memory + on-disk cache |
+| **Model discovery** | `GET /models`: each model's name, description, limits, modalities, reasoning ladder and preferred protocol, cached in memory and on disk |
 | **Session affinity** | `x-opencode-session`, one stable id per conversation |
 | **Tool calling** | Full round trip for every dispatched call: definitions, fragmented arguments, tool results, follow-up turn |
-| **Reasoning** | Per-protocol effort mapping, including Anthropic thinking budgets |
+| **Reasoning** | Per-model effort ladders from the service, per-protocol translation, including Anthropic thinking budgets |
 | **Streaming** | SSE → `StreamChunk`, with usage, finish reason, and an idle watchdog |
-| **Failures** | Stable provider-neutral codes (`AUTH`, `RATE_LIMIT`, `QUOTA`, `CONTEXT_WINDOW_EXCEEDED`, …) |
+| **Failures** | Stable provider-neutral codes (`AUTH`, `RATE_LIMIT`, `QUOTA`, `CONTEXT_WINDOW_EXCEEDED`, `MODEL_DEPRECATED`, `MODEL_UNAVAILABLE`, …) |
 | **Configuration UI** | One page in the web client, with a row in Settings' own navigation and a Configure control on the plugin's row: API key, credential reference, model visibility and variants, fetching the model list, usage |
 | **Fast entries** | A quota capsule at the sidebar's foot (one ring per window — `5H / Wk / Mo` — with what is left of each), a usage panel of its own (from that row, or the keyboard), and a usage page under Settings |
 | **Runtime** | Node.js ≥ 20; no runtime dependencies |
@@ -117,7 +117,7 @@ mounted only by a deployment that serves the web client. See
 
 Details live under [`docs/`](docs/models.md); start with what you need:
 
-- [Models](docs/models.md) — per-model protocol table, training-data gate, capacity snapshot, text/image split
+- [Models](docs/models.md) — the live model facts, protocol preference and fallbacks, training-data gate, capacity snapshot, text/image split
 - [Configuration](docs/configuration.md) — full field table, shaping the catalog, image input, the graphical and fast entries
 - [Wire protocol](docs/wire-protocol.md) — endpoints and auth, `x-opencode-session`, reasoning and tool-calling translations
 - [Reliability](docs/reliability.md) — stable failure codes and limits

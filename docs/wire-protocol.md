@@ -17,6 +17,14 @@ protocol.
 The Messages endpoint uses its own header set: it refuses a bearer token with
 `AuthError: Missing API key`.
 
+All three endpoints accept every model `GET /models` lists: the catalogue's `api`
+map names one preferred entry per model, not a whitelist, and a probe on
+2026-11-08 accepted all three protocols for every served id. The map also names a
+per-protocol SDK base URL (`/inference/go/openai/…`, `/inference/go/anthropic/…`);
+the relay serves the same protocols at the unified `{baseURL}` as well, which is
+the one this plugin uses. Preference order and the fallback on
+`ModelProtocolUnsupported` are described in [Models](models.md#protocol-selection-is-per-model).
+
 Every request also carries:
 
 ```http
@@ -67,11 +75,15 @@ so one function owns the translation:
 | Responses | `reasoning.effort` | `low`, `medium`, `high`, `xhigh`, `max` (`minimal` is refused) |
 | Messages | `thinking.budget_tokens` | mapped from the level: 1024 / 4096 / 8192 / 16384 / 32768 / 64000 |
 
-A model's resolved metadata advertises only the levels its protocol can express,
-because the runtime validates a requested effort against that set before any
-network I/O. The Anthropic budget is clamped strictly below `max_tokens`; if the
-output cap cannot hold even the smallest budget, thinking is omitted rather than
-sent as a request the API would reject.
+A model's resolved metadata advertises the levels the service publishes for that
+model (`capabilities.reasoning.effort`), narrowed to the ones its preferred
+protocol can express, because the runtime validates a requested effort against
+that set before any network I/O. `none` is the service's switch-off level and is
+expressed here by omitting the parameter, so it is never advertised; `xhigh` is a
+level like any other. A model the service marks as reasoning-capable without
+giving a ladder keeps the built-in list. The Anthropic budget is clamped strictly
+below `max_tokens`; if the output cap cannot hold even the smallest budget,
+thinking is omitted rather than sent as a request the API would reject.
 
 Reasoning **history** is replayed where the protocol supports it: Chat
 Completions takes `reasoning_content` back, and Messages takes thinking blocks

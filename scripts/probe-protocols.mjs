@@ -1,10 +1,12 @@
 /**
  * Live probe: which wire protocol does each served model actually accept?
  *
- * `GET /models` publishes ids only, so the adapter's per-model protocol map is
- * measured. This posts a one-token request over each protocol for every id the
- * service lists and reports the result, which is what `FALLBACK_MODELS` is
- * written from.
+ * `GET /models` names the models and the catalogue's preferred entry, but not
+ * which other protocols a model serves. This posts a short request over each
+ * protocol for every id the service lists and reports the result, which is what
+ * `FALLBACK_MODELS` is written from. The request carries 32 output tokens on
+ * purpose: the relay validates a minimum output length for some model families,
+ * and a smaller probe reads as a refusal that is not about the protocol.
  *
  *   OC_KEY=oc_sk_... node scripts/probe-protocols.mjs [model ...]
  */
@@ -23,7 +25,9 @@ const PROBES = {
     const response = await fetch(`${BASE}/chat/completions`, {
       method: 'POST',
       headers: { ...HEADERS, authorization: `Bearer ${KEY}` },
-      body: JSON.stringify({ model, stream: true, max_tokens: 8, messages: [{ role: 'user', content: 'Reply with: OK' }] }),
+      // The relay validates minimum output lengths per model family; `8` is
+      // below that floor for some ids and would read as a protocol refusal.
+      body: JSON.stringify({ model, stream: true, max_tokens: 32, messages: [{ role: 'user', content: 'Reply with: OK' }] }),
     })
     return describe(response, await response.text())
   },
@@ -31,7 +35,7 @@ const PROBES = {
     const response = await fetch(`${BASE}/responses`, {
       method: 'POST',
       headers: { ...HEADERS, authorization: `Bearer ${KEY}` },
-      body: JSON.stringify({ model, stream: true, max_output_tokens: 16, input: [{ role: 'user', content: [{ type: 'input_text', text: 'Reply with: OK' }] }] }),
+      body: JSON.stringify({ model, stream: true, max_output_tokens: 32, input: [{ role: 'user', content: [{ type: 'input_text', text: 'Reply with: OK' }] }] }),
     })
     return describe(response, await response.text())
   },
@@ -39,14 +43,20 @@ const PROBES = {
     const response = await fetch(`${BASE}/messages`, {
       method: 'POST',
       headers: { ...HEADERS, 'x-api-key': KEY, 'anthropic-version': '2023-06-01' },
-      body: JSON.stringify({ model, stream: true, max_tokens: 16, messages: [{ role: 'user', content: [{ type: 'text', text: 'Reply with: OK' }] }] }),
+      body: JSON.stringify({ model, stream: true, max_tokens: 32, messages: [{ role: 'user', content: [{ type: 'text', text: 'Reply with: OK' }] }] }),
     })
     return describe(response, await response.text())
   },
 }
 
 function describe(response, text) {
-  if (response.status === 200) return 'ok'
+  if (response.status === 200) {
+    // A 200 can still carry a protocol-level refusal inside the SSE stream
+    // (`event: error` / `"type":"error"`), which reading only the status would
+    // count as acceptance.
+    const error = sseError(text)
+    return error === undefined ? 'ok' : `200 ${error}`
+  }
   let message = text.slice(0, 120)
   try {
     const parsed = JSON.parse(text)
@@ -55,6 +65,22 @@ function describe(response, text) {
     // keep the raw prefix
   }
   return `${response.status} ${String(message).replace(/\s+/g, ' ').slice(0, 70)}`
+}
+
+/** The type or message of an error frame inside a 200 SSE body, when there is one. */
+function sseError(text) {
+  for (const line of String(text).split('\n')) {
+    if (!line.startsWith('data: ')) continue
+    try {
+      const parsed = JSON.parse(line.slice('data: '.length))
+      if (parsed?.type === 'error') {
+        return String(parsed?.error?.type ?? parsed?.error?.message ?? 'error').replace(/\s+/g, ' ').slice(0, 70)
+      }
+    } catch {
+      // a non-JSON frame is not an error marker
+    }
+  }
+  return undefined
 }
 
 const wanted = process.argv.slice(2)

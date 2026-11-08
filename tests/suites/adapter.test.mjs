@@ -350,7 +350,7 @@ export default {
         is(chatHeaders.get('authorization'), 'Bearer sk-test-value')
         is(chatHeaders.get('x-api-key'), null)
 
-        await collect(adapter, { provider: 'opencode-go', model: 'minimax-m2.7', messages: [userMessage('hi')] })
+        await collect(adapter, { provider: 'opencode-go', model: 'minimax-m3', messages: [userMessage('hi')] })
         const messagesHeaders = new Headers(fetch.requests[1].init.headers)
         is(messagesHeaders.get('x-api-key'), 'sk-test-value')
         is(messagesHeaders.get('authorization'), null)
@@ -361,10 +361,10 @@ export default {
     {
       name: 'a protocol refusal falls through to the next protocol the model serves',
       async run() {
-        const { adapter, fetch } = adapterWith([protocolUnsupported('deepseek-v4-flash'), { body: CHAT_BODY }])
+        const { adapter, fetch } = adapterWith([protocolUnsupported('gpt-5.6-luna'), { body: CHAT_BODY }])
         const { blocks, finish } = await collect(adapter, {
           provider: 'opencode-go',
-          model: 'deepseek-v4-flash',
+          model: 'gpt-5.6-luna',
           messages: [userMessage('hi')],
         })
         is(fetch.requests.length, 2)
@@ -391,7 +391,9 @@ export default {
           { role: 'tool', toolCallId: 'c1', content: [{ type: 'text', text: '18C' }] },
         ]
 
-        const deepseek = adapterWith([{ body: RESPONSES_BODY }])
+        const deepseek = adapterWith([{ body: RESPONSES_BODY }], {
+          config: { protocolOverrides: { 'deepseek-v4.1-flash': PROTOCOLS.RESPONSES } },
+        })
         await collect(deepseek.adapter, {
           provider: 'opencode-go',
           model: 'deepseek-v4.1-flash',
@@ -714,10 +716,10 @@ export default {
       name: 'one call that falls back to another protocol is counted once',
       async run() {
         const usage = new RecordingUsage()
-        const { adapter } = adapterWith([protocolUnsupported('deepseek-v4-flash'), { body: CHAT_BODY }], { usage })
+        const { adapter } = adapterWith([protocolUnsupported('gpt-5.6-luna'), { body: CHAT_BODY }], { usage })
         await collect(adapter, {
           provider: 'opencode-go',
-          model: 'deepseek-v4-flash',
+          model: 'gpt-5.6-luna',
           messages: [userMessage('hi')],
           sessionId: 'usage-fallback',
         })
@@ -1013,7 +1015,7 @@ export default {
         const { adapter } = adapterWith([])
         const snapshot = await adapter.catalogSnapshot()
         const luna = snapshot.models.find((model) => model.id === 'gpt-5.6-luna')
-        equal(luna.protocols, ['responses'])
+        equal(luna.protocols, ['responses', 'chat-completions', 'anthropic'])
         is(luna.contextWindow, 1_050_000)
         ok(luna.maxTokens > 0)
         is(luna.reasoning, true)

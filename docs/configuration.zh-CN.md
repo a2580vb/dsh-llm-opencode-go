@@ -14,7 +14,7 @@
 | `attribution` | 无 | 追加到 `User-Agent` 的额外产品标识，例如 `deepseek-harness/0.2.0` |
 | `timeoutMs` | `600000` | 连接 + 响应头的截止时间 |
 | `streamIdleTimeoutMs` | `300000` | 两次流读取之间允许的最大 provider 空闲时间 |
-| `modelSource` | `discover` | `discover` = `GET /models` + 内置回退；`config` = 只用 `models` 列表 |
+| `modelSource` | `discover` | `discover` = 以内置回退打底的 live `GET /models` 行；`config` = 只用 `models` 列表 |
 | `modelsCacheSeconds` | `21600` | 已发现目录的生存期 |
 | `modelsCachePath` | `~/.dsh/cache/opencode-go-models.json` | 缓存文件；路径不可写时只告警 |
 | `usagePath` | `~/.dsh/cache/opencode-go-usage.json` | 用量计数所在文件；路径不可写时只告警 |
@@ -24,13 +24,13 @@
 | `subscriptionCacheSeconds` | `60` | 页面复用一次订阅额度结果多久之后再去问服务 |
 | `subscriptionMinIntervalSeconds` | `30` | 页面自己两次额度检查之间最短等待（见[快速入口](#快速入口)） |
 | `subscriptionMaxIntervalSeconds` | `1800` | 无论这条路由多空闲，一份额度答案最长多久必须重新检查 |
-| `models` | `[]` | 提示性目录条目；当 `modelSource: config` 时它就是整个目录 |
+| `models` | `[]` | `discover` 模式下用来细化它所点名记录的目录条目；当 `modelSource: config` 时它就是整个目录 |
 | `modelOverrides` | `{}` | 重塑某一个目录模型，而不必重述其余的 |
 | `protocolOverrides` | `{}` | `{"<模型 id>": "<协议>"}` 简写 |
 | `defaultProtocol` | `chat-completions` | 未指定协议的条目所用的协议 |
-| `defaultContextWindow` | `262144` | 实测表与同族都匹配不上时使用的能力值 |
+| `defaultContextWindow` | `262144` | live 行、快照与同族都匹配不上时使用的能力值 |
 | `defaultMaxTokens` | `32768` | 同一条件下的输出上限 |
-| `reasoningEfforts` | `[minimal, low, medium, high, max]` | 可选的思考等级；按协议收窄 |
+| `reasoningEfforts` | `[minimal, low, medium, high, max]` | 自身没有声明思考阶梯的记录所用的等级；服务行公布了自己阶梯的模型公布那一份，并按协议收窄 |
 | `sessionHeader` | `session-id` | `session-id` \| `uuid` \| `off` |
 | `sendClientHeader` | `true` | 是否发送 `x-opencode-client` |
 | `freshConnectionOnLargeBody` | `false` | 请求体达到 256 KiB 时要求一条新连接；用于「复用 keep-alive 连接上的大上传会被重置」的网络路径（见[可靠性](reliability.zh-CN.md#限制)） |
@@ -175,7 +175,11 @@
 ## 获取模型列表
 
 `modelSource: discover` 的部署会读取一次 `GET /models`，并在 `modelsCacheSeconds` 内一直使用这份
-答案。配置页可以按需重新读取，这是页面唯一会消耗一次请求的动作：
+答案。每一行都带着模型的显示名、描述、`limit`、`modalities`、思考阶梯，以及目录推荐的 `api`
+入口；发现路径会保存这些事实、目录直接读它们，所以兜底快照之后才发布的模型也能报告自己的容量与
+模态。只会回 id 的网关，或在这些事实出现之前的版本写下的缓存文件，仍然可用：那些模型回落到
+内置表与 `lib/model/limits.js` 里的 `models.dev` 快照。配置页可以按需重新读取，这是页面唯一会
+消耗一次请求的动作：
 
 - **它报告的是变化**，而且是按**列表**而不是按原始答案计算的：某个模型服务端不再列出、但内置目录
   也认识它，它依然会被提供，因此不会被报成变化。
@@ -194,7 +198,7 @@
 ```yaml
 config:
   hiddenModels:
-    - space-bunny-free
+    - step-5-preview
     - glm-5.2
 ```
 
@@ -366,11 +370,11 @@ config:
 
 ## 调整目录
 
-`models` 条目在 `discover` 模式下**替换**它所点名 id 的目录记录，所以一条条目就是那个模型的全部
-事实：它没有声明的字段取自顶层默认值，而不是取自实测得到的记录。如果只为 `gpt-5.6-luna` 写一条只
-声明 `contextWindow` 的 `models` 条目，实测得到的 `[responses]` 协议列表和 `reasoning: true`
-就都丢了，除非条目里重新声明。`modelOverrides` 是与之互补的**合并**形式：它只改自己点名的字段，
-其余全部保留：
+在 `discover` 模式下，`models` 条目**细化**它所点名 id 的记录：条目里写了的字段覆盖原值，没写的
+字段保留 live 行（或内置回退表）给出的值。所以只为 `gpt-5.6-luna` 写一条只声明 `contextWindow`
+的 `models` 条目，只会改窗口，live 的三协议列表、服务给出的其它容量数字和思考阶梯都还在。条目
+点名的 id 如果没有任何来源描述过，它会用顶层默认值创建记录——兼容网关就是这样登记自己的模型的。
+`modelOverrides` 是同一套细化，只是按映射给出、不需要把整个模型列出来：
 
 ```yaml
 config:
@@ -384,8 +388,9 @@ config:
 ```
 
 条目也可以直接粘贴目录记录：`limit: { context, output }` 是 `contextWindow` / `maxTokens` 的同义
-写法，`modalities: { input: [...] }`（或裸的 `modalities: [...]`）记录 provider 自己的列表。本适配
-器只认得 `text` 与 `image`，所以粘贴进来的列表会原样保留，而真正被声明出去的是其中可发送的子集。
+写法，`modalities: { input: [...] }`（或裸的 `modalities: [...]`）按本包的词表记录 provider 自己的
+列表——`text`、`image`、`video`、`audio`、`pdf`。能发送的只有 `text` 与 `image`，所以列出更多项的
+列表会原样保留，而真正被声明出去的是其中可发送的子集。
 
 当 `modelSource: config` 时，`models` 就是整个目录，`GET /models` 永远不会被调用——这正是接兼容
 网关时该有的姿态。

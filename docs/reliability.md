@@ -3,7 +3,7 @@
 > Back to [README](../README.md).
 
 This page lists the plugin's failure codes and the limits that follow from
-measured protocols, snapshot capacity, and workspace policy.
+measured protocols, the service's own capacity figures, and workspace policy.
 
 ## Failures
 
@@ -12,8 +12,8 @@ Stable codes, so consumers route on the code and never on message text:
 `AUTH` · `QUOTA` · `RATE_LIMIT` · `CONTEXT_WINDOW_EXCEEDED` · `INVALID_REQUEST`
 · `SERVER` · `TRANSPORT` · `ABORTED` · `TIMEOUT` · `MALFORMED_RESPONSE` ·
 `STREAM_CLOSED` · `EMPTY_RESPONSE` · `UNSUPPORTED_CONTENT` · `UNSUPPORTED_OPTION`
-· `PROTOCOL_UNSUPPORTED` · `TRAINING_CONSENT_REQUIRED` · `MISSING_CREDENTIAL` ·
-`INVALID_CREDENTIAL`
+· `PROTOCOL_UNSUPPORTED` · `MODEL_DEPRECATED` · `MODEL_UNAVAILABLE` ·
+`TRAINING_CONSENT_REQUIRED` · `MISSING_CREDENTIAL` · `INVALID_CREDENTIAL`
 
 A credential that does not resolve fails before any network I/O with
 `MISSING_CREDENTIAL`, and one that cannot ride in an HTTP header fails with
@@ -22,6 +22,12 @@ this account cannot retry its way out of — the workspace has not allowed model
 that train on request data — is `TRAINING_CONSENT_REQUIRED`, whose message names
 the setting that removes it; see [Models that train on request
 data](models.md#models-that-train-on-request-data).
+
+A model the service has retired is named as such rather than as a malformed
+request: `410 ModelDeprecated` becomes `MODEL_DEPRECATED` and its message carries
+the id the service says to use instead, while `400 Model is unavailable.` becomes
+`MODEL_UNAVAILABLE`. Neither is retried over another protocol — the model is gone
+from every endpoint, so a second attempt would only repeat the refusal.
 
 Failures are reported by the **shape** the harness reads — an `Error` with own
 `code` and `failure` data properties — not by class identity. The plugin
@@ -36,28 +42,45 @@ timing, and the cause chain — and nothing about a call is written anywhere els
 
 ## Limits
 
-- **Protocol capability is measured, not published.** OpenCode Go's `/models`
-  response lists ids only, so the mapping in `lib/model/catalog.js` comes from
-  probing the live service, one endpoint at a time. A model whose protocol
-  changes needs a `protocolOverrides` entry or a re-measure. The two unknown cases
-  are handled differently: an id the service *lists* but this plugin has not
-  measured gets `defaultProtocol` and no fallback, while an id that appears
+- **Protocol preference is published; protocol acceptance is measured.**
+  `GET /models` names one wire entry per model in its `api` map, and that entry
+  opens the call. It is not a capability limit: every model the service listed on
+  2026-11-08 accepted all three protocols when probed, so the record keeps the
+  other two behind the preferred one and switches to the next entry only when the
+  service answers `400 ModelProtocolUnsupported`. Re-measure with
+  `scripts/probe-protocols.mjs` after a service change. The two unknown cases are
+  handled differently: an id the service *lists* but the built-in catalog has no
+  row for starts at the entry its live row names (or `defaultProtocol` when it
+  names none) with the remaining protocols behind it, while an id that appears
   nowhere — not in the built-in catalog and not in the discovered list — is tried
   over every protocol in order.
-- **Capacity is a snapshot, not a subscription.** `lib/model/limits.js` holds the
-  context windows, output caps, and provider modality lists measured from the
-  OpenCode catalogue on the date in `CAPABILITY_SOURCE`, refreshed with
-  `node scripts/snapshot-models.mjs --write`. Three consequences:
-  - a model released after the snapshot is served its **family's** measured
-    figures (`qwen…`, `glm-…`, `grok-…`, …) rather than the global assumption;
+- **Capacity comes from the service, with a snapshot as its fallback.** A
+  discovered row carries the model's `limit` (context and output caps, plus an
+  input cap on a few models), `modalities`, `capabilities` (including its own
+  reasoning ladder) and `api`; `lib/model/cache.js` keeps those rows and the
+  catalog reads them, so a model released after the snapshot still reports its
+  real figures. `lib/model/limits.js` holds the same facts measured from the
+  OpenCode catalogue on the date in `CAPABILITY_SOURCE`
+  (`models.dev/opencode-go@2026-11-08`) and answers when discovery has not
+  described a model: no network, an empty answer, or a cache file written before
+  rows carried facts. Three consequences:
+  - a model neither source describes is served its **family's** measured figures
+    (`qwen…`, `glm-…`, `grok-…`, …) rather than the global assumption;
   - a model no family matches takes `defaultContextWindow` and `defaultMaxTokens`,
     which remains the only case where those two values are guesses;
-  - an id the service lists but the catalogue does not describe is resolvable by
-    the `models` / `modelOverrides` config without a plugin release.
+  - an id the service lists but neither source describes is resolvable by the
+    `models` / `modelOverrides` config without a plugin release.
   The caps reach the wire differently: Messages always sends one (`max_tokens`,
   falling back to the model's value), while Chat Completions and Responses omit
   theirs when the call states none, so the decision there belongs to the relay
   rather than to this plugin.
+- **Reasoning ladders are per model.** The service publishes each model's own
+  effort list in `capabilities.reasoning.effort`; that list is what the resolved
+  metadata advertises, narrowed to the levels its preferred protocol can spell.
+  `none` is the service's way of saying thinking can be switched off, which this
+  adapter expresses by omitting the parameter, so it is never advertised; `xhigh`
+  is a level like any other. A model the row gives a `supported: true` flag but no
+  ladder keeps the built-in list.
 - **Two models are gated by a workspace policy, not by this plugin.** The relay
   serves the `…-contributor` ids only while the workspace allows providers that
   train on request data, and it refuses them with its own error before the model
@@ -84,7 +107,7 @@ timing, and the cause chain — and nothing about a call is written anywhere els
   result is missing from the request, and a result whose call is missing with it,
   because sending either alone fails the whole turn and neither can be
   reconstructed. A history hole costs that one call its place in the transcript.
-- **Only `text` and `image` are on the wire.** The catalogue gives several models
+- **Only `text` and `image` are on the wire.** The service gives several models
   `video`, `audio`, or `pdf` input. Those are recorded and reported, but no
   protocol here has a field for them, so no request carries one and a model's
   declared `inputModalities` never claims them. See
