@@ -247,6 +247,29 @@ export default {
       },
     },
     {
+      name: 'a reasoning-only assistant turn is dropped even when reasoning is replayed',
+      async run() {
+        const wire = await chat.prepare({
+          request: {
+            messages: [
+              { role: 'user', content: [{ type: 'text', text: 'run the smoke' }] },
+              // What an interrupted step leaves behind: reasoning and no answer.
+              { role: 'assistant', content: [{ type: 'reasoning', text: 'checking first' }] },
+              { role: 'user', content: [{ type: 'text', text: 'continue' }] },
+            ],
+          },
+          model: { id: 'm' },
+          replayReasoning: true,
+        })
+        // `content: null` with no `tool_calls` is refused by the service, so the
+        // turn is omitted whole rather than replayed for its reasoning alone.
+        equal(wire.body.messages, [
+          { role: 'user', content: 'run the smoke' },
+          { role: 'user', content: 'continue' },
+        ])
+      },
+    },
+    {
       name: 'tools are declared in the function wrapper',
       async run() {
         const wire = await chat.prepare({
