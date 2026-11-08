@@ -23,7 +23,7 @@ SDK base URL（`/inference/go/openai/…`、`/inference/go/anthropic/…`）；�
 每个请求还会带上：
 
 ```http
-User-Agent: dsh-opencode-go/0.2.3
+User-Agent: dsh-opencode-go/0.2.4
 x-opencode-session: <每个会话一个稳定 id>
 x-opencode-client: dsh-opencode-go
 ```

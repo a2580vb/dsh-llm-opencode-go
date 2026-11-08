@@ -28,7 +28,7 @@ the one this plugin uses. Preference order and the fallback on
 Every request also carries:
 
 ```http
-User-Agent: dsh-opencode-go/0.2.3
+User-Agent: dsh-opencode-go/0.2.4
 x-opencode-session: <stable per-conversation id>
 x-opencode-client: dsh-opencode-go
 ```

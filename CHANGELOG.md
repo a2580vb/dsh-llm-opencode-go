@@ -5,6 +5,48 @@
 Every released version has a section here, and that section is what its GitHub
 release page carries. The newest release comes first.
 
+## 0.2.4 — 2026-11-08
+
+### Added
+
+- **The configuration page is the Harness settings page.** It uses the native
+  sections, fields, switches and tables; only the key and the model card keep a
+  Save button.
+- **Transport and retry settings are editable on the page.** One block covers the
+  large-body switch, the two deadlines and the retry policy; a first delay longer
+  than the longest is refused before it is written.
+- **Usage history is complete and pageable.** Range, size and number-format
+  menus; every recorded day can be paged to, and compact units are the default.
+- **Failures leave a diagnostics record.** One metadata-only JSONL line per
+  failed attempt in `~/.dsh/logs/opencode-go.jsonl`; `diagnostics: all` records
+  successes too, and the file rotates at 1 MB.
+
+### Changed
+
+- **Model facts come from the service.** Discovery keeps the name, description,
+  limits, modalities, reasoning ladder and preferred protocol from `GET /models`;
+  the `models.dev` snapshot answers only when discovery has nothing.
+- **The built-in catalog is append-only.** A retired model keeps its row, marked
+  `retired`, out of the picker but still resolvable; only a live listing brings
+  it back.
+- **Two failures are named.** `MODEL_DEPRECATED` carries the replacement the
+  service names and `MODEL_UNAVAILABLE` covers a model the relay no longer
+  serves; the fallback catalogue is re-measured at 30 served models and 15
+  retired rows.
+
+### Fixed
+
+- **A tool result's picture travels beside the chat tool string.** The chat
+  message stays a plain string, and a grouped image turn follows the last result.
+- **DeepSeek thinking calls replay their reasoning on the Responses wire.** The
+  replay is derived per provider family; other providers still send none.
+- **System messages reach Responses as instructions.** `GenerateOptions.system`
+  and system-role messages are collected, not dropped.
+- **Large request bodies can travel on a fresh connection.**
+  `freshConnectionOnLargeBody` is off by default and decides whether a body over
+  its threshold opens its own connection.
+- 450 offline checks, up from 427.
+
 ## 0.2.3 — 2026-10-07
 
 ### Changed

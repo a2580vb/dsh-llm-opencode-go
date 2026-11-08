@@ -8,7 +8,7 @@
 
 | | |
 |---|---|
-| **版本** | 0.2.3（包名 `dsh-llm-opencode-go`） |
+| **版本** | 0.2.4（包名 `dsh-llm-opencode-go`） |
 | **协议映射** | 每个模型一个首选入口，取自 live 的 `api` 映射并经过实测，写在 `lib/model/catalog.js` |
 | **容量、模态与思考阶梯** | 读自 live 的 `GET /models` 行；`lib/model/limits.js` 里的 `models.dev` 快照是兜底，日期记在 `CAPABILITY_SOURCE`（当前为 `models.dev/opencode-go@2026-11-08`） |
 | **已知限制** | 见[可靠性](reliability.zh-CN.md#限制)与[模型](models.zh-CN.md) |
@@ -141,8 +141,8 @@ tag 与 manifest 之前就发布的 release、仓库里存着的 npm token、调
 
 ```sh
 node scripts/release.mjs version          # package.json 里的版本
-node scripts/release.mjs check-tag v0.2.3 # 标签所指的版本，或一次拒绝
-node scripts/release.mjs notes 0.2.3      # 那段更新日志，作为发布说明正文
+node scripts/release.mjs check-tag v0.2.4 # 标签所指的版本，或一次拒绝
+node scripts/release.mjs notes 0.2.4      # 那段更新日志，作为发布说明正文
 ```
 
 其中要紧的是 `check-tag`：标签是唯一一个由人输入、而不是由 manifest 声明的版本，因此也是唯一一个
