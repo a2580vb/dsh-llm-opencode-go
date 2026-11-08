@@ -15,6 +15,7 @@ import {
   isModelDeprecated,
   isModelUnavailable,
   refusedRequestError,
+  transportError,
 } from '../../lib/error/mapping.js'
 import { equal, is, ok } from '../helpers.mjs'
 
@@ -95,6 +96,28 @@ export default {
         const error = refused(body, { status: 410 })
         is(error.code, 'HTTP_410')
         equal(error.failure.message, error.message)
+      },
+    },
+    {
+      name: 'a deadline is a timeout, and only the caller can be an abort',
+      run() {
+        const deadline = new AbortController()
+        deadline.abort(new Error('deadline'))
+        const caller = new AbortController()
+        caller.abort()
+        is(
+          transportError({ protocol: 'chat-completions', error: new Error('aborted'), deadline: deadline.signal }).code,
+          'TIMEOUT',
+        )
+        is(
+          transportError({
+            protocol: 'chat-completions',
+            error: new Error('aborted'),
+            signal: caller.signal,
+            deadline: deadline.signal,
+          }).code,
+          'ABORTED',
+        )
       },
     },
   ],

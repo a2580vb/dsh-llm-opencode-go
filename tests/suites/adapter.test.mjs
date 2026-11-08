@@ -8,12 +8,14 @@
  * produce.
  */
 
+import { setTimeout as sleep } from 'node:timers/promises'
+
 import { BlockAssembler } from '@deepseek-ai/dsh-llm'
 
 import { PROTOCOLS, resolveConfig } from '../../lib/config.js'
 import { OpenCodeGoAdapter, signaturesFromHistory } from '../../lib/index.js'
 import { ModelCache } from '../../lib/model/cache.js'
-import { equal, is, ok } from '../helpers.mjs'
+import { equal, is, ok, rejectsWithCode } from '../helpers.mjs'
 import { createScratch } from './_scratch.mjs'
 
 /** A `fetch` that replays scripted responses and records every request. */
@@ -47,15 +49,76 @@ function sse(frames) {
  * request. The completion script keeps the plain `requests` array, because
  * those are the requests most cases assert on.
  */
-function routedFetch(modelsScript, chatScript) {
+function routedFetch(modelsScript, chatScriptOrFetch) {
   const discovery = fakeFetch(modelsScript)
-  const chat = fakeFetch(chatScript)
+  const chat = typeof chatScriptOrFetch === 'function' ? chatScriptOrFetch : fakeFetch(chatScriptOrFetch)
   const implementation = async (url, init) => {
     const target = String(url).endsWith('/models') ? discovery : chat
     return target(url, init)
   }
   implementation.requests = chat.requests
   implementation.modelsRequests = discovery.requests
+  return implementation
+}
+
+/**
+ * A `fetch` whose `200` headers arrive at once and whose body emits scripted
+ * SSE pieces on a clock.
+ *
+ * The clock is what makes the deadline cases observable: the body keeps
+ * producing for `pieces.length * gapMs`, and `stallAfter`/`stallMs` describe a
+ * body that stops producing — the shape the idle watchdog exists to catch.
+ */
+function streamingFetch(pieces, { gapMs = 20, stallAfter = 0, stallMs = 0 } = {}) {
+  const requests = []
+  const encoder = new TextEncoder()
+  const implementation = async (url, init) => {
+    requests.push({ url: String(url), init })
+    let closed = false
+    const body = new ReadableStream({
+      async start(controller) {
+        // A caller abort tears the body down the way a real socket does: the
+        // pending read rejects instead of ending cleanly.
+        const stop = () => {
+          if (closed) return
+          closed = true
+          try {
+            controller.error(new DOMException('The operation was aborted.', 'AbortError'))
+          } catch {
+            // The consumer already cancelled the body.
+          }
+        }
+        init.signal?.addEventListener('abort', stop, { once: true })
+        try {
+          for (const [index, piece] of pieces.entries()) {
+            if (closed) return
+            await sleep(gapMs)
+            if (closed) return
+            controller.enqueue(encoder.encode(piece))
+            if (stallAfter !== 0 && index + 1 === stallAfter) await sleep(stallMs)
+          }
+          if (!closed) controller.close()
+        } catch {
+          // The consumer went away mid-piece; nothing left to emit.
+        }
+      },
+    })
+    return new Response(body, { status: 200, headers: { 'content-type': 'text/event-stream' } })
+  }
+  implementation.requests = requests
+  return implementation
+}
+
+/** A `fetch` that never answers; the case lets the connect deadline end it. */
+function neverAnswersFetch() {
+  const requests = []
+  const implementation = (url, init) => {
+    requests.push({ url: String(url), init })
+    return new Promise((resolve, reject) => {
+      init.signal?.addEventListener('abort', () => reject(new DOMException('The operation was aborted.', 'AbortError')), { once: true })
+    })
+  }
+  implementation.requests = requests
   return implementation
 }
 
@@ -157,7 +220,7 @@ function adapterWith(script, overrides = {}) {
     ...overrides.config,
   })
   process.env.TEST_KEY = 'sk-test-value'
-  const fetch = routedFetch(overrides.discovery ?? [{ body: modelsReply([]) }], script)
+  const fetch = routedFetch(overrides.discovery ?? [{ body: modelsReply([]) }], overrides.fetch ?? script)
   const logger = overrides.logger ?? silentLogger()
   const cache = new ModelCache(config, {
     authHeaders: async () => ({ authorization: 'Bearer sk-test-value' }),
@@ -1206,6 +1269,89 @@ export default {
         }
         ok(!String(error?.message).includes('sk-super-secret-value'), 'the secret is not in the message')
         ok(!JSON.stringify(error?.failure ?? {}).includes('sk-super-secret-value'), 'the secret is not in the failure facts')
+      },
+    },
+    {
+      name: 'a stream that keeps arriving outlives the connect deadline',
+      async run() {
+        // Regression: the deadline timer was never cleared, so it capped the
+        // whole attempt and a generation that kept producing died at timeoutMs.
+        // The deadline covers connection and response headers only; from there
+        // the idle watchdog guards the stream, and this body keeps arriving.
+        const pieces = Array.from({ length: 16 }, (_, index) => sse([
+          {
+            data: {
+              id: 'r1',
+              choices: [{ index: 0, delta: { role: 'assistant', content: index === 0 ? 'hi' : '.' }, finish_reason: null }],
+            },
+          },
+        ]))
+        pieces.push(sse([{ data: { id: 'r1', choices: [{ index: 0, delta: {}, finish_reason: 'stop' }] } }]))
+        pieces.push(sse([{ data: '[DONE]' }]))
+        const { adapter } = adapterWith([], {
+          fetch: streamingFetch(pieces, { gapMs: 25 }),
+          config: { timeoutMs: 150, streamIdleTimeoutMs: 2_000 },
+        })
+        const { finish } = await collect(adapter, {
+          provider: 'opencode-go',
+          model: 'glm-5.3',
+          messages: [userMessage('hi')],
+        })
+        // 16 pieces x 25 ms is 400 ms of body, well past the 150 ms budget.
+        equal(finish, { kind: 'stop' })
+      },
+    },
+    {
+      name: 'a stream that stops arriving is a retryable TIMEOUT',
+      async run() {
+        const pieces = [
+          sse([{ data: { id: 'r1', choices: [{ index: 0, delta: { role: 'assistant', content: 'hi' }, finish_reason: null }] } }]),
+        ]
+        const { adapter } = adapterWith([], {
+          fetch: streamingFetch(pieces, { gapMs: 10, stallAfter: 1, stallMs: 500 }),
+          config: { timeoutMs: 5_000, streamIdleTimeoutMs: 120 },
+        })
+        const error = await rejectsWithCode(
+          collect(adapter, { provider: 'opencode-go', model: 'glm-5.3', messages: [userMessage('hi')] }),
+          'TIMEOUT',
+        )
+        ok(String(error.message).includes('stream was idle'), 'the message names the idle watchdog')
+      },
+    },
+    {
+      name: 'waiting past the deadline for response headers is a TIMEOUT, not a caller abort',
+      async run() {
+        const { adapter } = adapterWith([], {
+          fetch: neverAnswersFetch(),
+          config: { timeoutMs: 80, streamIdleTimeoutMs: 5_000 },
+        })
+        const error = await rejectsWithCode(
+          collect(adapter, { provider: 'opencode-go', model: 'glm-5.3', messages: [userMessage('hi')] }),
+          'TIMEOUT',
+        )
+        ok(!String(error.message).includes('aborted by the caller'), 'a deadline is not a caller abort')
+      },
+    },
+    {
+      name: 'a caller abort during the stream stays ABORTED',
+      async run() {
+        const pieces = Array.from({ length: 40 }, () => sse([
+          { data: { id: 'r1', choices: [{ index: 0, delta: { role: 'assistant', content: '.' }, finish_reason: null }] } },
+        ]))
+        const { adapter } = adapterWith([], {
+          fetch: streamingFetch(pieces, { gapMs: 20 }),
+          config: { timeoutMs: 5_000, streamIdleTimeoutMs: 5_000 },
+        })
+        const controller = new AbortController()
+        const stream = collect(adapter, {
+          provider: 'opencode-go',
+          model: 'glm-5.3',
+          messages: [userMessage('hi')],
+          signal: controller.signal,
+        })
+        setTimeout(() => controller.abort(), 120)
+        const error = await rejectsWithCode(stream, 'ABORTED')
+        ok(String(error.message).includes('aborted by the caller'), 'the caller owns this failure')
       },
     },
   ]),
