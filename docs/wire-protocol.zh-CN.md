@@ -77,8 +77,8 @@ assistant 消息之前。同一条线路上的其他上游（OpenAI、xAI）自�
 reasoning 项，所以那些请求仍然一个都不发；这条判断记在模型目录记录上（`requiresReasoningReplay`），
 不在协议层。设置 `disableReasoningReplay: true` 可在任何协议上都不发送推理历史。
 
-只有推理、没有正文也没有工具调用的 assistant 回合不会被回放：Chat Completions 拒绝既无
-`content` 也无 `tool_calls` 的消息，Responses 上也没有可让推理项紧挨其前的 assistant 项。
+只有推理、没有正文也没有工具调用的 assistant 回合在任何一条线上都不会被回放：Chat Completions
+拒绝既无 `content` 也无 `tool_calls` 的消息，另外两条线也没有地方安放一条没有产出的回合的推理。
 被中断的步骤可能留下这样一条回合，它会被整条略过，推理也一并略过。
 
 ## 工具调用

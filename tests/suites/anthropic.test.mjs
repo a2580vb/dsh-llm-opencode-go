@@ -323,6 +323,31 @@ export default {
       },
     },
     {
+      name: 'a reasoning-only assistant turn is dropped even when reasoning is replayed',
+      async run() {
+        const wire = await anthropic.prepare({
+          request: {
+            messages: [
+              { role: 'user', content: [{ type: 'text', text: 'run the smoke' }] },
+              // What an interrupted step leaves behind: reasoning and no answer.
+              { role: 'assistant', content: [{ type: 'reasoning', text: 'checking first' }] },
+              { role: 'user', content: [{ type: 'text', text: 'continue' }] },
+            ],
+          },
+          model: { id: 'm', maxTokens: 4096 },
+          replayReasoning: true,
+          signatures: {},
+        })
+        // The turn holds nothing Messages can carry as an answer, so replaying
+        // its reasoning as text would put thinking on the wire as a reply the
+        // assistant never gave. The turn is omitted whole.
+        equal(wire.body.messages, [
+          { role: 'user', content: [{ type: 'text', text: 'run the smoke' }] },
+          { role: 'user', content: [{ type: 'text', text: 'continue' }] },
+        ])
+      },
+    },
+    {
       name: 'the thinking budget stays strictly below max_tokens',
       async run() {
         const wire = await anthropic.prepare({

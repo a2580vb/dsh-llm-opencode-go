@@ -98,10 +98,11 @@ replayed item against it, so their requests still send none; the condition lives
 on the catalog record (`requiresReasoningReplay`), not in the protocol. Set
 `disableReasoningReplay: true` to send no reasoning history on any protocol.
 
-An assistant turn that holds nothing but reasoning is not replayed: Chat
-Completions refuses a message with neither `content` nor `tool_calls`, and on
-Responses there is no assistant item for the reasoning to precede. Such a turn —
-an interrupted step can leave one behind — is omitted whole, reasoning included.
+An assistant turn that holds nothing but reasoning is not replayed on any wire:
+Chat Completions refuses a message with neither `content` nor `tool_calls`, and
+the other two have nowhere to put the reasoning of a turn that produced no
+answer. Such a turn — an interrupted step can leave one behind — is omitted
+whole, reasoning included.
 
 ## Tool calling
 
