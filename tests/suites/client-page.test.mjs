@@ -2670,5 +2670,28 @@ export default {
         ok(text(tree).includes('glm-5.3'), 'the tab carries the counters too')
       },
     },
+    {
+      name: 'the models toolbar actions share one button size',
+      async run() {
+        // Four secondary actions sit on one toolbar row. One of them used the
+        // 36px button primitive and the other three the 28px one, so the row
+        // read as two toolbars stapled together.
+        const page = await renderPage({ fetch: host() })
+        const tree = await page.open()
+        const labels = ['Show all', 'Hide all', 'Fetch available models', 'Reload list']
+        const buttons = labels.map((label) => nodes(tree).find(({ node }) => node.type === 'button'
+          && text(node).trim() === label)?.node)
+        for (const [index, node] of buttons.entries()) {
+          ok(node !== undefined, `the "${labels[index]}" action rendered`)
+        }
+        const box = ({ height, fontSize, padding }) => ({ height, fontSize, padding })
+        const first = box(buttons[0].props.style)
+        for (const button of buttons.slice(1)) {
+          equal(box(button.props.style), first, 'every action uses the same button box')
+        }
+        is(first.height, '28px', 'and that box is the settings page small button')
+        is(first.fontSize, '12px')
+      },
+    },
   ],
 }
