@@ -5,6 +5,7 @@ import { readFile } from 'node:fs/promises'
 import {
   Config,
   DEFAULT_BASE_URL,
+  DEFAULT_RETRY_POLICY,
   PLUGIN_VERSION,
   PROTOCOLS,
   resolveConfig,
@@ -338,6 +339,16 @@ export default {
       name: 'the reported version matches package.json',
       run() {
         is(PLUGIN_VERSION, version, 'PLUGIN_VERSION drifted from the manifest')
+      },
+    },
+    {
+      name: 'a stream truncated before its terminal event is retryable',
+      run() {
+        // A clean EOF is the same network class as a transport reset: the
+        // answer was cut off, not requested wrongly. A malformed response is
+        // not retried, because trying again cannot change the payload.
+        ok(DEFAULT_RETRY_POLICY.retryableCodes.includes('STREAM_CLOSED'))
+        ok(!DEFAULT_RETRY_POLICY.retryableCodes.includes('MALFORMED_RESPONSE'))
       },
     },
   ],

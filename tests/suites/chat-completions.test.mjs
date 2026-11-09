@@ -320,20 +320,6 @@ export default {
       },
     },
     {
-      name: 'an unknown finish_reason settles as stop once content exists',
-      async run() {
-        // A stop word this adapter has not seen is a vocabulary gap, not a
-        // reason to discard an answer the reader already has.
-        const text = 'data: {"id":"x","choices":[{"index":0,"delta":{"content":"hi"},"finish_reason":null}]}\n\n'
-          + 'data: {"id":"x","choices":[{"index":0,"delta":{},"finish_reason":"brand_new_word"}]}\n\n'
-        const { blocks, finish, chunks } = await assemble(chat, text, 'm')
-        is(blocks[0].text, 'hi')
-        equal(finish, { kind: 'stop' })
-        is(finishChunk(chunks).replayState?.response?.stopReason, 'brand_new_word',
-          'the unknown word is kept beside the response')
-      },
-    },
-    {
       name: 'a tool result whose call the history lacks is dropped',
       async run() {
         // role:tool must answer a preceding tool_calls entry; a result left
@@ -349,6 +335,28 @@ export default {
           replayReasoning: true,
         })
         equal(wire.body.messages.map((message) => message.role), ['user'])
+      },
+    },
+    {
+      name: 'a transient error envelope keeps the retryable code its marker names',
+      async run() {
+        const error = await failureOf(chat, 'data: {"error":{"type":"server_error","message":"upstream busy"}}\n\n', 'm')
+        is(error?.code, 'SERVER')
+        ok(String(error.message).includes('upstream busy'))
+      },
+    },
+    {
+      name: 'an unknown finish_reason settles as stop once content exists',
+      async run() {
+        // A stop word this adapter has not seen is a vocabulary gap, not a
+        // reason to discard an answer the reader already has.
+        const text = 'data: {"id":"x","choices":[{"index":0,"delta":{"content":"hi"},"finish_reason":null}]}\n\n'
+          + 'data: {"id":"x","choices":[{"index":0,"delta":{},"finish_reason":"brand_new_word"}]}\n\n'
+        const { blocks, finish, chunks } = await assemble(chat, text, 'm')
+        is(blocks[0].text, 'hi')
+        equal(finish, { kind: 'stop' })
+        is(finishChunk(chunks).replayState?.response?.stopReason, 'brand_new_word',
+          'the unknown word is kept beside the response')
       },
     },
   ],

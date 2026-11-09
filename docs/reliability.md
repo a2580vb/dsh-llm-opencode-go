@@ -34,6 +34,13 @@ the service; the failure it gets is the classification above, not an
 unknown-model error. Only a later `GET /models` listing clears the mark; see
 [Retired models](models.md#retired-models).
 
+A stream that ends before its protocol's terminal event is `STREAM_CLOSED`; a
+provider error envelope delivered mid-stream keeps `SERVER` or `RATE_LIMIT` when
+the provider names a transient cause. Both are retried by the executor like
+`TRANSPORT`: the answer was cut off or the relay was busy, not the request was
+wrong. A failed attempt's partial output never enters the history, so a re-run
+cannot duplicate what the reader has already seen.
+
 Failures are reported by the **shape** the harness reads — an `Error` with own
 `code` and `failure` data properties — not by class identity. The plugin
 therefore defines its own failure types and depends on no harness package.

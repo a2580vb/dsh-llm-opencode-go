@@ -425,5 +425,22 @@ export default {
         equal(finish, { kind: 'stop' })
       },
     },
+    {
+      name: 'an overloaded_error event is a retryable server failure',
+      async run() {
+        const text = [
+          'event: message_start',
+          'data: {"type":"message_start","message":{"id":"m1","type":"message","role":"assistant","model":"glm-5.3","content":[],"usage":{"input_tokens":5,"output_tokens":0}}}',
+          '',
+          'event: error',
+          'data: {"type":"error","error":{"type":"overloaded_error","message":"Overloaded"}}',
+          '',
+          '',
+        ].join('\n')
+        const error = await failureOf(anthropic, text, 'glm-5.3')
+        is(error?.code, 'SERVER')
+        ok(String(error.message).includes('Overloaded'))
+      },
+    },
   ],
 }

@@ -15,6 +15,7 @@ import {
   isModelDeprecated,
   isModelUnavailable,
   refusedRequestError,
+  streamFailure,
   transportError,
 } from '../../lib/error/mapping.js'
 import { equal, is, ok } from '../helpers.mjs'
@@ -118,6 +119,14 @@ export default {
           }).code,
           'ABORTED',
         )
+      },
+    },
+    {
+      name: 'a mid-stream provider error keeps the code its marker names',
+      run() {
+        is(streamFailure('anthropic', { type: 'overloaded_error', message: 'busy' }).code, 'SERVER')
+        is(streamFailure('chat-completions', { code: 'rate_limit_exceeded', message: 'slow down' }).code, 'RATE_LIMIT')
+        is(streamFailure('responses', { type: 'invalid_request_error', message: 'bad field' }).code, 'MALFORMED_RESPONSE')
       },
     },
   ],

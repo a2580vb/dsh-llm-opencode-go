@@ -398,5 +398,17 @@ export default {
         equal(finish, { kind: 'stop' })
       },
     },
+    {
+      name: 'a response.failed carrying a server error is retryable',
+      async run() {
+        const error = await failureOf(
+          responses,
+          'event: response.failed\ndata: {"type":"response.failed","response":{"error":{"code":"server_error","message":"upstream fell over"}}}\n\n',
+          'm',
+        )
+        is(error?.code, 'SERVER')
+        ok(String(error.message).includes('upstream fell over'))
+      },
+    },
   ],
 }
