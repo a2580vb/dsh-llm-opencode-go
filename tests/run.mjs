@@ -7,7 +7,7 @@
  * or a rejected promise is a failure.
  */
 
-import { readdir } from 'node:fs/promises'
+import { readdir, readFile } from 'node:fs/promises'
 import { dirname, join } from 'node:path'
 import { fileURLToPath, pathToFileURL } from 'node:url'
 
@@ -51,3 +51,30 @@ for (const failure of failures) {
   console.log(failure.error?.stack ?? String(failure.error))
 }
 if (failures.length > 0) process.exitCode = 1
+
+// The four places the suite's size is stated to a reader. A stale badge is a
+// published fact that is wrong, so the runner refuses to stay green when the
+// count it just ran is not the count those files claim.
+const stated = [
+  ['README.md', /offline_checks-(\d+)-brightgreen/],
+  ['README.zh-CN.md', /offline_checks-(\d+)-brightgreen/],
+  ['docs/development.md', /# (\d+) offline checks/],
+  ['docs/development.zh-CN.md', /# (\d+) 项离线检查/],
+]
+const root = join(here, '..')
+const mismatches = []
+for (const [file, pattern] of stated) {
+  let text
+  try {
+    text = await readFile(join(root, file), 'utf8')
+  } catch {
+    continue // a tree without the docs (a tarball) has nothing to check
+  }
+  const claimed = text.match(pattern)?.[1]
+  if (claimed !== String(total)) mismatches.push(`${file} says ${claimed ?? 'nothing'}`)
+}
+if (mismatches.length > 0) {
+  console.log(`\nthe offline-check count is out of step with this run (${total}): ${mismatches.join(', ')}`)
+  console.log('update the badge and both development pages together with the cases')
+  process.exitCode = 1
+}

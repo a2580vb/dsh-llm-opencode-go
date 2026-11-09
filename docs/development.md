@@ -17,18 +17,18 @@ plugin, how to re-measure the live facts, and how the code is laid out.
 ## Verification
 
 ```sh
-npm test            # 458 offline checks: config, SSE framing, catalog, all three protocols, adapter, plugin body, the settings bridge, the client bundle, the display metadata, the diagnostics log, release coherence and the repository's own CI
+npm test            # 464 offline checks: config, SSE framing, catalog, all three protocols, adapter, plugin body, the settings bridge, the client bundle, the display metadata, the diagnostics log, release coherence and the repository's own CI
 npm run test:cordis # 43 checks mounting the plugin on the harness's own cordis
 npm run test:live   # the live suite; needs OC_KEY
 npm run check:pack  # what `npm publish` would upload
 ```
 
-The count above is restated in both README badges, in this page, in its Chinese
-counterpart, and in both changelog files, so a new case moves it in six files —
-and only in the newest changelog section, since an older section's number is
-history. `release` is the suite that keeps a version bump honest: it reads the
-manifest and fails on any place that still states the version a release left
-behind.
+The count above is restated in both README badges and in this page and its
+Chinese counterpart — the four places `tests/run.mjs` re-checks when the suite
+finishes, so a stale badge fails the run. A release states the same number in
+the newest changelog section; an older section's number is history, and
+`release` is the suite that keeps a version bump honest: it reads the manifest
+and fails on any place that still states the version a release left behind.
 
 `npm test` runs offline and needs no credential. The protocol suites replay
 response bodies **captured from the live service** (`tests/golden/`), so they

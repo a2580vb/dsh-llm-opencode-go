@@ -98,16 +98,33 @@ const SUBSCRIPTION = {
   ],
 }
 
-/** A Host that answers from one table of endpoints, recording every request. */function host(overrides = {}) {
-  return async (path) => {
+/**
+ * A Host that answers from one table of endpoints, recording every request.
+ *
+ * A configuration write is remembered, because the real bridge persists an
+ * override and reports it on the next state read: a fixture that kept answering
+ * its original table would make every save look like a row that never reloaded.
+ * A case that wants to simulate exactly that wraps this fixture and answers the
+ * state read itself.
+ */
+function host(overrides = {}) {
+  const values = structuredClone(STATE.config.values)
+  return async (path, init) => {
     const [name, query] = String(path).split('?')
-    if (name === 'opencode-go/state') return { body: STATE, ...overrides.state }
+    if (name === 'opencode-go/state') {
+      const state = structuredClone(STATE)
+      state.config.values = structuredClone(values)
+      return { body: state, ...overrides.state }
+    }
     if (name === 'opencode-go/models') return { body: CATALOG, ...overrides.models }
     if (name === 'opencode-go/usage') {
       const days = Number(new URLSearchParams(query).get('days'))
       return { body: { ...USAGE, window: days }, ...overrides.usage }
     }
-    if (name === 'opencode-go/config') return { body: { ok: true, config: { override: {} } }, ...overrides.config }
+    if (name === 'opencode-go/config') {
+      if (init?.method === 'POST') Object.assign(values, JSON.parse(init.body).set)
+      return { body: { ok: true, config: { override: {} } }, ...overrides.config }
+    }
     if (name === 'opencode-go/credential') return { body: { ok: true }, ...overrides.credential }
     if (name === 'opencode-go/refresh') return { body: { ok: true, discovered: 3, added: [], removed: [], catalog: CATALOG }, ...overrides.refresh }
     if (name === 'opencode-go/subscription') {
@@ -1717,6 +1734,43 @@ export default {
         is(capsuleSwitch(capsuleSection(reverted)).props['aria-checked'], false, 'the refused write rolls the switch back')
         ok(text(capsuleSection(reverted)).includes('Could not save: the setting is read-only'),
           text(capsuleSection(reverted)).slice(0, 200))
+      },
+    },
+    {
+      name: 'a save whose row has not reloaded yet is reported as stale, not as saved',
+      async run() {
+        // The Loader reconciles a written row through the profile patch, so a
+        // state read can land before the new value does. That is neither a
+        // failed write nor a successful-looking one: the page re-reads once
+        // more, and when the row still reports the old value it says the write
+        // went through but could not be read back.
+        const base = host()
+        const before = structuredClone(STATE)
+        let lagged = 0
+        const page = await renderPage({
+          fetch: async (path, init) => {
+            if (String(path) === 'opencode-go/config' && init?.method === 'POST') {
+              lagged = 2 // the row has not reloaded for this read and the retry
+              return base(path, init)
+            }
+            if (String(path) === 'opencode-go/state' && lagged > 0) {
+              lagged -= 1
+              return { body: before }
+            }
+            return base(path, init)
+          },
+        })
+        const tree = await page.open()
+        const readsBefore = page.calls.filter((call) => call.path === 'opencode-go/state').length
+        const after = await clickIn(page, capsuleSection(tree), (node) => node.type === 'button'
+          && node.props.role === 'switch' && node.props['aria-label'] === 'Show the usage capsule')
+        equal(page.calls.filter((call) => call.path === 'opencode-go/config').length, 1, 'the write happened once')
+        const reads = page.calls.filter((call) => call.path === 'opencode-go/state').length
+        equal(reads - readsBefore, 2, 'the row was re-read, once more after the beat')
+        ok(text(capsuleSection(after)).includes('could not be read back'),
+          text(capsuleSection(after)).slice(0, 240))
+        is(capsuleSwitch(capsuleSection(after)).props['aria-checked'], false,
+          'the switch keeps the value the reader chose while the row catches up')
       },
     },
     {
