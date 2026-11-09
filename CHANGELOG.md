@@ -5,6 +5,38 @@
 Every released version has a section here, and that section is what its GitHub
 release page carries. The newest release comes first.
 
+## 0.2.5 — 2026-11-10
+
+### Added
+
+- **The sidebar capsule can be switched off.** `showQuotaCapsule` hides the
+  quota row at the sidebar's foot; the usage panel, its shortcut and the
+  Settings tab stay, so hiding the row does not close the way back to it.
+
+### Changed
+
+- **The offline-check count is checked, not only written.** `npm test` now
+  compares the README badges and the two development pages with the run it has
+  just finished, and fails when the two disagree.
+
+### Fixed
+
+- **A reasoning-only assistant turn is not sent.** An interrupted step could
+  leave one behind; Chat Completions sent it as `content: null`, the relay
+  refused the whole request, and every later turn failed too. Chat Completions
+  and Messages now drop the turn, as Responses already did.
+- **A long generation outlives the connect deadline.** `timeoutMs` capped the
+  whole attempt, so a stream that kept producing was still cut off; the
+  response body now leaves the idle deadline to `streamIdleTimeoutMs`, and a
+  deadline during the stream is a retryable timeout rather than a caller abort.
+- **A save the row has not reflected yet is reported as stale.** The page
+  compares every written value with the row it re-read and waits one more beat
+  before calling the write stale, instead of reporting a read-back that failed
+  as saved.
+- **The patch file lists `sendImages`.** The field list an operator reads is
+  complete, and points at `docs/configuration.md` for the detail.
+- 464 offline checks, up from 450.
+
 ## 0.2.4 — 2026-11-08
 
 ### Added

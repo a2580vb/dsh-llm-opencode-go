@@ -4,6 +4,31 @@
 
 每个已发布的版本在这里都有一段，这一段就是它 GitHub release 上的发布说明。最新的一版在最上面。
 
+## 0.2.5 — 2026-11-10
+
+### Added
+
+- **增加了侧边栏胶囊的开关。** `showQuotaCapsule` 隐藏侧边栏底部的额度行；用量面板、它的快捷键
+  与设置页签都还在，所以隐藏这一行不会把回到它的入口一起收走。
+
+### Changed
+
+- **设置了离线检查数的核对。** `npm test` 现在把 README 徽章与两篇开发页的数字跟刚跑完的这次
+  运行对照，对不上就失败。
+
+### Fixed
+
+- **只有推理的 assistant 回合不再发出。** 中断的步骤可能留下这种回合；Chat Completions 曾把它
+  作为 `content: null` 发出，上游拒绝整条请求，之后每一轮都跟着失败。Chat Completions 与
+  Messages 现在丢弃它，与 Responses 一致。
+- **长生成不再被连接期限掐断。** `timeoutMs` 曾限制整个 attempt，持续产出的流仍会被切断；
+  响应体现在把空闲期限交给 `streamIdleTimeoutMs`，流中途的期限是可重试的 timeout，而不是
+  调用方 abort。
+- **行还没反映出来的保存会报 stale。** 页面把写入的每个值与回读到的行比对，不吻合就再读一次，
+  仍不吻合才判定为 stale，不再把没读回来的保存说成「已保存」。
+- **patch 文件补上 `sendImages`。** 运维读的字段清单完整了，细节指向 `docs/configuration.md`。
+- 464 项离线检查，此前为 450。
+
 ## 0.2.4 — 2026-11-08
 
 ### Added

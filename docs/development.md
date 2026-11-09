@@ -9,7 +9,7 @@ plugin, how to re-measure the live facts, and how the code is laid out.
 
 | | |
 |---|---|
-| **Version** | 0.2.4 (package `dsh-llm-opencode-go`) |
+| **Version** | 0.2.5 (package `dsh-llm-opencode-go`) |
 | **Protocol map** | One preferred entry per model, taken from the live `api` map and measured against the service; kept in `lib/model/catalog.js` |
 | **Capacity, modalities, and reasoning ladders** | Read from the live `GET /models` rows; the `models.dev` snapshot in `lib/model/limits.js` is the fallback, dated in `CAPABILITY_SOURCE` (currently `models.dev/opencode-go@2026-11-08`) |
 | **Known limits** | See [Reliability](reliability.md#limits) and [Models](models.md) |
@@ -191,8 +191,8 @@ them on every push, and the workflow keeps only steps no shell can avoid.
 
 ```sh
 node scripts/release.mjs version          # the version in package.json
-node scripts/release.mjs check-tag v0.2.4 # the version a tag names, or a refusal
-node scripts/release.mjs notes 0.2.4      # the changelog section, as a release body
+node scripts/release.mjs check-tag v0.2.5 # the version a tag names, or a refusal
+node scripts/release.mjs notes 0.2.5      # the changelog section, as a release body
 ```
 
 `check-tag` is the one that matters: a tag is the only version a person types
