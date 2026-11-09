@@ -37,7 +37,7 @@ const STATE = {
   environment: { key: 'OPENCODE_GO_API_KEY', present: false },
   config: {
     editable: true,
-    fields: ['apiKeyEnv', 'hiddenModels', 'modelVariants', 'freshConnectionOnLargeBody', 'timeoutMs', 'streamIdleTimeoutMs', 'retryPolicy', 'subscriptionMinIntervalSeconds', 'subscriptionMaxIntervalSeconds', 'usageNumberFormat'],
+    fields: ['apiKeyEnv', 'hiddenModels', 'modelVariants', 'freshConnectionOnLargeBody', 'timeoutMs', 'streamIdleTimeoutMs', 'retryPolicy', 'showQuotaCapsule', 'subscriptionMinIntervalSeconds', 'subscriptionMaxIntervalSeconds', 'usageNumberFormat'],
     // What the row resolves to, which is what the schedule and transport
     // sections edit. The real bridge always reports these, so a fixture without
     // them would test a page nobody is served.
@@ -48,6 +48,7 @@ const STATE = {
       freshConnectionOnLargeBody: true,
       timeoutMs: 180_000,
       streamIdleTimeoutMs: 90_000,
+      showQuotaCapsule: true,
       retryPolicy: {
         mode: 'normal',
         maxRetries: 5,
@@ -121,6 +122,42 @@ const SUBSCRIPTION = {
   }
 }
 
+/**
+ * A Host whose configuration write is remembered.
+ *
+ * The real bridge persists an override and reports it on the next state read; a
+ * fixture that kept answering its original table would let a page write a value
+ * and then read the old one back, which is not what the bridge does — and a case
+ * that checks a toggle sticks needs the value to stick. The fixture is cloned
+ * per case, so one case's write never reaches another's. `refuse` answers true
+ * to make the next configuration write fail.
+ *
+ * @param {object} [options] - how the Host behaves.
+ * @param {object} [options.values] - configuration values to start from.
+ * @param {() => boolean} [options.refuse] - whether the next write is refused.
+ * @returns {{state: object, fetch: (path: string, init?: object) => Promise<object>}} the Host.
+ */
+function statefulHost({ values = {}, refuse = () => false } = {}) {
+  const state = structuredClone(STATE)
+  Object.assign(state.config.values, values)
+  const base = host()
+  return {
+    state,
+    fetch: async (path, init) => {
+      const answer = await base(path, init)
+      // A bridge answer is JSON over the wire, so every read is a fresh object
+      // graph; handing back the same mutable table would let a component's
+      // `useMemo` over it miss the write the page just made.
+      if (String(path) === 'opencode-go/state') return { ...answer, body: structuredClone(state) }
+      if (String(path) === 'opencode-go/config' && init?.method === 'POST') {
+        if (refuse()) return { status: 400, body: { ok: false, message: 'the setting is read-only' } }
+        Object.assign(state.config.values, JSON.parse(init.body).set)
+      }
+      return answer
+    },
+  }
+}
+
 /** The usage requests the page made, as window numbers or `all`. */
 const windowsAsked = (calls) => calls
   .filter((call) => call.path.startsWith('opencode-go/usage'))
@@ -184,6 +221,17 @@ const transportBoxes = (section) => nodes(section)
 
 /** The large-body switch: a button whose checked state is its aria state. */
 const transportSwitch = (section) => nodes(section)
+  .find(({ node }) => node.type === 'button' && node.props.role === 'switch')?.node
+
+/** The capsule display group: the one switch that hides the sidebar foot. */
+function capsuleSection(tree) {
+  const section = group(tree, 'Sidebar capsule')
+  ok(section !== undefined, 'the capsule section rendered')
+  return section
+}
+
+/** The capsule display switch, found the same way as the transport row's. */
+const capsuleSwitch = (section) => nodes(section)
   .find(({ node }) => node.type === 'button' && node.props.role === 'switch')?.node
 
 /** The models group, the one card that commits a draft with a Save press. */
@@ -1627,6 +1675,125 @@ export default {
       },
     },
     {
+      name: 'the capsule display switch is a row on the page, and toggling it writes then reads back',
+      async run() {
+        // The switch is an ordinary setting applied on the spot: one press is
+        // one write, and the page then reads the row back to show what the Host
+        // persisted. The capsule section sits between the model list and the
+        // quota schedule, which is where the settings page groups it.
+        let refuseWrite = false
+        const fixture = statefulHost({ refuse: () => refuseWrite })
+        const page = await renderPage({ fetch: fixture.fetch })
+        const tree = await page.open()
+        const section = capsuleSection(tree)
+        const control = capsuleSwitch(section)
+        ok(control !== undefined, 'the capsule section renders its switch')
+        is(control.props['aria-checked'], true, 'the switch shows what the row resolved: on')
+        is(control.props['aria-label'], 'Show the usage capsule', 'the switch carries an accessible label')
+        is(control.props.disabled, false)
+        // The row sits between the model list and the quota schedule, which is
+        // where the settings page groups the display of its own surfaces.
+        const at = (predicate) => nodes(tree).findIndex(({ node }) => predicate(node))
+        const sectionAt = at((node) => node === section)
+        const modelsAt = at((node) => node.type === 'section' && text(node).includes('Choose which models appear'))
+        const scheduleAt = at((node) => node.type === 'section' && text(node).includes('Quota refresh'))
+        ok(sectionAt > modelsAt && sectionAt < scheduleAt,
+          `the capsule row sits between models and the quota schedule (${String(modelsAt)}, ${String(sectionAt)}, ${String(scheduleAt)})`)
+
+        const after = await clickIn(page, section, (node) => node.type === 'button'
+          && node.props.role === 'switch' && node.props['aria-label'] === 'Show the usage capsule')
+        const writes = page.calls.filter((call) => call.path === 'opencode-go/config')
+        equal(writes.length, 1, 'one toggle is one write')
+        equal(JSON.parse(writes[0].init.body), { set: { showQuotaCapsule: false } })
+        const tail = page.calls.slice(page.calls.indexOf(writes[0])).map((call) => call.path)
+        is(tail[tail.length - 1], 'opencode-go/state', 'and the row is re-read after the write')
+        is(capsuleSwitch(capsuleSection(after)).props['aria-checked'], false, 'the switch shows the value it wrote')
+
+        // A refused write puts the switch back where the persisted value was,
+        // and says why — the optimistic move is not a lie left on screen.
+        refuseWrite = true
+        const reverted = await page.click((node) => node.type === 'button'
+          && node.props.role === 'switch' && node.props['aria-label'] === 'Show the usage capsule')
+        is(capsuleSwitch(capsuleSection(reverted)).props['aria-checked'], false, 'the refused write rolls the switch back')
+        ok(text(capsuleSection(reverted)).includes('Could not save: the setting is read-only'),
+          text(capsuleSection(reverted)).slice(0, 200))
+      },
+    },
+    {
+      name: 'the page\'s switch moves the sidebar capsule in the same tab, without a remount',
+      async run() {
+        // The switch is on the page and the thing it moves is in the foot: two
+        // React trees over one fact, so the preference has to live outside both.
+        // This case mounts both in one page and presses the switch, which is what
+        // a reader does before opening anything else.
+        const fixture = statefulHost()
+        const page = await renderPage({ fetch: fixture.fetch })
+        await page.open()
+        const capsule = page.surface('sidebar.footer.action')
+        const drawn = await capsule.open({ wide: true })
+        ok(text(drawn).includes('92%'), 'the capsule is drawn while the switch is on')
+        // The page had already read the endpoint the preference comes from, so
+        // the foot learned it from that read rather than spending one of its own.
+        equal(page.calls.filter((call) => call.path === 'opencode-go/state').length, 1,
+          'one state read answered both surfaces')
+
+        await page.click((node) => node.type === 'button'
+          && node.props.role === 'switch' && node.props['aria-label'] === 'Show the usage capsule')
+        is(capsule.tree(), null, 'the foot draws nothing while the switch is off')
+        equal(nodes(capsule.tree()).length, 0, 'and there is no capsule node left in it')
+
+        await page.click((node) => node.type === 'button'
+          && node.props.role === 'switch' && node.props['aria-label'] === 'Show the usage capsule')
+        ok(text(capsule.tree()).includes('92%'), 'and it is drawn again once the switch is back on')
+        // Each turn wrote and read the row back; the capsule never read the
+        // preference for itself, because the page's own reads answered it.
+        equal(page.calls.filter((call) => call.path === 'opencode-go/state').length, 3,
+          'the page read state on open and once per toggle, and the capsule added none')
+      },
+    },
+    {
+      name: 'a capsule whose row reports it off draws nothing and reads no quota',
+      async run() {
+        // A hidden capsule must not be an invisible one that still spends: the
+        // quota read, the subscription hook, and the schedule all belong to the
+        // body, which is not mounted at all while the preference is off.
+        const off = {
+          ...STATE,
+          config: { ...STATE.config, values: { ...STATE.config.values, showQuotaCapsule: false } },
+        }
+        const page = await renderPage({ fetch: host({ state: { body: off } }) })
+        const capsule = page.surface('sidebar.footer.action')
+        const tree = await capsule.open({ wide: true })
+        is(tree, null, 'a switched-off capsule draws nothing at all')
+        equal(nodes(tree).length, 0, 'not even an empty row')
+        equal(page.calls.map((call) => call.path), ['opencode-go/state'],
+          'it reads the preference, and never the subscription quota')
+      },
+    },
+    {
+      name: 'a row that reports no capsule switch is inert, and the capsule stays by default',
+      async run() {
+        // A running plugin older than this page cannot report the switch. The
+        // default is on, so the foot stays; the row says why it cannot be pressed
+        // rather than showing an off state the reader could not change.
+        const values = { ...STATE.config.values }
+        delete values.showQuotaCapsule
+        const stale = { ...STATE, config: { ...STATE.config, values } }
+        const page = await renderPage({ fetch: host({ state: { body: stale } }) })
+        const tree = await page.open()
+        const section = capsuleSection(tree)
+        ok(text(section).includes('This row does not report the capsule switch'), text(section).slice(0, 180))
+        is(text(section).includes('Loading'), false, 'and it is not still loading')
+        is(capsuleSwitch(section).props.disabled, true, 'the switch cannot be pressed while the row does not report it')
+
+        const capsule = page.surface('sidebar.footer.action')
+        const capsuleTree = await capsule.open({ wide: true })
+        ok(text(capsuleTree).includes('92%'), 'the capsule stays, because its default is on')
+        equal(page.calls.filter((call) => call.path === 'opencode-go/state').length, 1,
+          'the page\'s read already answered both surfaces')
+      },
+    },
+    {
       name: 'the sidebar capsule answers the quota question without a click, for every window',
       async run() {
         // The whole point of the capsule: the numbers are on screen in the
@@ -1662,9 +1829,11 @@ export default {
         }
         ok(String(row.props.title).includes('click to see usage'), 'the tooltip says what a click does')
 
-        // One read, not forced: opening it must not spend a request inside the
-        // cache window the Host keeps for the answer.
-        equal(page.calls.map((call) => call.path), ['opencode-go/subscription'])
+        // One read of the preference first — the foot does not know whether it
+        // is shown until the row says so — then one read of the quota, not
+        // forced: opening it must not spend a request inside the cache window
+        // the Host keeps for the answer.
+        equal(page.calls.map((call) => call.path), ['opencode-go/state', 'opencode-go/subscription'])
       },
     },
     {

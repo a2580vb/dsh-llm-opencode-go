@@ -35,6 +35,7 @@ export default {
         is(config.hideTrainingModels, false)
         is(config.healthCheck, 'off')
         is(config.usageNumberFormat, 'compact')
+        is(config.showQuotaCapsule, true)
         ok(Object.isFrozen(config))
       },
     },
@@ -98,6 +99,22 @@ export default {
           Promise.resolve().then(() => resolveConfig({ freshConnectionOnLargeBody: 'yes' })),
           'freshConnectionOnLargeBody',
         )
+      },
+    },
+    {
+      name: 'showQuotaCapsule is a declared boolean, on by default',
+      run: async () => {
+        is(resolveConfig(undefined).showQuotaCapsule, true)
+        is(resolveConfig({ showQuotaCapsule: false }).showQuotaCapsule, false)
+        await rejectsWith(
+          Promise.resolve().then(() => resolveConfig({ showQuotaCapsule: 'yes' })),
+          'showQuotaCapsule',
+        )
+        // The schema the loader calls first must object too, so activation fails
+        // with the field rather than at the first page load.
+        const issues = Config['~standard'].validate({ showQuotaCapsule: 'yes' }).issues
+        ok(Array.isArray(issues) && issues.length > 0, 'the schema reported the field')
+        ok(issues.some((issue) => String(issue.message).includes('showQuotaCapsule')), 'by name')
       },
     },
     {

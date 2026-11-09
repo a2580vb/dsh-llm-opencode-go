@@ -19,6 +19,7 @@ view, or read `Config` from the plugin for the authoritative list.
 | `modelsCachePath` | `~/.dsh/cache/opencode-go-models.json` | Cache file; an unwritable path only warns |
 | `usagePath` | `~/.dsh/cache/opencode-go-usage.json` | Where the usage counters live; an unwritable path only warns |
 | `usageNumberFormat` | `compact` | Token display in the usage UI: `compact` uses decimal `K/M/B/T` units; `full` shows complete numbers. The page saves this choice here |
+| `showQuotaCapsule` | `true` | Show the quota capsule at the sidebar's foot. A display preference only — the adapter never reads it; the configuration page saves this choice, and the rest of the usage UI is unaffected either way |
 | `diagnostics` | `failures` | What the diagnostics log keeps: `off` \| `failures` \| `all` (see [Diagnostics log](#diagnostics-log)) |
 | `diagnosticsPath` | `~/.dsh/logs/opencode-go.jsonl` | Where that log lives; an unwritable path only warns |
 | `subscriptionCacheSeconds` | `60` | How long the page reuses a subscription-quota answer before asking the service again |
@@ -79,6 +80,11 @@ The capsule itself:
   and spread across its width with `space-between`. Collapsed to the rail it
   becomes the 36px round button the host's rail uses, showing the rolling window
   alone.
+- It can be turned off. `showQuotaCapsule` (on by default) hides the row and
+  nothing else: the panel keeps its shortcut, and the Settings page and the
+  configuration page stay reachable without the capsule's gear. The switch lives
+  under the configuration page's *Sidebar capsule* heading, so the way back on
+  does not depend on the row it hides.
 
 The shortcut is rebindable in Settings → Shortcuts. It is `Ctrl/Cmd+U` on the
 desktop; the browser shell refuses a bare `primary+U`, so there it defaults to
@@ -145,6 +151,7 @@ covers the facts that are per-deployment and change often:
 | **Models** | A checkbox per catalog model decides what the picker lists, written to `hiddenModels`. The page shows the whole catalog, including models this deployment already hides; a model the service has retired stays for history, with a warning-coloured `retired` tag (or `retired → <successor>` when the service names one) and a disabled checkbox. The same card edits `modelVariants`, and its one **Save** writes both fields in a single configuration change. |
 | **Model variants** | Named presets of one model, written to `modelVariants`, in an editable list inside the Models card: pick a model, name it, then open a row's **Edit** to change its fields, or **Delete** to drop it. |
 | **Quota refresh** | The two intervals that pace the capsule's quota checks, written to `subscriptionMinIntervalSeconds` and `subscriptionMaxIntervalSeconds`. Each field saves when it loses focus (or on Enter), and a floor above its ceiling is refused on the page before any write. |
+| **Sidebar capsule** | One switch for `showQuotaCapsule` — whether the quota capsule at the sidebar's foot is shown. It applies when toggled; hiding the row leaves the panel, its shortcut, and the Settings tab in place. |
 | **Transport and retries** | One switch for `freshConnectionOnLargeBody` — a request body of 256 KiB or more asks for its own connection — plus the two deadlines (`timeoutMs`, `streamIdleTimeoutMs`) and the retry policy's limit and delays (`retryPolicy`). The switch applies when toggled; each number applies when its field is left. The deadlines are typed in seconds and written in milliseconds, and the whole policy is written back, so fields the page does not edit keep their values. |
 | **Fetch available models** | Re-reads `GET /models` on demand and reports what appeared and what went away. |
 | **Usage and history** | Two things side by side: the service's own metered quota for the subscription, and the calls and tokens this plugin counted itself, per model and per day. This is the same block the panel under [fast entries](#fast-entries) carries. |

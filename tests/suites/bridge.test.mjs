@@ -54,6 +54,7 @@ export default {
           'subscriptionMinIntervalSeconds',
           'subscriptionMaxIntervalSeconds',
           'usageNumberFormat',
+          'showQuotaCapsule',
         ])
       },
     },
@@ -95,6 +96,7 @@ export default {
           'subscriptionMinIntervalSeconds',
           'subscriptionMaxIntervalSeconds',
           'usageNumberFormat',
+          'showQuotaCapsule',
         ])
         is(res.json.config.values.apiKeyEnv, 'OC_KEY')
         equal(res.json.config.values.hiddenModels, ['space-bunny-free'])
@@ -107,6 +109,15 @@ export default {
         is(res.json.config.values.retryPolicy.initialDelayMs, 500)
         is(res.json.config.values.retryPolicy.maxDelayMs, 10_000)
         is(res.json.config.values.usageNumberFormat, 'compact')
+        // The capsule switch is a resolved value like any other: the page reads
+        // it from here to decide whether to render, and it ships visible.
+        is(res.json.config.values.showQuotaCapsule, true)
+
+        // Once the deployment resolves it off, the same field is what the page
+        // sees — no separate endpoint, no missing value it would have to guess.
+        const { instance: switchedOff } = bridgeUnderTest({ config: { showQuotaCapsule: false } })
+        const off = await call(switchedOff, local())
+        is(off.json.config.values.showQuotaCapsule, false)
       },
     },
     {
@@ -521,6 +532,40 @@ export default {
         is(invalid.captured.statusCode, 400)
         is(invalid.json.error, 'invalid-field-value')
         is(editor.writes.length, 2, 'the invalid format was not written')
+      },
+    },
+    {
+      name: 'POST config writes the capsule switch as a real boolean',
+      async run() {
+        const editor = fakeEditor()
+        const { instance } = bridgeUnderTest({ configEditor: editor })
+        const res = await call(instance, local({
+          method: 'POST',
+          url: UI_ROUTES.config,
+          headers: { host: '127.0.0.1:1' },
+          body: { set: { showQuotaCapsule: false } },
+        }))
+        is(res.captured.statusCode, 200)
+        is(res.json.ok, true)
+        equal(editor.writes, [{ showQuotaCapsule: false }])
+        is(res.json.config.override.showQuotaCapsule, false)
+        // The validator is the courtesy check in front of the config schema, so
+        // it accepts the same shape: a boolean and nothing a string would
+        // quietly coerce into one.
+        is(validateFieldValue('showQuotaCapsule', true), undefined)
+        is(validateFieldValue('showQuotaCapsule', 'false'), 'showQuotaCapsule must be true or false')
+        for (const value of ['yes', 0, 1, null]) {
+          const refused = await call(instance, local({
+            method: 'POST',
+            url: UI_ROUTES.config,
+            headers: { host: '127.0.0.1:1' },
+            body: { set: { showQuotaCapsule: value } },
+          }))
+          is(refused.captured.statusCode, 400, `${JSON.stringify(value)} was refused`)
+          is(refused.json.error, 'invalid-field-value')
+          includes(refused.json.message, 'showQuotaCapsule')
+        }
+        is(editor.writes.length, 1, 'the invalid values were not written')
       },
     },
     {

@@ -42,6 +42,10 @@
 #                      (default ~/.dsh/cache/opencode-go-usage.json)
 #   usageNumberFormat  token display in the usage UI: 'compact' | 'full'
 #                      (default: compact, using decimal K/M/B/T units)
+#   showQuotaCapsule   show the quota capsule at the sidebar's foot (default:
+#                      true). A display preference only: the adapter never reads
+#                      it, and the panel, its shortcut, and the Settings usage
+#                      tab are unchanged either way.
 #   diagnostics        what the diagnostics log keeps: 'off' | 'failures' | 'all'
 #                      (default: failures). One JSON line per attempt outcome with
 #                      its timing, the stage it reached, and the cause chain under
@@ -64,8 +68,9 @@
 # The plugin also ships a page for the Web client: the sidebar's Plugins page
 # lists this bundle, and the opencode-go row's Configure control opens it. It
 # edits the API key, the credential reference, which models the listing offers,
-# and the model variants; it re-reads GET /models on demand, and shows both the
-# service's own subscription quota and what this route spent. See
+# the model variants, whether the sidebar's quota capsule shows, and the quota
+# refresh rhythm and transport settings; it re-reads GET /models on demand, and
+# shows both the service's own subscription quota and what this route spent. See
 # docs/configuration.md#graphical-configuration. The page needs a web server and
 # is simply absent without one.
 #

@@ -437,6 +437,7 @@ export default {
           'retryPolicy',
           'subscriptionMinIntervalSeconds',
           'subscriptionMaxIntervalSeconds',
+          'showQuotaCapsule',
         ]
         for (const field of written) {
           ok(clientSource.includes(field), `the page names the field "${field}"`)
@@ -447,7 +448,7 @@ export default {
         ok(paired.length >= 2, 'the schedule writes both intervals by name')
         // Both shipped dictionaries must name every section the page renders,
         // so a translated page is never half-translated.
-        for (const key of ['sectionKey', 'sectionModels', 'sectionVariants', 'sectionSchedule']) {
+        for (const key of ['sectionKey', 'sectionModels', 'sectionVariants', 'sectionCapsule', 'sectionSchedule']) {
           ok(clientSource.includes(`${key}:`), `the dictionary has ${key}`)
         }
       },

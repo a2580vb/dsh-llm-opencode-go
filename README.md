@@ -4,7 +4,7 @@
 
 [![npm version](https://img.shields.io/npm/v/dsh-llm-opencode-go)](https://www.npmjs.com/package/dsh-llm-opencode-go)
 [![npm downloads](https://img.shields.io/npm/dm/dsh-llm-opencode-go)](https://www.npmjs.com/package/dsh-llm-opencode-go)
-[![offline checks](https://img.shields.io/badge/offline_checks-452-brightgreen)](docs/development.md#verification)
+[![offline checks](https://img.shields.io/badge/offline_checks-458-brightgreen)](docs/development.md#verification)
 [![ci](https://github.com/a2580vb/dsh-llm-opencode-go/actions/workflows/ci.yml/badge.svg)](https://github.com/a2580vb/dsh-llm-opencode-go/actions/workflows/ci.yml)
 [![license](https://img.shields.io/badge/license-MIT-blue)](LICENSE)
 
@@ -49,7 +49,7 @@ restart.
 | **Streaming** | SSE → `StreamChunk`, with usage, finish reason, and an idle watchdog |
 | **Failures** | Stable provider-neutral codes (`AUTH`, `RATE_LIMIT`, `QUOTA`, `CONTEXT_WINDOW_EXCEEDED`, `MODEL_DEPRECATED`, `MODEL_UNAVAILABLE`, …) |
 | **Configuration UI** | One page in the web client, with a row in Settings' own navigation and a Configure control on the plugin's row: API key, credential reference, model visibility and variants, fetching the model list, usage |
-| **Fast entries** | A quota capsule at the sidebar's foot (one ring per window — `5H / Wk / Mo` — with what is left of each), a usage panel of its own (from that row, or the keyboard), and a usage page under Settings |
+| **Fast entries** | A quota capsule at the sidebar's foot (one ring per window — `5H / Wk / Mo` — with what is left of each), a usage panel of its own (from that row, or the keyboard), and a usage page under Settings; the capsule has an on/off switch in the configuration page |
 | **Runtime** | Node.js ≥ 20; no runtime dependencies |
 
 ## Install and use
@@ -84,7 +84,9 @@ Usage has three entries, all reading the same facts:
 | **Settings → Built-in plugins** | A tab carrying the same content as the panel. |
 
 All three need the web client; a deployment without one has none of them and is
-otherwise unchanged. See [Configuration](docs/configuration.md#fast-entries).
+otherwise unchanged. The capsule can be switched off from the configuration page
+(`showQuotaCapsule`, on by default): hiding that row leaves the other two
+entries in place. See [Configuration](docs/configuration.md#fast-entries).
 
 ## Configuration
 
@@ -107,8 +109,9 @@ settings** row of its own, beside the pages the shell ships, and the same page i
 behind the sidebar's **Plugins** page: the `dsh-llm-opencode-go` bundle's
 `opencode-go` row has a **Configure** control. Either door opens the plugin's own
 page: the API key, the credential reference it is stored under, one switch per
-catalog model for what the picker offers, the model variants, a control that
-re-reads the service's model list, and what this route has spent. The key is
+catalog model for what the picker offers, the model variants, whether the sidebar
+capsule shows, a control that re-reads the service's model list, and what this
+route has spent. The key is
 written to the credential store, never to `cordis.patch.yml`, and the page is
 mounted only by a deployment that serves the web client. See
 [Configuration](docs/configuration.md#graphical-configuration).
