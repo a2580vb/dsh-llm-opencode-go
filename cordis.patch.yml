@@ -6,7 +6,7 @@
 #
 # Every key is optional except that a credential must resolve at request time.
 # The exhaustive field list with JSDoc lives in the plugin's Config, and
-# README.md explains each one; this file shows the shape.
+# docs/configuration.md explains each one; this file shows the shape.
 #
 #   provider           route name requests select (default: opencode-go)
 #   apiKeyEnv          credential REFERENCE resolved per request through the
@@ -36,6 +36,8 @@
 #   modelVariants      named presets of one model, each offered as <model>@<name>
 #                      entries: [{ model, name, label?, protocol?, effort?,
 #                                  contextWindow?, maxTokens? }]
+#   sendImages         'auto' | 'always' | 'off' (default: auto), whether image
+#                      bytes are attempted; see docs/models.md for the modalities
 #   healthCheck        'off' | 'startup'
 #   retryPolicy        { mode, maxRetries, ... }
 #   usagePath          where the usage counters live
