@@ -333,5 +333,23 @@ export default {
           'the unknown word is kept beside the response')
       },
     },
+    {
+      name: 'a tool result whose call the history lacks is dropped',
+      async run() {
+        // role:tool must answer a preceding tool_calls entry; a result left
+        // behind without its call cannot be repaired here, so it is not sent.
+        const wire = await chat.prepare({
+          request: {
+            messages: [
+              { role: 'user', content: [{ type: 'text', text: 'continue' }] },
+              { role: 'tool', toolCallId: 'gone', content: [{ type: 'text', text: 'orphan result' }] },
+            ],
+          },
+          model: { id: 'm' },
+          replayReasoning: true,
+        })
+        equal(wire.body.messages.map((message) => message.role), ['user'])
+      },
+    },
   ],
 }
