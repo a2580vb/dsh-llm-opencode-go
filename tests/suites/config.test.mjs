@@ -119,6 +119,22 @@ export default {
       },
     },
     {
+      name: 'showRetiredModels is a declared boolean, on by default',
+      run: async () => {
+        // On by default: the history a reader already had stays visible until
+        // they choose to keep it out of the list.
+        is(resolveConfig(undefined).showRetiredModels, true)
+        is(resolveConfig({ showRetiredModels: false }).showRetiredModels, false)
+        await rejectsWith(
+          Promise.resolve().then(() => resolveConfig({ showRetiredModels: 'yes' })),
+          'showRetiredModels',
+        )
+        const issues = Config['~standard'].validate({ showRetiredModels: 'yes' }).issues
+        ok(Array.isArray(issues) && issues.length > 0, 'the schema reported the field')
+        ok(issues.some((issue) => String(issue.message).includes('showRetiredModels')), 'by name')
+      },
+    },
+    {
       name: 'the development guide baseURL is normalized without its trailing slash',
       run() {
         const config = resolveConfig({ baseURL: 'https://opencode.ai/zen/go/v1/' })

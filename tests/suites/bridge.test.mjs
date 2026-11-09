@@ -55,6 +55,7 @@ export default {
           'subscriptionMaxIntervalSeconds',
           'usageNumberFormat',
           'showQuotaCapsule',
+          'showRetiredModels',
         ])
       },
     },
@@ -97,6 +98,7 @@ export default {
           'subscriptionMaxIntervalSeconds',
           'usageNumberFormat',
           'showQuotaCapsule',
+          'showRetiredModels',
         ])
         is(res.json.config.values.apiKeyEnv, 'OC_KEY')
         equal(res.json.config.values.hiddenModels, ['space-bunny-free'])
@@ -566,6 +568,37 @@ export default {
           includes(refused.json.message, 'showQuotaCapsule')
         }
         is(editor.writes.length, 1, 'the invalid values were not written')
+      },
+    },
+    {
+      name: 'POST config writes the retired-row display switch as a real boolean',
+      async run() {
+        const editor = fakeEditor()
+        const { instance } = bridgeUnderTest({ configEditor: editor })
+        const res = await call(instance, local({
+          method: 'POST',
+          url: UI_ROUTES.config,
+          headers: { host: '127.0.0.1:1' },
+          body: { set: { showRetiredModels: false } },
+        }))
+        is(res.captured.statusCode, 200)
+        is(res.json.ok, true)
+        equal(editor.writes, [{ showRetiredModels: false }])
+        is(res.json.config.override.showRetiredModels, false)
+        // A display preference is still a boolean on the wire: the string a
+        // query parameter would carry is refused, not coerced.
+        is(validateFieldValue('showRetiredModels', false), undefined)
+        is(validateFieldValue('showRetiredModels', 'false'), 'showRetiredModels must be true or false')
+        const refused = await call(instance, local({
+          method: 'POST',
+          url: UI_ROUTES.config,
+          headers: { host: '127.0.0.1:1' },
+          body: { set: { showRetiredModels: 'no' } },
+        }))
+        is(refused.captured.statusCode, 400)
+        is(refused.json.error, 'invalid-field-value')
+        includes(refused.json.message, 'showRetiredModels')
+        is(editor.writes.length, 1, 'the invalid value was not written')
       },
     },
     {

@@ -37,7 +37,7 @@ const STATE = {
   environment: { key: 'OPENCODE_GO_API_KEY', present: false },
   config: {
     editable: true,
-    fields: ['apiKeyEnv', 'hiddenModels', 'modelVariants', 'freshConnectionOnLargeBody', 'timeoutMs', 'streamIdleTimeoutMs', 'retryPolicy', 'showQuotaCapsule', 'subscriptionMinIntervalSeconds', 'subscriptionMaxIntervalSeconds', 'usageNumberFormat'],
+    fields: ['apiKeyEnv', 'hiddenModels', 'modelVariants', 'freshConnectionOnLargeBody', 'timeoutMs', 'streamIdleTimeoutMs', 'retryPolicy', 'showQuotaCapsule', 'showRetiredModels', 'subscriptionMinIntervalSeconds', 'subscriptionMaxIntervalSeconds', 'usageNumberFormat'],
     // What the row resolves to, which is what the schedule and transport
     // sections edit. The real bridge always reports these, so a fixture without
     // them would test a page nobody is served.
@@ -49,6 +49,7 @@ const STATE = {
       timeoutMs: 180_000,
       streamIdleTimeoutMs: 90_000,
       showQuotaCapsule: true,
+      showRetiredModels: true,
       retryPolicy: {
         mode: 'normal',
         maxRetries: 5,
@@ -1675,7 +1676,7 @@ export default {
         const page = await renderPage({ fetch: host() })
         const tree = await page.open()
         const labels = buttons(tree)
-        for (const label of ['Save', 'Clear key', 'Refresh page list', 'Fetch available models', 'Refresh usage', 'Previous page', 'Next page']) {
+        for (const label of ['Save', 'Clear key', 'Refresh page list', 'Fetch available models', 'Hide retired models', 'Refresh usage', 'Previous page', 'Next page']) {
           ok(labels.includes(label), `a "${label}" control is rendered: [${labels.join(', ')}]`)
         }
         const rangeTree = await page.click((node) => node.type === 'button' && node.props['aria-haspopup'] === 'menu'
@@ -2678,7 +2679,7 @@ export default {
         // read as two toolbars stapled together.
         const page = await renderPage({ fetch: host() })
         const tree = await page.open()
-        const labels = ['Show all', 'Hide all', 'Fetch available models', 'Refresh page list']
+        const labels = ['Show all', 'Hide all', 'Fetch available models', 'Refresh page list', 'Hide retired models']
         const buttons = labels.map((label) => nodes(tree).find(({ node }) => node.type === 'button'
           && text(node).trim() === label)?.node)
         for (const [index, node] of buttons.entries()) {
@@ -2691,6 +2692,49 @@ export default {
         }
         is(first.height, '28px', 'and that box is the settings page small button')
         is(first.fontSize, '12px')
+      },
+    },
+    {
+      name: 'the retired rows can be hidden from the list, and the choice persists',
+      async run() {
+        // A retired model is history: the card shows its row by default, but a
+        // reader who only wants the models the service still serves can keep
+        // those rows out of the list. The choice is a persisted display
+        // preference, so a reopened page reads it back.
+        const retired = {
+          id: 'deepseek-v4-flash',
+          name: 'DeepSeek V4 Flash',
+          hidden: true,
+          hiddenReason: 'retired',
+          retired: true,
+          replacement: 'deepseek-v4.1-flash',
+          trainingGated: false,
+          protocols: ['chat-completions', 'responses', 'anthropic'],
+        }
+        const catalog = {
+          ...CATALOG,
+          counts: { total: 4, listed: 2, hidden: 1, hiddenByTraining: 0, retired: 1, variants: 1 },
+          models: [...CATALOG.models, retired],
+        }
+        const fixture = statefulHost()
+        const fetch = async (path, init) => (String(path) === 'opencode-go/models'
+          ? { body: catalog }
+          : fixture.fetch(path, init))
+        const page = await renderPage({ fetch })
+        const tree = await page.open()
+        ok(text(tree).includes('deepseek-v4-flash'), 'the retired row is visible by default')
+        const after = await page.click((node) => node.type === 'button'
+          && text(node).trim() === 'Hide retired models')
+        const writes = page.calls.filter((call) => call.path === 'opencode-go/config')
+        equal(writes.length, 1, 'one press is one write')
+        equal(JSON.parse(writes[0].init.body), { set: { showRetiredModels: false } })
+        is(text(after).includes('deepseek-v4-flash'), false, 'the retired row leaves the list')
+        ok(text(after).includes('Show retired models'), 'the control now offers the way back')
+        // The Host echoed the write, so a fresh page reads the choice back.
+        const reopened = await renderPage({ fetch })
+        const reopenedTree = await reopened.open()
+        is(text(reopenedTree).includes('deepseek-v4-flash'), false, 'the choice survives a reopen')
+        ok(text(reopenedTree).includes('Show retired models'), 'and the control reflects it')
       },
     },
   ],

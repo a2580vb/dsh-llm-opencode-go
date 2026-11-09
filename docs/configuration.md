@@ -20,6 +20,7 @@ view, or read `Config` from the plugin for the authoritative list.
 | `usagePath` | `~/.dsh/cache/opencode-go-usage.json` | Where the usage counters live; an unwritable path only warns |
 | `usageNumberFormat` | `compact` | Token display in the usage UI: `compact` uses decimal `K/M/B/T` units; `full` shows complete numbers. The page saves this choice here |
 | `showQuotaCapsule` | `true` | Show the quota capsule at the sidebar's foot. A display preference only — the adapter never reads it; the configuration page saves this choice, and the rest of the usage UI is unaffected either way |
+| `showRetiredModels` | `true` | Show rows for models the service no longer serves in the Models card's list. A display preference only — a retired row stays in the catalog and stays resolvable, and the picker never offers it, whichever way this is set |
 | `diagnostics` | `failures` | What the diagnostics log keeps: `off` \| `failures` \| `all` (see [Diagnostics log](#diagnostics-log)) |
 | `diagnosticsPath` | `~/.dsh/logs/opencode-go.jsonl` | Where that log lives; an unwritable path only warns |
 | `subscriptionCacheSeconds` | `60` | How long the page reuses a subscription-quota answer before asking the service again |
@@ -148,7 +149,7 @@ covers the facts that are per-deployment and change often:
 |---|---|
 | **API key** | Stored write-only through the credential seam under `apiKeyEnv`. The page reports whether it is configured, where it comes from, and whether it can be replaced — never the value. |
 | **Credential reference** | Which `apiKeyEnv` the key is stored under. Editable, so a name other than the one the launching environment supplies can be used. |
-| **Models** | A checkbox per catalog model decides what the picker lists, written to `hiddenModels`. The page shows the whole catalog, including models this deployment already hides; a model the service has retired stays for history, with a warning-coloured `retired` tag (or `retired → <successor>` when the service names one) and a disabled checkbox. The same card edits `modelVariants`, and its one **Save** writes both fields in a single configuration change. |
+| **Models** | A checkbox per catalog model decides what the picker lists, written to `hiddenModels`. The page shows the whole catalog, including models this deployment already hides; a model the service has retired stays for history, with a warning-coloured `retired` tag (or `retired → <successor>` when the service names one) and a disabled checkbox. A **Hide retired models** control keeps those history rows out of the rendered list without touching the catalog. The same card edits `modelVariants`, and its one **Save** writes both fields in a single configuration change. |
 | **Model variants** | Named presets of one model, written to `modelVariants`, in an editable list inside the Models card: pick a model, name it, then open a row's **Edit** to change its fields, or **Delete** to drop it. |
 | **Quota refresh** | The two intervals that pace the capsule's quota checks, written to `subscriptionMinIntervalSeconds` and `subscriptionMaxIntervalSeconds`. Each field saves when it loses focus (or on Enter), and a floor above its ceiling is refused on the page before any write. |
 | **Sidebar capsule** | One switch for `showQuotaCapsule` — whether the quota capsule at the sidebar's foot is shown. It applies when toggled; hiding the row leaves the panel, its shortcut, and the Settings tab in place. |
@@ -270,9 +271,12 @@ configuration page writes this field, and both sides read the same listing
 decision.
 
 A model the service has retired is kept out of the picker whatever this field
-says, and the card still renders its row — with a `retired` tag and a disabled
+says, and the card renders its row — with a `retired` tag and a disabled
 checkbox — so the record stays visible (see [Retired
-models](models.md#retired-models)). The two histories also compose: if an id was
+models](models.md#retired-models)). The card's **Hide retired models** control
+can leave those rows out of the rendered list; the choice is the display
+preference `showRetiredModels`, so the catalog and the route are unaffected. The
+two histories also compose: if an id was
 hidden here before its model retired, the page reports it as `configured` rather
 than as retired, and **Show all** keeps that hidden id instead of dropping it,
 because a retired row can never be re-listed. **Hide all** adds every model the

@@ -48,6 +48,11 @@
 #                      true). A display preference only: the adapter never reads
 #                      it, and the panel, its shortcut, and the Settings usage
 #                      tab are unchanged either way.
+#   showRetiredModels  show rows for models the service no longer serves in the
+#                      configuration page's model list (default: true). A
+#                      display preference only: a retired row stays in the
+#                      catalog and stays resolvable, and the picker never
+#                      offers it, whichever way this is set.
 #   diagnostics        what the diagnostics log keeps: 'off' | 'failures' | 'all'
 #                      (default: failures). One JSON line per attempt outcome with
 #                      its timing, the stage it reached, and the cause chain under

@@ -78,11 +78,12 @@ opposite of an unknown id — it is fully described, and only the service can
 refuse it:
 
 - **Not listed.** The model picker leaves a retired id out. The configuration
-  page still shows its row, with a warning-coloured `retired` tag (or
-  `retired → <successor>` when the service names one) and a disabled checkbox;
-  when the deployment's own `hiddenModels` also names it, the snapshot's
-  `hiddenReason` says `configured` rather than `retired`, because that choice was
-  made first.
+  page shows its row — with a warning-coloured `retired` tag (or
+  `retired → <successor>` when the service names one) and a disabled checkbox —
+  though the card's Hide retired models control can keep those rows out of the
+  list it renders. When the deployment's own `hiddenModels` also names it, the
+  snapshot's `hiddenReason` says `configured` rather than `retired`, because that
+  choice was made first.
 - **Resolvable.** A session that still names the id resolves to its last
   measured capacity — its row in `lib/model/limits.js`, current or delisted, or
   its family's figures when neither has a row. Resolving a retired model is not
