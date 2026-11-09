@@ -1675,7 +1675,7 @@ export default {
         const page = await renderPage({ fetch: host() })
         const tree = await page.open()
         const labels = buttons(tree)
-        for (const label of ['Save', 'Clear key', 'Reload list', 'Fetch available models', 'Refresh usage', 'Previous page', 'Next page']) {
+        for (const label of ['Save', 'Clear key', 'Refresh page list', 'Fetch available models', 'Refresh usage', 'Previous page', 'Next page']) {
           ok(labels.includes(label), `a "${label}" control is rendered: [${labels.join(', ')}]`)
         }
         const rangeTree = await page.click((node) => node.type === 'button' && node.props['aria-haspopup'] === 'menu'
@@ -2678,7 +2678,7 @@ export default {
         // read as two toolbars stapled together.
         const page = await renderPage({ fetch: host() })
         const tree = await page.open()
-        const labels = ['Show all', 'Hide all', 'Fetch available models', 'Reload list']
+        const labels = ['Show all', 'Hide all', 'Fetch available models', 'Refresh page list']
         const buttons = labels.map((label) => nodes(tree).find(({ node }) => node.type === 'button'
           && text(node).trim() === label)?.node)
         for (const [index, node] of buttons.entries()) {
