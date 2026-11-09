@@ -319,5 +319,19 @@ export default {
         ok(String(error.message).includes('bad field'), 'the provider message is carried through')
       },
     },
+    {
+      name: 'an unknown finish_reason settles as stop once content exists',
+      async run() {
+        // A stop word this adapter has not seen is a vocabulary gap, not a
+        // reason to discard an answer the reader already has.
+        const text = 'data: {"id":"x","choices":[{"index":0,"delta":{"content":"hi"},"finish_reason":null}]}\n\n'
+          + 'data: {"id":"x","choices":[{"index":0,"delta":{},"finish_reason":"brand_new_word"}]}\n\n'
+        const { blocks, finish, chunks } = await assemble(chat, text, 'm')
+        is(blocks[0].text, 'hi')
+        equal(finish, { kind: 'stop' })
+        is(finishChunk(chunks).replayState?.response?.stopReason, 'brand_new_word',
+          'the unknown word is kept beside the response')
+      },
+    },
   ],
 }

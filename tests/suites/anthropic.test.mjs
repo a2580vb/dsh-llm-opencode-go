@@ -396,5 +396,34 @@ export default {
         is(error?.code, 'STREAM_CLOSED')
       },
     },
+    {
+      name: 'a refusal stop reason is a legitimate stop, not a malformed stream',
+      async run() {
+        const text = [
+          'event: message_start',
+          'data: {"type":"message_start","message":{"id":"m1","type":"message","role":"assistant","model":"glm-5.3","content":[],"usage":{"input_tokens":5,"output_tokens":0}}}',
+          '',
+          'event: content_block_start',
+          'data: {"type":"content_block_start","index":0,"content_block":{"type":"text","text":""}}',
+          '',
+          'event: content_block_delta',
+          'data: {"type":"content_block_delta","index":0,"delta":{"type":"text_delta","text":"I cannot help with that."}}',
+          '',
+          'event: content_block_stop',
+          'data: {"type":"content_block_stop","index":0}',
+          '',
+          'event: message_delta',
+          'data: {"type":"message_delta","delta":{"stop_reason":"refusal"},"usage":{"output_tokens":6}}',
+          '',
+          'event: message_stop',
+          'data: {"type":"message_stop"}',
+          '',
+          '',
+        ].join('\n')
+        const { blocks, finish } = await assemble(anthropic, text, 'glm-5.3')
+        is(blocks[0].text, 'I cannot help with that.')
+        equal(finish, { kind: 'stop' })
+      },
+    },
   ],
 }

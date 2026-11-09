@@ -378,5 +378,25 @@ export default {
         ok(String(error.message).includes('upstream refused'))
       },
     },
+    {
+      name: 'an incomplete response stopped by a content filter ends as a stop',
+      async run() {
+        const text = [
+          'event: response.created',
+          'data: {"type":"response.created","response":{"id":"r1"}}',
+          '',
+          'event: response.output_text.delta',
+          'data: {"type":"response.output_text.delta","output_index":0,"delta":"partial"}',
+          '',
+          'event: response.incomplete',
+          'data: {"type":"response.incomplete","response":{"id":"r1","incomplete_details":{"reason":"content_filter"},"usage":{"input_tokens":3,"output_tokens":2}}}',
+          '',
+          '',
+        ].join('\n')
+        const { blocks, finish } = await assemble(responses, text, 'm')
+        is(blocks[0].text, 'partial')
+        equal(finish, { kind: 'stop' })
+      },
+    },
   ],
 }
