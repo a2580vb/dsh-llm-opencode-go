@@ -301,6 +301,7 @@ const pluginModule = await import(url(join(PLUGIN, 'lib/index.js')))
 // an assertion about the plugin rather than about the machine's history.
 const USAGE_RUN = `run-${String(Date.now())}-${String(process.pid)}`
 const USAGE_PATH = join(CACHE, 'usage', `${USAGE_RUN}.json`)
+const DIAGNOSTICS_PATH = join(CACHE, 'diagnostics', `${USAGE_RUN}.jsonl`)
 {
   const { ctx, fiber } = await activate({
     provider: 'opencode-go',
@@ -308,6 +309,8 @@ const USAGE_PATH = join(CACHE, 'usage', `${USAGE_RUN}.json`)
     baseURL: 'https://relay.test/v1',
     modelsCachePath: cachePath(),
     usagePath: USAGE_PATH,
+    diagnosticsPath: DIAGNOSTICS_PATH,
+    diagnostics: 'all',
   })
 
   const requests = []
@@ -365,11 +368,10 @@ const USAGE_PATH = join(CACHE, 'usage', `${USAGE_RUN}.json`)
 
   // A call that never reaches disk is a table nobody can read, so the unload
   // path is checked here: the record was written on a debounce, and disposal is
-  // the last chance to flush it.
+  // the last chance to flush it. Reading immediately after `dispose()` is the
+  // assertion: a disposer that starts the writes without returning their
+  // completion would resolve the fiber before either file exists.
   await fiber.dispose()
-  // The disposer starts the write and does not wait for it, so give the file a
-  // beat: a check that read it in the same tick would measure the scheduler.
-  await new Promise((resolve) => setTimeout(resolve, 200))
   check(
     'the unload path writes the usage counters out',
     (() => {
@@ -382,6 +384,21 @@ const USAGE_PATH = join(CACHE, 'usage', `${USAGE_RUN}.json`)
       }
     })(),
     USAGE_PATH,
+  )
+  check(
+    'the unload path waits for the diagnostics log too',
+    (() => {
+      try {
+        const records = readFileSync(DIAGNOSTICS_PATH, 'utf8')
+          .split('\n')
+          .filter((line) => line !== '')
+          .map((line) => JSON.parse(line))
+        return records.some((record) => record.event === 'attempt' && record.outcome === 'ok')
+      } catch {
+        return false
+      }
+    })(),
+    DIAGNOSTICS_PATH,
   )
 }
 

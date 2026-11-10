@@ -71,5 +71,48 @@ export default {
         is(isDoneFrame({ data: '{"a":1}' }), false)
       },
     },
+    {
+      name: 'every non-empty body read is activity, including a comment ping and a partial frame',
+      async run() {
+        // The idle watchdog is fed by these ticks. A comment line and an
+        // unfinished frame both prove the connection is alive, and neither
+        // produces a frame -- so frame delivery cannot be the activity signal.
+        const encoder = new TextEncoder()
+        const body = new ReadableStream({
+          start(controller) {
+            controller.enqueue(new Uint8Array())
+            controller.enqueue(encoder.encode(': ping\n\n'))
+            controller.enqueue(encoder.encode('data: {"a":'))
+            controller.enqueue(encoder.encode('1}\n\n'))
+            controller.close()
+          },
+        })
+        const ticks = []
+        const out = []
+        for await (const frame of parseSse(body, undefined, () => ticks.push('read'))) out.push(frame)
+        equal(out, [{ data: '{"a":1}' }])
+        is(ticks.length, 3, 'one tick per non-empty read, not one per decoded frame')
+      },
+    },
+    {
+      name: 'a read that yields only bytes, never a frame, still ticks',
+      async run() {
+        // A provider that sends a keep-alive comment while it thinks must keep
+        // the stream alive even though it emits nothing the translator can use.
+        const encoder = new TextEncoder()
+        const body = new ReadableStream({
+          start(controller) {
+            controller.enqueue(encoder.encode(':'))
+            controller.enqueue(encoder.encode(' keep-alive\n'))
+            controller.close()
+          },
+        })
+        const ticks = []
+        const out = []
+        for await (const frame of parseSse(body, undefined, () => ticks.push('read'))) out.push(frame)
+        equal(out, [])
+        is(ticks.length, 2)
+      },
+    },
   ],
 }

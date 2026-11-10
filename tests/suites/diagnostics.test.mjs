@@ -246,7 +246,7 @@ export default {
         ok(record.requestBytes > 0, 'the request it would have sent was measured')
         ok(record.durationMs >= 0)
         ok(record.timeoutMs > 0 && record.streamIdleTimeoutMs > 0, 'the budgets it ran under are recorded')
-        ok(record.cause.some((link) => link.code === 'ECONNRESET'), `the reason under fetch failed: ${JSON.stringify(record.cause)}`)
+        ok(record.transport.some((link) => link.code === 'ECONNRESET'), `the reason under fetch failed: ${JSON.stringify(record.transport)}`)
       },
     },
     {
@@ -261,7 +261,7 @@ export default {
         is(record.phase, 'stream')
         ok(record.events >= 1, `the events that arrived before the break are counted: ${record.events}`)
         ok(record.streamMs >= 0, 'the time inside the stream is separated from the connect time')
-        ok(record.cause.some((link) => link.message === 'terminated'), `the socket's own words: ${JSON.stringify(record.cause)}`)
+        ok(record.transport.some((link) => link.message === 'terminated'), `the socket's own words: ${JSON.stringify(record.transport)}`)
       },
     },
     {
@@ -314,19 +314,52 @@ export default {
       },
     },
     {
-      name: 'the log never carries the credential or a message body',
+      name: 'a refusal that echoes the credential leaves no key or provider text in the log',
       async run() {
-        const path = scratch.path('secret')
-        const { adapter, diagnostics } = adapterWith([{ error: fetchFailed('ECONNRESET') }], {
-          path,
-          key: 'sk-do-not-log-this',
-        })
-        await drain(adapter)
-        await diagnostics.flush()
-        const text = await readFile(path, 'utf8')
-        ok(!text.includes('sk-do-not-log-this'), 'the key stays out of the file')
-        ok(!text.includes('authorization'), 'no header is written')
-        ok(!text.includes('Bearer'), 'no auth scheme is written either')
+        const canary = 'sk-diagnostics-canary-91ab'
+        for (const status of [400, 401]) {
+          const path = scratch.path(`secret-${status}`)
+          const { adapter, diagnostics } = adapterWith([{
+            status,
+            headers: { 'content-type': 'application/json', 'x-request-id': `req-${status}` },
+            body: JSON.stringify({
+              error: {
+                type: 'invalid_request_error',
+                code: 'invalid_api_key',
+                message: `provider-free-text-marker ${canary}`,
+              },
+              echo: `raw-body-marker ${canary}`,
+            }),
+          }], { path, key: canary })
+          const { error } = await drain(adapter)
+          await diagnostics.flush()
+          const text = await readFile(path, 'utf8')
+          ok(!text.includes(canary), `the ${status} key stays out of the file`)
+          // Allowlisted metadata, not provider or HTTP free text: neither the
+          // message nor the raw body may survive as a log field.
+          ok(!text.includes('provider-free-text-marker'), 'no provider message text is written')
+          ok(!text.includes('raw-body-marker'), 'no raw body text is written')
+          ok(!text.includes('authorization'), 'no header is written')
+          ok(!text.includes('Bearer'), 'no auth scheme is written either')
+
+          const [record] = await readRecords(path)
+          is(record.outcome, 'error')
+          is(record.code, status === 401 ? 'AUTH' : 'INVALID_REQUEST')
+          is(record.status, status)
+          is(record.phase, 'response')
+          is(record.requestId, `req-${status}`)
+          is(record.providerType, 'invalid_request_error', 'the stable provider type is kept')
+          is(record.providerCode, 'invalid_api_key', 'the stable provider code is kept')
+          is(record.headersReceived, true)
+          is(record.events, 0)
+          is(record.message, undefined, 'provider free text is not a log field')
+          is(record.cause, undefined, 'the raw body is not a log field')
+          ok(record.durationMs >= 0 && record.requestBytes > 0, 'timing and size metadata stay')
+
+          ok(!String(error?.message).includes(canary), 'the thrown message carries no key')
+          ok(!JSON.stringify(error?.failure ?? {}).includes(canary), 'the failure facts carry no key')
+          ok(!String(error?.cause?.message ?? '').includes(canary), 'the cause carries no key')
+        }
       },
     },
     {

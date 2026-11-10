@@ -1,6 +1,7 @@
 /** Chat Completions translator, against payloads captured from the live service. */
 
 import * as chat from '../../lib/protocol/chat-completions.js'
+import { bodyFromString } from '../../lib/stream/sse.js'
 import { equal, is, ok } from '../helpers.mjs'
 import { IMAGE_BLOCK, assemble, failureOf, finishChunk, fixture, imageParts, usageChunk } from './_protocol-harness.mjs'
 
@@ -357,6 +358,42 @@ export default {
         equal(finish, { kind: 'stop' })
         is(finishChunk(chunks).replayState?.response?.stopReason, 'brand_new_word',
           'the unknown word is kept beside the response')
+      },
+    },
+    {
+      name: 'usage that arrived before a mid-stream failure reaches onUsage, and no terminal usage chunk follows',
+      async run() {
+        // The provider bills a call as soon as it reports usage; the reader
+        // losing the finish afterwards does not un-spend those tokens. The
+        // callback is how the counting layer learns them without the harness
+        // receiving a second, premature usage chunk.
+        const text = [
+          'data: {"id":"x","choices":[{"index":0,"delta":{"content":"hi"},"finish_reason":null}]}',
+          '',
+          'data: {"id":"x","choices":[],"usage":{"prompt_tokens":5,"completion_tokens":2,"total_tokens":7}}',
+          '',
+          'data: {"error":{"type":"server_error","message":"upstream busy"}}',
+          '',
+          '',
+        ].join('\n')
+        const reported = []
+        const chunks = []
+        let thrown
+        try {
+          for await (const chunk of chat.translate({
+            body: bodyFromString(text),
+            model: 'm',
+            onUsage: (usage) => reported.push(usage),
+          })) {
+            chunks.push(chunk)
+          }
+        } catch (error) {
+          thrown = error
+        }
+        is(thrown?.code, 'SERVER')
+        equal(reported, [{ inputTokens: 5, outputTokens: 2, totalTokens: 7 }])
+        is(chunks.filter((chunk) => chunk.type === 'usage').length, 0,
+          'a failed stream has no terminal usage chunk')
       },
     },
   ],

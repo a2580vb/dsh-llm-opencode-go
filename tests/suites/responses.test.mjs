@@ -1,6 +1,7 @@
 /** Responses translator, against payloads captured from the live service. */
 
 import * as responses from '../../lib/protocol/responses.js'
+import { bodyFromString } from '../../lib/stream/sse.js'
 import { equal, is, ok } from '../helpers.mjs'
 import { IMAGE_BLOCK, assemble, failureOf, finishChunk, fixture, imageParts, usageChunk } from './_protocol-harness.mjs'
 
@@ -74,6 +75,40 @@ export default {
         })
         is(loop.body.instructions, 'PLAN POLICY MARKER')
         equal(loop.body.input, [{ role: 'user', content: [{ type: 'input_text', text: 'hello' }] }])
+      },
+    },
+    {
+      name: 'developer messages join instructions in message order, never as input items',
+      async run() {
+        // A loop-built request may carry its policy as a developer turn instead
+        // of a system one; both are instructions, not conversation.
+        const developerOnly = await responses.prepare({
+          request: {
+            messages: [
+              { role: 'developer', content: [{ type: 'text', text: 'DEV POLICY MARKER' }] },
+              { role: 'user', content: [{ type: 'text', text: 'hi' }] },
+            ],
+          },
+          model: { id: 'm' },
+        })
+        is(developerOnly.body.instructions, 'DEV POLICY MARKER')
+        equal(developerOnly.body.input, [{ role: 'user', content: [{ type: 'input_text', text: 'hi' }] }])
+
+        const mixed = await responses.prepare({
+          request: {
+            messages: [
+              { role: 'developer', content: [{ type: 'text', text: 'developer first' }] },
+              { role: 'system', content: [{ type: 'text', text: 'system second' }] },
+              { role: 'developer', content: [{ type: 'text', text: '   ' }] },
+              { role: 'user', content: [{ type: 'text', text: 'hi' }] },
+            ],
+            system: 'You are terse.',
+          },
+          model: { id: 'm' },
+        })
+        // Request-level text stays first, then history keeps the order it had.
+        is(mixed.body.instructions, 'You are terse.\n\ndeveloper first\n\nsystem second')
+        equal(mixed.body.input, [{ role: 'user', content: [{ type: 'input_text', text: 'hi' }] }])
       },
     },
     {
@@ -408,6 +443,48 @@ export default {
         )
         is(error?.code, 'SERVER')
         ok(String(error.message).includes('upstream fell over'))
+      },
+    },
+    {
+      name: 'usage from response.completed survives an error event that arrives before the finish chunk',
+      async run() {
+        // `response.completed` is the only event that reports usage. An error
+        // delivered after it must not erase the tokens the provider already
+        // spent; the counting layer learns them through onUsage, while the
+        // harness stream still ends without a usage chunk.
+        const text = [
+          'event: response.created',
+          'data: {"type":"response.created","response":{"id":"r1"}}',
+          '',
+          'event: response.output_text.delta',
+          'data: {"type":"response.output_text.delta","output_index":0,"delta":"hi"}',
+          '',
+          'event: response.completed',
+          'data: {"type":"response.completed","response":{"id":"r1","usage":{"input_tokens":3,"output_tokens":1,"total_tokens":4}}}',
+          '',
+          'event: error',
+          'data: {"type":"error","error":{"type":"server_error","message":"stream lost"}}',
+          '',
+          '',
+        ].join('\n')
+        const reported = []
+        const chunks = []
+        let thrown
+        try {
+          for await (const chunk of responses.translate({
+            body: bodyFromString(text),
+            model: 'm',
+            onUsage: (usage) => reported.push(usage),
+          })) {
+            chunks.push(chunk)
+          }
+        } catch (error) {
+          thrown = error
+        }
+        is(thrown?.code, 'SERVER')
+        equal(reported, [{ inputTokens: 3, outputTokens: 1, totalTokens: 4 }])
+        is(chunks.filter((chunk) => chunk.type === 'usage').length, 0,
+          'a failed stream has no terminal usage chunk')
       },
     },
   ],

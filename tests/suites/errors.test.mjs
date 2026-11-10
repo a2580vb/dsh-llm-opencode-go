@@ -15,6 +15,7 @@ import {
   isModelDeprecated,
   isModelUnavailable,
   refusedRequestError,
+  retryAfterMs,
   streamFailure,
   transportError,
 } from '../../lib/error/mapping.js'
@@ -37,6 +38,7 @@ function refused(body, input = {}) {
     headers: new Headers(input.headers ?? {}),
     text,
     raw,
+    ...(input.apiKey === undefined ? {} : { apiKey: input.apiKey }),
   })
 }
 
@@ -97,6 +99,116 @@ export default {
         const error = refused(body, { status: 410 })
         is(error.code, 'HTTP_410')
         equal(error.failure.message, error.message)
+      },
+    },
+    {
+      name: 'a refusal that echoes the API key carries it nowhere in the failure',
+      run() {
+        const canary = 'sk-canary-refusal-4c1f'
+        for (const status of [400, 401]) {
+          const body = {
+            error: {
+              type: 'invalid_request_error',
+              code: 'invalid_api_key',
+              message: `Incorrect API key provided: ${canary}`,
+            },
+            echo: `the raw body also carried ${canary}`,
+          }
+          const error = refused(body, {
+            status,
+            apiKey: canary,
+            headers: { 'x-request-id': `req-${canary}` },
+          })
+          is(error.code, status === 401 ? 'AUTH' : 'INVALID_REQUEST')
+          is(error.failure.status, status)
+          ok(!String(error.message).includes(canary), `the secret is not in the ${status} message`)
+          ok(!JSON.stringify(error.failure).includes(canary), `the secret is not in the ${status} failure facts`)
+          ok(!String(error.cause?.message ?? '').includes(canary), `the secret is not in the ${status} cause`)
+          ok(String(error.failure.requestId ?? '').startsWith('req-'), 'the request id stays usable')
+          ok(String(error.message).includes('Incorrect API key provided:'), 'the provider detail around the secret stays')
+        }
+        // A quote in the key travels escaped on the wire; the escaped spelling
+        // must not become a second, less obvious copy in the cause.
+        const escaped = 'sk-canary-"quoted"-5e2'
+        const error = refused({ error: { message: `Incorrect API key provided: ${escaped}` } }, {
+          status: 401,
+          apiKey: escaped,
+        })
+        ok(!String(error.message).includes(escaped), 'the decoded secret is not in the message')
+        ok(!String(error.cause?.message ?? '').includes(escaped), 'the escaped secret is not in the cause')
+      },
+    },
+    {
+      name: 'a blank request-id header falls back or disappears instead of breaking the failure',
+      run() {
+        const fallback = refused({ error: { message: 'invalid key' } }, {
+          status: 401,
+          headers: { 'x-opencode-log-id': '   ', 'x-request-id': ' req-42 ' },
+        })
+        is(fallback.code, 'AUTH')
+        is(fallback.failure.requestId, 'req-42', 'the usable header is trimmed and used')
+
+        const trimmed = refused({ error: { message: 'invalid key' } }, {
+          status: 401,
+          headers: { 'x-opencode-log-id': ' req-log ' },
+        })
+        is(trimmed.failure.requestId, 'req-log', 'the log id is trimmed')
+
+        const absent = refused({ error: { message: 'invalid key' } }, {
+          status: 401,
+          headers: { 'x-opencode-log-id': '', 'x-request-id': '   ' },
+        })
+        is(absent.code, 'AUTH')
+        is('requestId' in absent.failure, false, 'no empty request id is recorded')
+      },
+    },
+    {
+      name: 'retry-after advice is either a positive finite millisecond value or absent',
+      run() {
+        const header = (value) => new Headers({ 'retry-after': value })
+        is(retryAfterMs(header('2.5')), 2500)
+        is(retryAfterMs(header('0.0001')), undefined, 'a sub-millisecond hint is not rounded to zero')
+        is(retryAfterMs(header('Infinity')), undefined, 'an infinite hint is not a delay')
+        is(retryAfterMs(header('1e306')), undefined, 'a hint whose milliseconds overflow is not usable')
+
+        for (const value of ['0.0001', 'Infinity', '1e306', '0']) {
+          const error = refused({ error: { message: 'quota exhausted' } }, {
+            status: 402,
+            headers: { 'retry-after': value },
+          })
+          is(error.code, 'QUOTA', `${value}: the status code survives`)
+          is(error.failure.status, 402)
+          is('providerRetryAfterMs' in error.failure, false, `${value}: no invalid delay is recorded`)
+        }
+      },
+    },
+    {
+      name: 'a message-only stream error is classified from the message',
+      run() {
+        is(streamFailure('chat-completions', { message: 'Rate limit exceeded' }).code, 'RATE_LIMIT')
+        is(streamFailure('responses', { message: 'The server is overloaded' }).code, 'SERVER')
+        const anthropic = streamFailure('anthropic', { message: 'Rate limit exceeded' })
+        is(anthropic.code, 'RATE_LIMIT')
+        ok(String(anthropic.message).includes('Rate limit exceeded'), 'the provider wording is kept')
+      },
+    },
+    {
+      name: 'a 401 with a blank log id and a 402 with a hostile retry-after keep their codes',
+      run() {
+        const auth = refused({ error: { message: 'invalid key' } }, {
+          status: 401,
+          headers: { 'x-opencode-log-id': '', 'retry-after': '0.0001' },
+        })
+        is(auth.code, 'AUTH')
+        is(auth.failure.status, 401)
+        is('providerRetryAfterMs' in auth.failure, false)
+
+        const quota = refused({ error: { message: 'quota exhausted' } }, {
+          status: 402,
+          headers: { 'retry-after': 'Infinity' },
+        })
+        is(quota.code, 'QUOTA')
+        is(quota.failure.status, 402)
       },
     },
     {

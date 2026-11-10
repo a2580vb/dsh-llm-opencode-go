@@ -13,10 +13,13 @@ import { setTimeout as sleep } from 'node:timers/promises'
 import { BlockAssembler } from '@deepseek-ai/dsh-llm'
 
 import { PROTOCOLS, resolveConfig } from '../../lib/config.js'
-import { OpenCodeGoAdapter, signaturesFromHistory } from '../../lib/index.js'
+import * as adapterModule from '../../lib/index.js'
 import { ModelCache } from '../../lib/model/cache.js'
+import { createSessionState } from '../../lib/session/headers.js'
 import { equal, is, ok, rejectsWithCode } from '../helpers.mjs'
 import { createScratch } from './_scratch.mjs'
+
+const { OpenCodeGoAdapter, requestHeaders, signaturesFromHistory } = adapterModule
 
 /** A `fetch` that replays scripted responses and records every request. */
 function fakeFetch(script) {
@@ -122,6 +125,134 @@ function neverAnswersFetch() {
   return implementation
 }
 
+/**
+ * A `fetch` that answers with a refusal whose body the case controls.
+ *
+ * A refusal is a status plus a body, and the two can fail independently: the
+ * headers say `503`, while the body read is a second, separate failure. The
+ * `mode` chooses which one this stub exercises.
+ *
+ * @param {object} [input] - the refusal to send.
+ * @param {number} [input.status] - the HTTP status.
+ * @param {object} [input.headers] - response headers.
+ * @param {'fail' | 'abort' | 'stall'} [input.mode] - how the body read ends.
+ * @param {Error} [input.error] - the immediate read failure in `fail` mode.
+ * @returns {typeof fetch} the stub, with its recorded `requests`.
+ */
+function refusalBodyFetch({ status = 503, headers = {}, mode = 'fail', error = new TypeError('body lost') } = {}) {
+  const requests = []
+  const implementation = async (url, init) => {
+    requests.push({ url: String(url), init })
+    const body = new ReadableStream({
+      start(controller) {
+        if (mode === 'fail') {
+          controller.error(error)
+          return
+        }
+        if (mode === 'abort') {
+          init.signal?.addEventListener('abort', () => {
+            try {
+              controller.error(new DOMException('The operation was aborted.', 'AbortError'))
+            } catch {
+              // The reader already cancelled it.
+            }
+          }, { once: true })
+        }
+        // `stall`: neither enqueue nor close; only a teardown ends the read.
+      },
+    })
+    return new Response(body, {
+      status,
+      headers: new Headers({ 'content-type': 'application/json', ...headers }),
+    })
+  }
+  implementation.requests = requests
+  return implementation
+}
+
+/** Let queued promise callbacks run, without depending on a timer. */
+function settle() {
+  return new Promise((resolve) => setImmediate(resolve))
+}
+
+/**
+ * A `fetch` whose response body the case feeds by hand.
+ *
+ * Nothing happens between reads unless the case calls `push` or `close`, so the
+ * idle watchdog can be observed against a clock the case also owns.
+ */
+function handFedFetch() {
+  const requests = []
+  const encoder = new TextEncoder()
+  let controller
+  const implementation = async (url, init) => {
+    requests.push({ url: String(url), init })
+    const body = new ReadableStream({
+      start(source) {
+        controller = source
+      },
+    })
+    return new Response(body, { status: 200, headers: { 'content-type': 'text/event-stream' } })
+  }
+  implementation.requests = requests
+  implementation.ready = async () => {
+    while (controller === undefined) await settle()
+  }
+  implementation.push = (text) => controller.enqueue(encoder.encode(text))
+  implementation.close = () => controller.close()
+  return implementation
+}
+
+/**
+ * Replace the process clock for one case.
+ *
+ * The idle watchdog is a `setTimeout`; a synchronous clock lets a case advance
+ * past a budget without waiting for it, so "a ping arrived in time" and "the
+ * stream was actually silent" are both deterministic facts rather than races.
+ */
+function installClock() {
+  const realSetTimeout = globalThis.setTimeout
+  const realClearTimeout = globalThis.clearTimeout
+  let now = 0
+  let nextId = 1
+  const timers = new Map()
+  globalThis.setTimeout = (callback, delay = 0, ...args) => {
+    const id = nextId
+    nextId += 1
+    timers.set(id, { at: now + Number(delay), run: () => callback(...args) })
+    return id
+  }
+  globalThis.clearTimeout = (id) => {
+    timers.delete(id)
+  }
+  return {
+    now: () => now,
+    advance(ms) {
+      const target = now + ms
+      for (;;) {
+        let dueId
+        let due
+        for (const [id, timer] of timers) {
+          if (timer.at > target) continue
+          if (due === undefined || timer.at < due.at) {
+            due = timer
+            dueId = id
+          }
+        }
+        if (due === undefined) break
+        timers.delete(dueId)
+        now = due.at
+        due.run()
+      }
+      now = target
+    },
+    restore() {
+      globalThis.setTimeout = realSetTimeout
+      globalThis.clearTimeout = realClearTimeout
+    },
+  }
+}
+
 /** A `GET /models` reply, in the shape the relay documents. */
 function modelsReply(ids) {
   return JSON.stringify({
@@ -219,11 +350,15 @@ function adapterWith(script, overrides = {}) {
     modelsCachePath: overrides.cachePath ?? cacheFile(),
     ...overrides.config,
   })
-  process.env.TEST_KEY = 'sk-test-value'
+  // The key a case names is the key the request carries: a credential set in
+  // the environment after the adapter was built never reaches a request, and a
+  // leak test whose secret takes that route proves nothing.
+  const apiKey = overrides.key ?? 'sk-test-value'
+  process.env.TEST_KEY = apiKey
   const fetch = routedFetch(overrides.discovery ?? [{ body: modelsReply([]) }], overrides.fetch ?? script)
   const logger = overrides.logger ?? silentLogger()
   const cache = new ModelCache(config, {
-    authHeaders: async () => ({ authorization: 'Bearer sk-test-value' }),
+    authHeaders: async () => ({ authorization: `Bearer ${apiKey}` }),
     logger,
     // Discovery reads through the same scripted implementation as generation,
     // so a case can answer `GET /models` and a completion from one script.
@@ -231,7 +366,7 @@ function adapterWith(script, overrides = {}) {
   })
   const adapter = new OpenCodeGoAdapter({
     options: () => config,
-    resolveApiKey: async () => 'sk-test-value',
+    resolveApiKey: async () => apiKey,
     cache,
     usage: overrides.usage,
     subscription: overrides.subscription,
@@ -419,6 +554,94 @@ export default {
         is(messagesHeaders.get('authorization'), null)
         is(messagesHeaders.get('anthropic-version'), '2023-06-01')
         is(fetch.requests[1].url, 'https://relay.test/v1/messages')
+      },
+    },
+    {
+      name: 'protocol request headers reach the real fetch init for every protocol',
+      async run() {
+        const messagesBody = sse([
+          { event: 'message_start', data: { type: 'message_start', message: { id: 'm1', usage: { input_tokens: 1 } } } },
+          { event: 'content_block_start', data: { type: 'content_block_start', index: 0, content_block: { type: 'text', text: '' } } },
+          { event: 'content_block_delta', data: { type: 'content_block_delta', index: 0, delta: { type: 'text_delta', text: 'hi' } } },
+          { event: 'content_block_stop', data: { type: 'content_block_stop', index: 0 } },
+          { event: 'message_delta', data: { type: 'message_delta', delta: { stop_reason: 'end_turn' }, usage: { output_tokens: 1 } } },
+          { event: 'message_stop', data: { type: 'message_stop' } },
+        ])
+        const { adapter, fetch } = adapterWith([
+          { body: CHAT_BODY },
+          { body: RESPONSES_BODY },
+          { body: messagesBody },
+        ])
+        await collect(adapter, {
+          provider: 'opencode-go',
+          model: 'glm-5.3',
+          messages: [userMessage('hi')],
+          sessionId: 'header-session',
+        })
+        await collect(adapter, {
+          provider: 'opencode-go',
+          model: 'gpt-5.6-luna',
+          messages: [userMessage('hi')],
+          sessionId: 'header-session',
+        })
+        await collect(adapter, {
+          provider: 'opencode-go',
+          model: 'minimax-m3',
+          messages: [userMessage('hi')],
+          sessionId: 'header-session',
+        })
+        // `prepare()` declares the stream's Accept; it used to be dropped on the
+        // floor between the protocol module and `fetch`.
+        const chatHeaders = new Headers(fetch.requests[0].init.headers)
+        is(chatHeaders.get('accept'), 'text/event-stream')
+        is(chatHeaders.get('authorization'), 'Bearer sk-test-value')
+        const responsesHeaders = new Headers(fetch.requests[1].init.headers)
+        is(responsesHeaders.get('accept'), 'text/event-stream')
+        is(responsesHeaders.get('authorization'), 'Bearer sk-test-value')
+        is(fetch.requests[1].url, 'https://relay.test/v1/responses')
+        // Messages keeps its own auth scheme: merging protocol headers must not
+        // move it back to a bearer token or drop its version header.
+        const messagesHeaders = new Headers(fetch.requests[2].init.headers)
+        is(messagesHeaders.get('accept'), 'text/event-stream')
+        is(messagesHeaders.get('x-api-key'), 'sk-test-value')
+        is(messagesHeaders.get('anthropic-version'), '2023-06-01')
+        is(messagesHeaders.get('authorization'), null)
+        is(fetch.requests[2].url, 'https://relay.test/v1/messages')
+      },
+    },
+    {
+      name: 'protocol headers are the base, and request identity and auth are authoritative over them',
+      run() {
+        // The precedence is part of the contract: a protocol module may declare
+        // wire headers, but it cannot replace the credential or the session id
+        // the request is actually authenticated and pinned with.
+        const config = resolveConfig({
+          baseURL: 'https://relay.test/v1',
+          apiKeyEnv: 'TEST_KEY',
+          modelsCachePath: cacheFile(),
+        })
+        const headers = requestHeaders({
+          config,
+          sessionState: createSessionState(),
+          sessionId: 'session-xyz',
+          protocol: PROTOCOLS.CHAT,
+          apiKey: 'sk-test-value',
+          requestBytes: 1,
+          wireHeaders: {
+            accept: 'text/event-stream',
+            'content-type': 'text/plain',
+            authorization: 'Bearer impostor',
+            'x-opencode-session': 'impostor',
+            'user-agent': 'impostor-agent',
+            'x-protocol-extra': 'kept',
+          },
+        })
+        is(headers.accept, 'text/event-stream', 'the protocol header survives')
+        is(headers['x-protocol-extra'], 'kept', 'a header only the protocol declares survives')
+        is(headers['content-type'], 'application/json', 'the adapter decides the body type')
+        is(headers.authorization, 'Bearer sk-test-value', 'the resolved credential wins')
+        is(headers['x-opencode-session'], 'session-xyz', 'the session identity wins')
+        ok(headers['user-agent'].startsWith('dsh-opencode-go/'), 'the product identity wins')
       },
     },
     {
@@ -776,6 +999,91 @@ export default {
       },
     },
     {
+      name: 'tokens reported before a failed finish still reach the usage table, for every protocol',
+      async run() {
+        // The provider billed these tokens before the stream was lost. The
+        // harness never receives the terminal usage chunk of a failed stream,
+        // so the counting layer is fed by the translators' own usage callback.
+        const cases = [
+          {
+            protocol: 'chat-completions',
+            model: 'glm-5.3',
+            body: sse([
+              { data: { id: 'r1', choices: [{ index: 0, delta: { content: 'hi' }, finish_reason: null }] } },
+              { data: { id: 'r1', choices: [], usage: { prompt_tokens: 5, completion_tokens: 2, total_tokens: 7 } } },
+              { data: { error: { type: 'server_error', message: 'upstream busy' } } },
+            ]),
+            check(record) {
+              is(record.inputTokens, 5)
+              is(record.outputTokens, 2)
+              is(record.totalTokens, 7)
+            },
+          },
+          {
+            protocol: 'responses',
+            model: 'gpt-5.6-luna',
+            body: sse([
+              { event: 'response.created', data: { type: 'response.created', response: { id: 'r1' } } },
+              { event: 'response.output_text.delta', data: { type: 'response.output_text.delta', output_index: 0, delta: 'hi' } },
+              {
+                event: 'response.completed',
+                data: { type: 'response.completed', response: { id: 'r1', usage: { input_tokens: 3, output_tokens: 1, total_tokens: 4 } } },
+              },
+              { event: 'error', data: { type: 'error', error: { type: 'server_error', message: 'stream lost' } } },
+            ]),
+            check(record) {
+              is(record.inputTokens, 3)
+              is(record.outputTokens, 1)
+              is(record.totalTokens, 4)
+            },
+          },
+          {
+            protocol: 'anthropic',
+            model: 'minimax-m3',
+            body: sse([
+              { event: 'message_start', data: { type: 'message_start', message: { id: 'm1', usage: { input_tokens: 5, cache_read_input_tokens: 2 } } } },
+              { event: 'content_block_start', data: { type: 'content_block_start', index: 0, content_block: { type: 'text', text: '' } } },
+              { event: 'content_block_delta', data: { type: 'content_block_delta', index: 0, delta: { type: 'text_delta', text: 'hi' } } },
+              { event: 'content_block_stop', data: { type: 'content_block_stop', index: 0 } },
+              { event: 'message_delta', data: { type: 'message_delta', delta: { stop_reason: 'end_turn' }, usage: { output_tokens: 1 } } },
+              { event: 'error', data: { type: 'error', error: { type: 'server_error', message: 'stream lost' } } },
+            ]),
+            check(record) {
+              is(record.inputTokens, 5)
+              is(record.outputTokens, 1)
+              is(record.cacheReadTokens, 2)
+              is(record.totalTokens, 8)
+            },
+          },
+        ]
+        for (const attempt of cases) {
+          const usage = new RecordingUsage()
+          const { adapter } = adapterWith([{ body: attempt.body }], { usage })
+          const chunks = []
+          let thrown
+          try {
+            for await (const chunk of adapter.stream({
+              provider: 'opencode-go',
+              model: attempt.model,
+              messages: [userMessage('hi')],
+              sessionId: `usage-reported-${attempt.protocol}`,
+            })) {
+              chunks.push(chunk)
+            }
+          } catch (error) {
+            thrown = error
+          }
+          ok(thrown !== undefined, `${attempt.protocol}: the stream failed`)
+          is(chunks.filter((chunk) => chunk.type === 'usage').length, 0,
+            `${attempt.protocol}: the harness got no usage chunk before the failure`)
+          is(usage.records.length, 1, `${attempt.protocol}: counted once`)
+          is(usage.records[0].ok, false, `${attempt.protocol}: counted as a failure`)
+          is(usage.records[0].model, attempt.model)
+          attempt.check(usage.records[0].usage)
+        }
+      },
+    },
+    {
       name: 'one call that falls back to another protocol is counted once',
       async run() {
         const usage = new RecordingUsage()
@@ -791,6 +1099,51 @@ export default {
         is(usage.records.length, 1)
         is(usage.records[0].ok, true)
         is(usage.records[0].usage.totalTokens, 7)
+      },
+    },
+    {
+      name: 'a message-only stream error is classified from its message, with the key redacted, for every protocol',
+      async run() {
+        const canary = 'sk-stream-canary-6b1d'
+        const cases = [
+          {
+            protocol: 'chat-completions',
+            model: 'glm-5.3',
+            body: sse([{ data: { error: { message: `Rate limit exceeded for ${canary}` } } }]),
+          },
+          {
+            protocol: 'responses',
+            model: 'gpt-5.6-luna',
+            body: sse([{
+              event: 'error',
+              data: { type: 'error', error: { message: `Rate limit exceeded for ${canary}` } },
+            }]),
+          },
+          {
+            protocol: 'anthropic',
+            model: 'minimax-m3',
+            body: sse([{
+              event: 'error',
+              data: { type: 'error', error: { message: `Rate limit exceeded for ${canary}` } },
+            }]),
+          },
+        ]
+        for (const attempt of cases) {
+          const { adapter } = adapterWith([{ body: attempt.body }], { key: canary })
+          const error = await rejectsWithCode(
+            collect(adapter, {
+              provider: 'opencode-go',
+              model: attempt.model,
+              messages: [userMessage('hi')],
+              sessionId: `message-only-${attempt.protocol}`,
+            }),
+            'RATE_LIMIT',
+          )
+          ok(String(error.message).includes('Rate limit exceeded'), `${attempt.protocol}: the wording is kept`)
+          ok(!String(error.message).includes(canary), `${attempt.protocol}: the message carries no key`)
+          ok(!JSON.stringify(error.failure).includes(canary), `${attempt.protocol}: the facts carry no key`)
+          ok(!String(error.cause?.message ?? error.cause ?? '').includes(canary), `${attempt.protocol}: the cause carries no key`)
+        }
       },
     },
     {
@@ -1202,7 +1555,7 @@ export default {
       },
     },
     {
-      name: 'reasoning history signatures are recovered from replayState',
+      name: 'reasoning history signatures are recovered per message and per block',
       async run() {
         const signatures = signaturesFromHistory([
           { role: 'user', content: [{ type: 'text', text: 'hi' }] },
@@ -1215,7 +1568,10 @@ export default {
             source: { kind: 'model', provider: 'opencode-go', model: 'm', replayState: { response: {}, blocks: [{ type: 'reasoning', signature: 'sig-42' }, { type: 'tool-call' }] } },
           },
         ])
-        equal(signatures, { because: 'sig-42' })
+        // Indexed by message and then by content block, not by the reasoning
+        // text: a signature belongs to one block, and identical text elsewhere
+        // is a different thought with a different signature.
+        equal(signatures, [undefined, ['sig-42', undefined]])
       },
     },
     {
@@ -1255,20 +1611,43 @@ export default {
       },
     },
     {
-      name: 'the API key never appears in a failure message',
+      name: 'a refusal that echoes the API key never puts it in the thrown failure',
       async run() {
-        const { adapter } = adapterWith([
-          { status: 401, headers: { 'content-type': 'application/json' }, body: '{"error":{"message":"bad key"}}' },
-        ])
-        process.env.TEST_KEY = 'sk-super-secret-value'
-        let error
-        try {
-          await collect(adapter, { provider: 'opencode-go', model: 'glm-5.3', messages: [userMessage('hi')] })
-        } catch (thrown) {
-          error = thrown
+        const canary = 'sk-adapter-canary-7f3c9d'
+        for (const status of [400, 401]) {
+          const { adapter, fetch } = adapterWith([{
+            status,
+            headers: { 'content-type': 'application/json', 'x-request-id': `req-${status}` },
+            body: JSON.stringify({
+              error: {
+                type: 'invalid_request_error',
+                code: 'invalid_api_key',
+                message: `provider detail: ${canary}`,
+              },
+              echo: `the raw body also carried ${canary}`,
+            }),
+          }], { key: canary })
+          let error
+          try {
+            await collect(adapter, { provider: 'opencode-go', model: 'glm-5.3', messages: [userMessage('hi')] })
+          } catch (thrown) {
+            error = thrown
+          }
+          // The key really rode in the request. Without this the old case passed
+          // because the secret it looked for was never sent at all.
+          is(fetch.requests.length, 1, 'a terminal refusal makes one attempt')
+          is(fetch.requests[0].init.headers.authorization, `Bearer ${canary}`, 'the request carried the canary')
+          is(error?.code, status === 401 ? 'AUTH' : 'INVALID_REQUEST')
+          is(error?.failure?.status, status)
+          ok(!String(error?.message).includes(canary), 'the secret is not in the message')
+          ok(!JSON.stringify(error?.failure ?? {}).includes(canary), 'the secret is not in the failure facts')
+          ok(
+            !String(error?.cause?.message ?? error?.cause ?? '').includes(canary),
+            'the secret is not in the cause',
+          )
+          // Redaction removes the secret, not the provider's explanation of it.
+          ok(String(error?.message).includes('provider detail:'), 'the detail around the secret stays')
         }
-        ok(!String(error?.message).includes('sk-super-secret-value'), 'the secret is not in the message')
-        ok(!JSON.stringify(error?.failure ?? {}).includes('sk-super-secret-value'), 'the secret is not in the failure facts')
       },
     },
     {
@@ -1352,6 +1731,273 @@ export default {
         setTimeout(() => controller.abort(), 120)
         const error = await rejectsWithCode(stream, 'ABORTED')
         ok(String(error.message).includes('aborted by the caller'), 'the caller owns this failure')
+      },
+    },
+    {
+      name: 'a pre-cancelled call resolves no catalog and touches no network, cold or warm',
+      async run() {
+        /** A signal that is already aborted: the caller changed their mind. */
+        const aborted = () => {
+          const controller = new AbortController()
+          controller.abort()
+          return controller.signal
+        }
+        const options = (signal) => ({
+          provider: 'opencode-go',
+          model: 'glm-5.3',
+          messages: [userMessage('hi')],
+          signal,
+        })
+
+        // Cold: nothing has assembled the catalog, so a directory read would be
+        // exactly the `/models` request this call must not make.
+        const cold = adapterWith([])
+        for (const call of [
+          () => cold.adapter.listModels('opencode-go', aborted()),
+          () => cold.adapter.resolveModel('opencode-go', 'glm-5.3', aborted()),
+          () => cold.adapter.prepareCall('opencode-go', 'glm-5.3', aborted()),
+          () => collect(cold.adapter, options(aborted())),
+        ]) {
+          const error = await rejectsWithCode(call(), 'ABORTED')
+          ok(String(error.message).includes('aborted by the caller'), 'the caller owns the failure')
+          ok(!(error instanceof DOMException), 'the raw DOMException never reaches the caller')
+        }
+        is(cold.fetch.modelsRequests.length, 0, 'a pre-cancelled cold call asks for no directory')
+        is(cold.fetch.requests.length, 0, 'and sends no completion request')
+
+        // Warm: the catalog is already in memory, and the abort still ends the
+        // call before a generation request is built.
+        const warm = adapterWith([])
+        await warm.adapter.listModels('opencode-go')
+        is(warm.fetch.modelsRequests.length, 1, 'the warm-up read the directory once')
+        for (const call of [
+          () => warm.adapter.resolveModel('opencode-go', 'glm-5.3', aborted()),
+          () => warm.adapter.prepareCall('opencode-go', 'glm-5.3', aborted()),
+          () => collect(warm.adapter, options(aborted())),
+        ]) {
+          const error = await rejectsWithCode(call(), 'ABORTED')
+          ok(!(error instanceof DOMException), 'the raw DOMException never reaches the caller')
+        }
+        is(warm.fetch.modelsRequests.length, 1, 'a pre-cancelled warm call asks for no directory')
+        is(warm.fetch.requests.length, 0, 'and sends no completion request')
+      },
+    },
+    {
+      name: 'a refusal whose body cannot be read is a TRANSPORT failure that keeps the known status',
+      async run() {
+        const { adapter, fetch } = adapterWith([], {
+          fetch: refusalBodyFetch({
+            status: 503,
+            headers: { 'x-request-id': 'req-body-503' },
+          }),
+        })
+        const error = await rejectsWithCode(
+          collect(adapter, { provider: 'opencode-go', model: 'glm-5.3', messages: [userMessage('hi')] }),
+          'TRANSPORT',
+        )
+        is(fetch.requests.length, 1, 'one request was made')
+        is(error.failure.status, 503, 'the status that did arrive is kept')
+        is(error.failure.requestId, 'req-body-503', 'the request id that did arrive is kept')
+        ok(!String(error.message).includes('HTTP 503:'), 'an unread body is not reported as a refusal detail')
+        ok(String(error.message).includes('transport failed'), 'the read failure is a transport failure')
+      },
+    },
+    {
+      name: 'a caller abort or deadline while reading a refusal body wins over the read failure',
+      async run() {
+        const caller = new AbortController()
+        const first = adapterWith([], {
+          fetch: refusalBodyFetch({ status: 500, mode: 'abort' }),
+          config: { timeoutMs: 5_000 },
+        })
+        const pending = collect(first.adapter, {
+          provider: 'opencode-go',
+          model: 'glm-5.3',
+          messages: [userMessage('hi')],
+          signal: caller.signal,
+        })
+        setTimeout(() => caller.abort(), 25)
+        const aborted = await rejectsWithCode(pending, 'ABORTED')
+        ok(String(aborted.message).includes('aborted by the caller'), 'the caller owns this failure')
+        is(aborted.failure.status, 500, 'the status that did arrive is still kept')
+
+        const second = adapterWith([], {
+          fetch: refusalBodyFetch({ status: 500, mode: 'abort' }),
+          config: { timeoutMs: 60 },
+        })
+        const timedOut = await rejectsWithCode(
+          collect(second.adapter, { provider: 'opencode-go', model: 'glm-5.3', messages: [userMessage('hi')] }),
+          'TIMEOUT',
+        )
+        is(timedOut.failure.status, 500, 'the status that did arrive is still kept')
+      },
+    },
+    {
+      name: 'a stable refusal keeps its code when the response headers are classifier-hostile',
+      async run() {
+        const cases = [
+          {
+            status: 401,
+            headers: { 'x-opencode-log-id': '', 'x-request-id': ' req-401 ', 'retry-after': '0.0001' },
+            body: { error: { message: 'invalid key' } },
+            code: 'AUTH',
+            requestId: 'req-401',
+          },
+          {
+            status: 402,
+            headers: { 'retry-after': 'Infinity' },
+            body: { error: { message: 'quota exhausted' } },
+            code: 'QUOTA',
+            requestId: undefined,
+          },
+        ]
+        for (const entry of cases) {
+          const { adapter } = adapterWith([{
+            status: entry.status,
+            headers: { 'content-type': 'application/json', ...entry.headers },
+            body: JSON.stringify(entry.body),
+          }])
+          const error = await rejectsWithCode(
+            collect(adapter, { provider: 'opencode-go', model: 'glm-5.3', messages: [userMessage('hi')] }),
+            entry.code,
+          )
+          is(error.failure.status, entry.status)
+          is(error.failure.requestId, entry.requestId)
+          is(error.failure.providerRetryAfterMs, undefined, 'a zero or infinite hint is not passed on')
+          ok(!String(error.message).includes('transport failed'), 'a classifier exception cannot demote the code')
+        }
+      },
+    },
+    {
+      name: 'a protocol refusal with a blank log id keeps its code instead of becoming TRANSPORT',
+      async run() {
+        const refusal = protocolUnsupported('glm-5.3')
+        refusal.headers['x-opencode-log-id'] = ''
+        refusal.headers['x-request-id'] = 'req-protocol'
+        const { adapter, fetch } = adapterWith([refusal, refusal, refusal])
+        const error = await rejectsWithCode(
+          collect(adapter, { provider: 'opencode-go', model: 'glm-5.3', messages: [userMessage('hi')] }),
+          'PROTOCOL_UNSUPPORTED',
+        )
+        is(error.failure.requestId, 'req-protocol', 'the fallback request id is kept')
+        is(fetch.requests.length, 3, 'every protocol the model declares was tried')
+      },
+    },
+    {
+      name: 'a keep-alive comment and a partial frame each renew the idle budget',
+      async run() {
+        // A connection that is only pinging is still alive, and so is one that
+        // has delivered half a frame. Neither produces a decoded frame, so the
+        // watchdog must be fed from the reads themselves.
+        const clock = installClock()
+        const fetch = handFedFetch()
+        try {
+          const { adapter } = adapterWith([], {
+            fetch,
+            config: { timeoutMs: 60_000, streamIdleTimeoutMs: 100 },
+          })
+          const stream = collect(adapter, {
+            provider: 'opencode-go',
+            model: 'glm-5.3',
+            messages: [userMessage('hi')],
+          })
+          stream.catch(() => {})
+          await fetch.ready()
+          await settle()
+          clock.advance(50)
+          fetch.push(': ping\n\n')
+          await settle()
+          // 130 ms after the attempt began, past the first arm; only the ping's
+          // renewal keeps the stream alive.
+          clock.advance(80)
+          fetch.push('data: {"id":"r1","choices":[{"index":0,"delta":{"content":"hi"},"finish_reason":null}]}\n')
+          await settle()
+          clock.advance(80)
+          fetch.push('\ndata: {"id":"r1","choices":[{"index":0,"delta":{},"finish_reason":"stop"}]}\n\ndata: [DONE]\n\n')
+          fetch.close()
+          const { finish } = await stream
+          equal(finish, { kind: 'stop' })
+        } finally {
+          clock.restore()
+        }
+      },
+    },
+    {
+      name: 'time the harness spends holding the stream is not upstream idle time',
+      async run() {
+        // Once a chunk reaches the caller, waiting for the caller to ask again
+        // is not the provider being silent. The idle budget covers only the
+        // reads the adapter itself is waiting on.
+        const clock = installClock()
+        const fetch = handFedFetch()
+        let iterator
+        try {
+          const { adapter } = adapterWith([], {
+            fetch,
+            config: { timeoutMs: 60_000, streamIdleTimeoutMs: 100 },
+          })
+          iterator = adapter.stream({
+            provider: 'opencode-go',
+            model: 'glm-5.3',
+            messages: [userMessage('hi')],
+          })[Symbol.asyncIterator]()
+          const first = iterator.next()
+          await fetch.ready()
+          await settle()
+          fetch.push(sse([
+            { data: { id: 'r1', choices: [{ index: 0, delta: { content: 'hi' }, finish_reason: null }] } },
+          ]))
+          const started = await first
+          is(started.value.type, 'block-start')
+          const delivered = await iterator.next()
+          is(delivered.value.type, 'text-delta')
+          // The provider has finished its whole answer while the harness still
+          // holds the stream: no read is outstanding, so no upstream silence
+          // exists to time out.
+          fetch.push(sse([{ data: { id: 'r1', choices: [{ index: 0, delta: {}, finish_reason: 'stop' }] } }]))
+          fetch.push(sse([{ data: '[DONE]' }]))
+          fetch.close()
+          clock.advance(5_000)
+          const rest = []
+          for (;;) {
+            const next = await iterator.next()
+            if (next.done) break
+            rest.push(next.value)
+          }
+          const finish = rest.find((chunk) => chunk.type === 'finish')
+          equal(finish?.reason, { kind: 'stop' })
+        } finally {
+          clock.restore()
+          void iterator?.return?.().catch(() => {})
+        }
+      },
+    },
+    {
+      name: 'actual upstream silence still trips the idle watchdog under a controlled clock',
+      async run() {
+        const clock = installClock()
+        const fetch = handFedFetch()
+        try {
+          const { adapter } = adapterWith([], {
+            fetch,
+            config: { timeoutMs: 60_000, streamIdleTimeoutMs: 100 },
+          })
+          const stream = collect(adapter, {
+            provider: 'opencode-go',
+            model: 'glm-5.3',
+            messages: [userMessage('hi')],
+          })
+          stream.catch(() => {})
+          await fetch.ready()
+          await settle()
+          // Nothing is read for longer than the budget: this is the case the
+          // watchdog exists for, and it must not be disabled by the pause rule.
+          clock.advance(150)
+          const error = await rejectsWithCode(stream, 'TIMEOUT')
+          ok(String(error.message).includes('stream was idle'), 'the message names the idle watchdog')
+        } finally {
+          clock.restore()
+        }
       },
     },
   ]),

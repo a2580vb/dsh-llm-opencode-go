@@ -1,6 +1,8 @@
 /** Anthropic Messages translator, against payloads captured from the live service. */
 
 import * as anthropic from '../../lib/protocol/anthropic-messages.js'
+import { signaturesFromHistory } from '../../lib/index.js'
+import { bodyFromString } from '../../lib/stream/sse.js'
 import { equal, is, ok } from '../helpers.mjs'
 import { IMAGE_BLOCK, assemble, failureOf, finishChunk, fixture, imageParts, usageChunk } from './_protocol-harness.mjs'
 
@@ -165,6 +167,52 @@ export default {
       },
     },
     {
+      name: 'a block the wire closed explicitly is not closed again by the terminal sweep',
+      async run() {
+        // The raw chunks are what the harness consumes: BlockAssembler keeps the
+        // first `block-end` for an index, so a duplicate close is invisible in
+        // the assembled view and only shows up here.
+        const text = [
+          'event: message_start',
+          'data: {"type":"message_start","message":{"id":"m1","usage":{"input_tokens":5}}}',
+          '',
+          'event: content_block_start',
+          'data: {"type":"content_block_start","index":0,"content_block":{"type":"text","text":""}}',
+          '',
+          'event: content_block_delta',
+          'data: {"type":"content_block_delta","index":0,"delta":{"type":"text_delta","text":"OK"}}',
+          '',
+          'event: content_block_stop',
+          'data: {"type":"content_block_stop","index":0}',
+          '',
+          'event: content_block_start',
+          'data: {"type":"content_block_start","index":1,"content_block":{"type":"tool_use","id":"c1","name":"get_weather","input":{}}}',
+          '',
+          'event: content_block_stop',
+          'data: {"type":"content_block_stop","index":1}',
+          '',
+          'event: message_delta',
+          'data: {"type":"message_delta","delta":{"stop_reason":"tool_use"},"usage":{"output_tokens":2}}',
+          '',
+          'event: message_stop',
+          'data: {"type":"message_stop"}',
+          '',
+          '',
+        ].join('\n')
+        // Read the translator directly, not through BlockAssembler: the
+        // assembler keeps the first `block-end` for an index, so only the raw
+        // chunks show a duplicate close.
+        const chunks = []
+        for await (const chunk of anthropic.translate({ body: bodyFromString(text), model: 'glm-5.3' })) {
+          chunks.push(chunk)
+        }
+        const starts = chunks.filter((chunk) => chunk.type === 'block-start').map((chunk) => chunk.index)
+        const ends = chunks.filter((chunk) => chunk.type === 'block-end')
+        equal(ends.map((chunk) => chunk.index), starts, 'each started block ends exactly once, in order')
+        is(new Set(ends.map((chunk) => chunk.index)).size, ends.length, 'no block index is closed twice')
+      },
+    },
+    {
       name: 'the system prompt is a top-level field and tool results sit in a user turn',
       async run() {
         const wire = await anthropic.prepare({
@@ -289,7 +337,7 @@ export default {
           },
           model: { id: 'm', maxTokens: 4096 },
           replayReasoning: true,
-          signatures: { thinking: 'sig-1' },
+          signatures: [['sig-1']],
         })
         equal(wire.body.messages[0].content[0], { type: 'thinking', thinking: 'thinking', signature: 'sig-1' })
       },
@@ -303,7 +351,7 @@ export default {
           },
           model: { id: 'm', maxTokens: 4096 },
           replayReasoning: true,
-          signatures: {},
+          signatures: [],
         })
         equal(wire.body.messages[0].content[0], { type: 'text', text: 'thinking' })
       },
@@ -317,7 +365,7 @@ export default {
           },
           model: { id: 'm', maxTokens: 4096 },
           replayReasoning: false,
-          signatures: { thinking: 'sig-1' },
+          signatures: [['sig-1']],
         })
         equal(wire.body.messages[0].content, [{ type: 'text', text: 'ok' }])
       },
@@ -336,7 +384,7 @@ export default {
           },
           model: { id: 'm', maxTokens: 4096 },
           replayReasoning: true,
-          signatures: {},
+          signatures: [],
         })
         // The turn holds nothing Messages can carry as an answer, so replaying
         // its reasoning as text would put thinking on the wire as a reply the
@@ -344,6 +392,131 @@ export default {
         equal(wire.body.messages, [
           { role: 'user', content: [{ type: 'text', text: 'run the smoke' }] },
           { role: 'user', content: [{ type: 'text', text: 'continue' }] },
+        ])
+      },
+    },
+    {
+      name: 'two turns whose reasoning text is identical replay their own signatures',
+      async run() {
+        // A signature belongs to one thinking block, not to a sentence. Making
+        // the text an index is what gave both turns the same signature.
+        const messages = [
+          { role: 'user', content: [{ type: 'text', text: 'first' }] },
+          {
+            role: 'assistant',
+            content: [{ type: 'reasoning', text: 'same thought' }, { type: 'text', text: 'one' }],
+            source: {
+              kind: 'model',
+              provider: 'opencode-go',
+              model: 'm',
+              replayState: { response: {}, blocks: [{ type: 'reasoning', signature: 'sig-first' }, { type: 'text' }] },
+            },
+          },
+          { role: 'user', content: [{ type: 'text', text: 'second' }] },
+          {
+            role: 'assistant',
+            content: [{ type: 'reasoning', text: 'same thought' }, { type: 'text', text: 'two' }],
+            source: {
+              kind: 'model',
+              provider: 'opencode-go',
+              model: 'm',
+              replayState: { response: {}, blocks: [{ type: 'reasoning', signature: 'sig-second' }, { type: 'text' }] },
+            },
+          },
+        ]
+        const wire = await anthropic.prepare({
+          request: { messages },
+          model: { id: 'm', maxTokens: 4096 },
+          replayReasoning: true,
+          signatures: signaturesFromHistory(messages),
+        })
+        equal(wire.body.messages[1].content[0], {
+          type: 'thinking',
+          thinking: 'same thought',
+          signature: 'sig-first',
+        })
+        equal(wire.body.messages[3].content[0], {
+          type: 'thinking',
+          thinking: 'same thought',
+          signature: 'sig-second',
+        })
+      },
+    },
+    {
+      name: 'two reasoning blocks in one turn keep the signature that belongs to each',
+      async run() {
+        const messages = [
+          { role: 'user', content: [{ type: 'text', text: 'go' }] },
+          {
+            role: 'assistant',
+            content: [
+              { type: 'reasoning', text: 'first thought' },
+              { type: 'reasoning', text: 'second thought' },
+              { type: 'text', text: 'answer' },
+            ],
+            source: {
+              kind: 'model',
+              provider: 'opencode-go',
+              model: 'm',
+              replayState: {
+                response: {},
+                blocks: [
+                  { type: 'reasoning', signature: 'sig-one' },
+                  { type: 'reasoning', signature: 'sig-two' },
+                  { type: 'text' },
+                ],
+              },
+            },
+          },
+        ]
+        const wire = await anthropic.prepare({
+          request: { messages },
+          model: { id: 'm', maxTokens: 4096 },
+          replayReasoning: true,
+          signatures: signaturesFromHistory(messages),
+        })
+        // One thinking block per reasoning block: the old converter joined them
+        // into one block, which could not carry two signatures.
+        equal(wire.body.messages[1].content, [
+          { type: 'thinking', thinking: 'first thought', signature: 'sig-one' },
+          { type: 'thinking', thinking: 'second thought', signature: 'sig-two' },
+          { type: 'text', text: 'answer' },
+        ])
+      },
+    },
+    {
+      name: 'a missing signature degrades only its own reasoning block to text',
+      async run() {
+        const messages = [
+          { role: 'user', content: [{ type: 'text', text: 'go' }] },
+          {
+            role: 'assistant',
+            content: [
+              { type: 'reasoning', text: 'unsigned' },
+              { type: 'reasoning', text: 'signed' },
+              { type: 'text', text: 'answer' },
+            ],
+            source: {
+              kind: 'model',
+              provider: 'opencode-go',
+              model: 'm',
+              replayState: {
+                response: {},
+                blocks: [{ type: 'reasoning' }, { type: 'reasoning', signature: 'sig-two' }, { type: 'text' }],
+              },
+            },
+          },
+        ]
+        const wire = await anthropic.prepare({
+          request: { messages },
+          model: { id: 'm', maxTokens: 4096 },
+          replayReasoning: true,
+          signatures: signaturesFromHistory(messages),
+        })
+        equal(wire.body.messages[1].content, [
+          { type: 'text', text: 'unsigned' },
+          { type: 'thinking', thinking: 'signed', signature: 'sig-two' },
+          { type: 'text', text: 'answer' },
         ])
       },
     },
@@ -440,6 +613,57 @@ export default {
         const error = await failureOf(anthropic, text, 'glm-5.3')
         is(error?.code, 'SERVER')
         ok(String(error.message).includes('Overloaded'))
+      },
+    },
+    {
+      name: 'usage merged before a mid-stream error still reaches onUsage, and never becomes a terminal chunk',
+      async run() {
+        // Input usage is announced in message_start and output usage arrives on
+        // message_delta; an error before message_stop loses neither half. The
+        // latest merged figure is what the counters need.
+        const text = [
+          'event: message_start',
+          'data: {"type":"message_start","message":{"id":"m1","usage":{"input_tokens":5,"cache_read_input_tokens":2}}}',
+          '',
+          'event: content_block_start',
+          'data: {"type":"content_block_start","index":0,"content_block":{"type":"text","text":""}}',
+          '',
+          'event: content_block_delta',
+          'data: {"type":"content_block_delta","index":0,"delta":{"type":"text_delta","text":"hi"}}',
+          '',
+          'event: content_block_stop',
+          'data: {"type":"content_block_stop","index":0}',
+          '',
+          'event: message_delta',
+          'data: {"type":"message_delta","delta":{"stop_reason":"end_turn"},"usage":{"output_tokens":1}}',
+          '',
+          'event: error',
+          'data: {"type":"error","error":{"type":"server_error","message":"stream lost"}}',
+          '',
+          '',
+        ].join('\n')
+        const reported = []
+        const chunks = []
+        let thrown
+        try {
+          for await (const chunk of anthropic.translate({
+            body: bodyFromString(text),
+            model: 'm',
+            onUsage: (usage) => reported.push(usage),
+          })) {
+            chunks.push(chunk)
+          }
+        } catch (error) {
+          thrown = error
+        }
+        is(thrown?.code, 'SERVER')
+        is(reported.length, 2, 'the start usage and the merged delta usage both reached the callback')
+        is(reported[1].inputTokens, 5)
+        is(reported[1].outputTokens, 1)
+        is(reported[1].cacheReadTokens, 2)
+        is(reported[1].totalTokens, 8)
+        is(chunks.filter((chunk) => chunk.type === 'usage').length, 0,
+          'a failed stream has no terminal usage chunk')
       },
     },
   ],

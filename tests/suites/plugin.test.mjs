@@ -8,8 +8,15 @@
  * registration is tied to the plugin fiber so an unload releases it.
  */
 
+import { mkdir, writeFile } from 'node:fs/promises'
+import { dirname } from 'node:path'
+
 import { Config, resolveConfig } from '../../lib/config.js'
-import { apply, runHealthCheck } from '../../lib/index.js'
+import { DiagnosticsLog } from '../../lib/diagnostics/log.js'
+import { LlmError } from '../../lib/error/errors.js'
+import { OpenCodeGoAdapter, apply, runHealthCheck } from '../../lib/index.js'
+import { ModelCache } from '../../lib/model/cache.js'
+import { UsageStore } from '../../lib/usage/store.js'
 import { equal, is, ok } from '../helpers.mjs'
 import { createScratch } from './_scratch.mjs'
 
@@ -105,6 +112,68 @@ function fakeFetch() {
 }
 
 /**
+ * Wait for a log line the plugin writes in the background.
+ *
+ * The startup health check is fire-and-forget, so a case has to wait for its
+ * line rather than assume a fixed delay is enough on every machine.
+ *
+ * @param {object[]} logs - the fake context's log entries.
+ * @param {string} needle - what the line must include.
+ * @returns {Promise<object | undefined>} the entry, or undefined after a timeout.
+ */
+async function waitForLogLine(logs, needle) {
+  for (let attempt = 0; attempt < 200; attempt += 1) {
+    const found = logs.find((entry) => entry.args.map((arg) => String(arg)).join(' ').includes(needle))
+    if (found !== undefined) return found
+    await new Promise((resolve) => setTimeout(resolve, 10))
+  }
+  return undefined
+}
+
+/** A logger that keeps the lines a direct call writes. */
+function recordingLogger() {
+  const lines = []
+  return {
+    lines,
+    info: (...args) => lines.push(args.map((arg) => String(arg)).join(' ')),
+    warn: (...args) => lines.push(args.map((arg) => String(arg)).join(' ')),
+    debug() {},
+    error: (...args) => lines.push(args.map((arg) => String(arg)).join(' ')),
+  }
+}
+
+/**
+ * An adapter over a fake fetch, for the health-check cases.
+ *
+ * The fetch reaches both layers: the model cache for discovery and the adapter
+ * for generation. A case that counts requests therefore sees every request the
+ * health check really made, which is the fact an injected-only seam hid before.
+ *
+ * @param {object} input - the collaborators.
+ * @param {object} input.config - the resolved configuration.
+ * @param {typeof fetch} input.fetch - the request implementation.
+ * @param {() => Promise<string>} input.resolveApiKey - the credential resolver.
+ * @returns {{ adapter: OpenCodeGoAdapter, cache: ModelCache }} the adapter.
+ */
+function healthAdapter({ config, fetch, resolveApiKey }) {
+  const logger = { info() {}, warn() {}, debug() {}, error() {} }
+  const cache = new ModelCache(config, {
+    authHeaders: async () => ({ authorization: `Bearer ${await resolveApiKey()}` }),
+    logger,
+    fetch,
+  })
+  const adapter = new OpenCodeGoAdapter({
+    options: () => config,
+    resolveApiKey,
+    cache,
+    attachments: () => undefined,
+    logger,
+    fetch,
+  })
+  return { adapter, cache }
+}
+
+/**
  * Drive one call to completion and return the failure it raised.
  *
  * The credential resolver throws before the first chunk, so the stream rejects
@@ -174,6 +243,51 @@ export default {
         for (const field of ['apiKeyEnv', 'timeoutMs', 'sessionHeader', 'protocolOverrides']) {
           ok(text.includes(field), `the issue text names ${field}: ${text}`)
         }
+      },
+    },
+    {
+      name: 'a wrong list container is reported as issues, never thrown',
+      run() {
+        // The loader validates before activation, so the schema itself is the
+        // boundary for a hand-written row. Iterating a non-array value here
+        // used to throw `... is not iterable` instead of naming the field.
+        for (const field of ['models', 'hiddenModels', 'modelVariants']) {
+          for (const value of [true, 7, {}, 'not-a-list']) {
+            let result
+            try {
+              result = Config['~standard'].validate({ [field]: value })
+            } catch (error) {
+              throw new Error(`${field}: ${JSON.stringify(value)} made the validator throw: ${error?.message}`)
+            }
+            ok(Array.isArray(result.issues) && result.issues.length > 0, `${field}: ${JSON.stringify(value)} was refused`)
+            ok(
+              result.issues.some((issue) => String(issue.message).includes(field)),
+              `${field}: the issue names the field`,
+            )
+          }
+        }
+      },
+    },
+    {
+      name: 'a handwritten retry policy the page would refuse fails activation',
+      run() {
+        // The page and a hand-written YAML row are the same input: a policy
+        // that one path accepts while the other persists it would be applied
+        // unvalidated by the adapter's retry executor.
+        const raw = { retryPolicy: { maxRetries: 'many' } }
+        const issues = Config['~standard'].validate(raw).issues
+        ok(Array.isArray(issues) && issues.length > 0, 'the schema refused the policy')
+        ok(issues.some((issue) => String(issue.message).includes('maxRetries')), 'the issue names maxRetries')
+
+        const { ctx } = fakeContext()
+        let error
+        try {
+          apply(ctx, raw)
+        } catch (thrown) {
+          error = thrown
+        }
+        ok(error !== undefined, 'activation failed')
+        ok(String(error.message).includes('maxRetries'), 'the failure names maxRetries')
       },
     },
     {
@@ -359,7 +473,7 @@ export default {
       },
     },
     {
-      name: 'the health check reports the credential and the catalog',
+      name: 'the startup health check resolves the credential and says the catalog came from the service',
       async run() {
         const config = resolveConfig({
           baseURL: 'https://relay.test/v1',
@@ -368,43 +482,188 @@ export default {
         })
         process.env.TEST_KEY = 'sk-test'
         const fetch = fakeFetch()
-        const { ctx } = fakeContext()
-        apply(ctx, { baseURL: 'https://relay.test/v1', apiKeyEnv: 'TEST_KEY', modelsCachePath: config.modelsCachePath, healthCheck: 'startup' })
-        // Give the fire-and-forget startup check a turn to settle.
-        await new Promise((resolve) => setTimeout(resolve, 50))
-        ok(fetch.requests.length >= 0, 'startup did not throw')
+        const original = globalThis.fetch
+        globalThis.fetch = fetch
+        try {
+          const { ctx, state } = fakeContext()
+          apply(ctx, {
+            baseURL: 'https://relay.test/v1',
+            apiKeyEnv: 'TEST_KEY',
+            modelsCachePath: config.modelsCachePath,
+            healthCheck: 'startup',
+          })
+          const line = await waitForLogLine(state.logs, 'health check')
+          ok(line !== undefined, 'the startup check logged its report')
+          const report = JSON.parse(String(line.args[1]))
+          is(report.ok, true)
+          is(report.steps[0].step, 'credential', 'the credential is its own step')
+          is(report.steps[0].ok, true)
+          const models = report.steps.find((step) => step.step === 'models')
+          is(models.ok, true)
+          is(models.source, 'service', 'a cold directory was read from the service')
+          is(models.serviceReached, true)
+          ok(fetch.requests.some((request) => String(request.url).endsWith('/models')), 'GET /models was really sent')
+        } finally {
+          globalThis.fetch = original
+          delete process.env.TEST_KEY
+        }
       },
     },
     {
-      name: 'runHealthCheck reports the catalog it resolved',
+      name: 'a credential failure fails the health report even when no service read is needed',
       async run() {
-        const { ctx } = fakeContext()
-        const { OpenCodeGoAdapter } = await import('../../lib/index.js')
-        const { ModelCache } = await import('../../lib/model/cache.js')
+        const missing = 'DSH_HEALTH_ABSENT_KEY'
+        delete process.env[missing]
+        const hotCache = scratch.path('health-cache')
+        await mkdir(dirname(hotCache), { recursive: true })
+        await writeFile(hotCache, JSON.stringify({
+          version: 2,
+          baseURL: 'https://relay.test/v1',
+          fetchedAt: Date.now(),
+          rows: [{ id: 'cached-model' }],
+        }), 'utf8')
+        const scenarios = [
+          {
+            source: 'config',
+            config: resolveConfig({
+              baseURL: 'https://relay.test/v1',
+              apiKeyEnv: missing,
+              modelSource: 'config',
+              models: [{ id: 'configured-model' }],
+              modelsCachePath: scratch.path('health-config'),
+            }),
+          },
+          {
+            source: 'cache',
+            config: resolveConfig({
+              baseURL: 'https://relay.test/v1',
+              apiKeyEnv: missing,
+              modelsCachePath: hotCache,
+            }),
+          },
+        ]
+        for (const scenario of scenarios) {
+          const fetch = fakeFetch()
+          const { adapter } = healthAdapter({
+            config: scenario.config,
+            fetch,
+            resolveApiKey: async () => {
+              throw new LlmError(
+                `dsh-llm-opencode-go: no API key for provider route "opencode-go"; store ${missing}`,
+                'MISSING_CREDENTIAL',
+              )
+            },
+          })
+          const report = await runHealthCheck(adapter, scenario.config, recordingLogger())
+          is(report.ok, false, `${scenario.source}: the report fails`)
+          is(report.steps[0].step, 'credential')
+          is(report.steps[0].ok, false)
+          is(report.steps[0].code, 'MISSING_CREDENTIAL')
+          const models = report.steps.find((step) => step.step === 'models')
+          is(models.source, scenario.source, `${scenario.source}: the catalog source is named`)
+          is(models.serviceReached, false, `${scenario.source}: no service request is claimed`)
+          is(fetch.requests.length, 0, `${scenario.source}: nothing is read from the service`)
+        }
+      },
+    },
+    {
+      name: 'runHealthCheck reports the catalog it resolved from the service it reached',
+      async run() {
         const config = resolveConfig({
           baseURL: 'https://relay.test/v1',
           apiKeyEnv: 'TEST_KEY',
           modelsCachePath: scratch.path('health'),
         })
         process.env.TEST_KEY = 'sk-test'
+        try {
+          const fetch = fakeFetch()
+          const { adapter } = healthAdapter({
+            config,
+            fetch,
+            resolveApiKey: async () => 'sk-test',
+          })
+          const report = await runHealthCheck(adapter, config, recordingLogger())
+          is(report.ok, true)
+          is(report.steps[0].step, 'credential')
+          is(report.steps[0].ok, true)
+          const models = report.steps.find((step) => step.step === 'models')
+          ok(models.count > 0, 'models were listed')
+          is(models.source, 'service')
+          is(models.serviceReached, true)
+          // The fake fetch is the one the cache used. Injecting it into the
+          // adapter alone leaves discovery on the real network, where the
+          // built-in fallback makes the request count unobservable.
+          is(fetch.requests.filter((request) => String(request.url).endsWith('/models')).length, 1)
+        } finally {
+          delete process.env.TEST_KEY
+        }
+      },
+    },
+    {
+      name: 'a hot cache is reported as a cache, never as a service read',
+      async run() {
+        const path = scratch.path('hot-health')
+        await mkdir(dirname(path), { recursive: true })
+        await writeFile(path, JSON.stringify({
+          version: 2,
+          baseURL: 'https://relay.test/v1',
+          fetchedAt: Date.now(),
+          rows: [{ id: 'cached-model' }],
+        }), 'utf8')
+        const config = resolveConfig({
+          baseURL: 'https://relay.test/v1',
+          apiKeyEnv: 'TEST_KEY',
+          modelsCachePath: path,
+        })
         const fetch = fakeFetch()
-        const cache = new ModelCache(config, {
-          authHeaders: async () => ({ authorization: 'Bearer sk-test' }),
-          logger: { info() {}, warn() {} },
-        })
-        const adapter = new OpenCodeGoAdapter({
-          options: () => config,
-          resolveApiKey: async () => 'sk-test',
-          cache,
-          attachments: () => undefined,
-          logger: { info() {}, warn() {} },
+        const { adapter } = healthAdapter({
+          config,
           fetch,
+          resolveApiKey: async () => 'sk-test',
         })
-        const logger = { info() {}, warn() {} }
-        const report = await runHealthCheck(adapter, config, logger)
+        const report = await runHealthCheck(adapter, config, recordingLogger())
         is(report.ok, true)
-        is(report.steps[0].step, 'models')
-        ok(report.steps[0].count > 0, 'models were listed')
+        const models = report.steps.find((step) => step.step === 'models')
+        is(models.source, 'cache')
+        is(models.serviceReached, false, 'a cache read is not a service read')
+        is(fetch.requests.length, 0, 'the hot cache answered without a request')
+      },
+    },
+    {
+      name: 'the plugin disposer returns a promise that waits for both writes',
+      async run() {
+        const { ctx, state } = fakeContext()
+        apply(ctx, { healthCheck: 'off' })
+        const originalUsage = UsageStore.prototype.flush
+        const originalDiagnostics = DiagnosticsLog.prototype.flush
+        const started = []
+        let release
+        const gate = new Promise((resolve) => { release = resolve })
+        UsageStore.prototype.flush = function flushUsage() {
+          started.push('usage')
+          return gate.then(() => originalUsage.call(this))
+        }
+        DiagnosticsLog.prototype.flush = function flushDiagnostics() {
+          started.push('diagnostics')
+          return gate.then(() => originalDiagnostics.call(this))
+        }
+        try {
+          const dispose = state.disposers.at(-1)
+          const pending = dispose()
+          ok(pending !== undefined && typeof pending.then === 'function', 'the disposer returns its completion')
+          equal(started.sort(), ['diagnostics', 'usage'], 'both flushes were started')
+          let settled = false
+          pending.then(() => { settled = true })
+          await new Promise((resolve) => setTimeout(resolve, 0))
+          is(settled, false, 'the completion waits for the flushes it started')
+          release()
+          await pending
+          is(settled, true, 'the completion resolves once both writes settle')
+        } finally {
+          release()
+          UsageStore.prototype.flush = originalUsage
+          DiagnosticsLog.prototype.flush = originalDiagnostics
+        }
       },
     },
   ]),
