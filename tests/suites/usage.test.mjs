@@ -21,8 +21,39 @@ async function scratch() {
   return mkdtemp(join(tmpdir(), 'oc-usage-'))
 }
 
+/**
+ * A local wall-clock instant.
+ *
+ * Fixtures name the calendar day they mean, not a UTC offset: the same case has
+ * to describe the same day in every time zone the suite runs under.
+ */
+function localTime(year, month, day, hour = 12, minute = 0) {
+  return new Date(year, month, day, hour, minute, 0, 0).getTime()
+}
+
+/** Run one case in a named local timezone, then restore the runner's setting. */
+async function withTimezone(zone, run) {
+  const previous = process.env.TZ
+  process.env.TZ = zone
+  try {
+    return await run()
+  } finally {
+    if (previous === undefined) delete process.env.TZ
+    else process.env.TZ = previous
+  }
+}
+
+/** A promise a case settles by hand, so an interleaving needs no sleep. */
+function deferred() {
+  let resolve
+  const promise = new Promise((settle) => {
+    resolve = settle
+  })
+  return { promise, resolve }
+}
+
 /** A store over its own file, with a clock the case controls. */
-async function storeUnderTest({ now = Date.UTC(2026, 0, 15, 12, 0, 0), ...config } = {}) {
+async function storeUnderTest({ now = localTime(2026, 0, 15), ...config } = {}) {
   const directory = await scratch()
   const clock = { value: now }
   const logger = { warnings: [], warn: (...args) => logger.warnings.push(args.join(' ')) }
@@ -35,6 +66,35 @@ async function storeUnderTest({ now = Date.UTC(2026, 0, 15, 12, 0, 0), ...config
 
 /** One successful call's record. */
 const call = (model, usage, ok = true) => ({ model, usage, ok })
+
+/**
+ * The shared Object surface a usage dictionary must never write through.
+ *
+ * Comparing the own keys before and after catches both the prototype itself
+ * gaining counter fields and the `constructor`/`toString` members being used as
+ * records, which would leave NaN counters on those shared functions.
+ */
+function objectSurface() {
+  return {
+    prototype: Object.getOwnPropertyNames(Object.prototype).sort(),
+    constructor: Object.getOwnPropertyNames(Object).sort(),
+    toString: Object.getOwnPropertyNames(Object.prototype.toString).sort(),
+  }
+}
+
+/** Assert that no lookup in the usage tables left a mark on a shared object. */
+function assertObjectSurfaceIntact(before) {
+  equal(Object.getOwnPropertyNames(Object.prototype).sort(), before.prototype,
+    'Object.prototype gained no usage fields')
+  equal(Object.getOwnPropertyNames(Object).sort(), before.constructor,
+    'the Object constructor gained no usage fields')
+  equal(Object.getOwnPropertyNames(Object.prototype.toString).sort(), before.toString,
+    'Object.prototype.toString gained no usage fields')
+  is(Object.prototype.requests, undefined, 'no request count on Object.prototype')
+  is(Object.prototype.inputTokens, undefined, 'no token count on Object.prototype')
+  is(Object.requests, undefined, 'no request count on the Object constructor')
+  is(Object.prototype.toString.requests, undefined, 'no request count on toString')
+}
 
 export default {
   name: 'usage/store',
@@ -200,6 +260,70 @@ export default {
       },
     },
     {
+      name: 'concurrent summaries share the one first read, and count what was recorded before it',
+      async run() {
+        // Two summaries start together on a store that has never read its file
+        // (the page asks for a window and for all days in one request). The
+        // second must wait for the same read instead of reporting the empty
+        // table it saw while the first read was still in flight -- and `loaded`
+        // may not claim the read is done until it is.
+        const { directory } = await storeUnderTest()
+        const path = join(directory, 'usage.json')
+        const older = dayKey(localTime(2026, 0, 10))
+        const today = dayKey(localTime(2026, 0, 15))
+        const fileText = JSON.stringify({
+          version: 1,
+          updatedAt: 0,
+          days: {
+            [older]: {
+              'glm-5.3': {
+                requests: 5, failures: 0, inputTokens: 500, outputTokens: 50, totalTokens: 550, cacheReadTokens: 0, cacheWriteTokens: 0,
+              },
+            },
+          },
+        })
+        await writeFile(path, fileText, 'utf8')
+        const gate = deferred()
+        let reads = 0
+        const store = new UsageStore(
+          { usagePath: path },
+          {
+            logger: { warn() {} },
+            now: () => localTime(2026, 0, 15),
+            flushDelayMs: 0,
+            readFile: async () => {
+              reads += 1
+              await gate.promise
+              return fileText
+            },
+          },
+        )
+        // Counted before the first read: the merge must add the file once,
+        // not replace either side.
+        store.record(call('glm-5.3', { inputTokens: 100, outputTokens: 10 }))
+
+        const windowed = store.summary({ days: 1 })
+        const complete = store.summary({ days: 'all' })
+        is(store.loaded, false, 'the history is not marked read before the read finishes')
+        is(reads, 1, 'the second summary joined the first read instead of starting another')
+        is(store.load(), store.load(), 'both callers wait on the same in-flight read')
+        gate.resolve()
+
+        const [window, all] = await Promise.all([windowed, complete])
+        is(store.loaded, true, 'the read is complete')
+        is(window.window, 1)
+        equal(window.days.map((entry) => entry.day), [today], 'the window holds only the call recorded before the read')
+        is(window.totals.requests, 1)
+        is(window.totals.inputTokens, 100)
+        is(window.totals.totalTokens, 110)
+        is(all.window, 'all')
+        equal(all.days.map((entry) => entry.day), [older, today])
+        is(all.totals.requests, 6, 'five on file plus the one counted before the read')
+        is(all.totals.inputTokens, 600)
+        is(all.totals.totalTokens, 660)
+      },
+    },
+    {
       name: 'a call that reported a cache figure is counted as reported',
       run() {
         const store = new UsageStore({ usagePath: 'unused' }, { flushDelayMs: 0 })
@@ -246,9 +370,9 @@ export default {
         equal(summary.models.map((entry) => entry.model), ['glm-5.3'])
         // Only days that were counted appear: a table of empty rows is noise,
         // and the window is already stated by `window` and `days.length`.
-        equal(summary.days.map((entry) => entry.day), [dayKey(Date.UTC(2026, 0, 15, 12, 0, 0))])
+        equal(summary.days.map((entry) => entry.day), [dayKey(localTime(2026, 0, 15))])
         is(summary.window, 7)
-        is(summary.firstDay, dayKey(Date.UTC(2026, 0, 15, 12, 0, 0)))
+        is(summary.firstDay, dayKey(localTime(2026, 0, 15)))
       },
     },
     {
@@ -291,29 +415,101 @@ export default {
       name: 'the window ends today and reaches back exactly its length',
       async run() {
         const { store, clock } = await storeUnderTest()
-        clock.value = Date.UTC(2026, 0, 15, 12, 0, 0)
+        const today = dayKey(localTime(2026, 0, 15))
+        const yesterday = dayKey(localTime(2026, 0, 14))
+        const threeDaysAgo = dayKey(localTime(2026, 0, 12))
+        clock.value = localTime(2026, 0, 15)
         store.record(call('today', { inputTokens: 1 }))
-        clock.value = Date.UTC(2026, 0, 14, 12, 0, 0)
+        clock.value = localTime(2026, 0, 14)
         store.record(call('yesterday', { inputTokens: 1 }))
-        clock.value = Date.UTC(2026, 0, 12, 12, 0, 0)
+        clock.value = localTime(2026, 0, 12)
         store.record(call('three-days-ago', { inputTokens: 1 }))
-        clock.value = Date.UTC(2026, 0, 15, 12, 0, 0)
+        clock.value = localTime(2026, 0, 15)
 
         const week = await store.summary({ days: 7 })
         equal(week.models.map((entry) => entry.model).sort(), ['three-days-ago', 'today', 'yesterday'])
-        equal(week.days.map((entry) => entry.day), ['2026-01-12', '2026-01-14', '2026-01-15'])
-        const today = await store.summary({ days: 1 })
-        equal(today.models.map((entry) => entry.model), ['today'])
+        equal(week.days.map((entry) => entry.day), [threeDaysAgo, yesterday, today])
+        const todayReport = await store.summary({ days: 1 })
+        equal(todayReport.models.map((entry) => entry.model), ['today'])
         // The series is ascending, so a reader sees days move forward.
-        is(week.days[week.days.length - 1].day, '2026-01-15')
-        is(week.days[0].day, '2026-01-12')
+        is(week.days[week.days.length - 1].day, today)
+        is(week.days[0].day, threeDaysAgo)
         // A window is inclusive of today: `days: 3` reaches back two days.
-        equal((await store.summary({ days: 3 })).days.map((entry) => entry.day), ['2026-01-14', '2026-01-15'])
+        equal((await store.summary({ days: 3 })).days.map((entry) => entry.day), [yesterday, today])
         // The complete history is a separate report, not a large numeric window.
         const all = await store.summary({ days: 'all' })
         is(all.window, 'all')
-        equal(all.days.map((entry) => entry.day), ['2026-01-12', '2026-01-14', '2026-01-15'])
+        equal(all.days.map((entry) => entry.day), [threeDaysAgo, yesterday, today])
         is(all.totals.requests, 3)
+      },
+    },
+    {
+      name: 'a spring-forward day is not skipped by the numeric window',
+      async run() {
+        await withTimezone('America/New_York', async () => {
+          // A local calendar day is not always 86_400_000 ms long: on a spring
+          // DST change it is 23 hours. Stepping back by milliseconds from an
+          // early hour of the following day lands on the day before the previous
+          // one, silently dropping the transition day from the window. Pinning
+          // the zone makes that proof run in the default UTC CI job too.
+          const { store, clock } = await storeUnderTest()
+          const recorded = [9, 8, 7, 6, 5, 4, 3, 2]
+          for (const day of recorded) {
+            clock.value = localTime(2026, 2, day)
+            store.record(call(`spring-${day}`, { inputTokens: 1 }))
+          }
+          clock.value = localTime(2026, 2, 9, 0, 30)
+
+          const week = await store.summary({ days: 7 })
+          const expected = [3, 4, 5, 6, 7, 8, 9].map((day) => dayKey(localTime(2026, 2, day)))
+          equal(week.days.map((entry) => entry.day), expected, 'all seven local days are in the window')
+          is(week.totals.requests, 7)
+          ok(week.days.some((entry) => entry.day === dayKey(localTime(2026, 2, 8))),
+            'the 23-hour day is part of the window')
+          is(week.days.some((entry) => entry.day === dayKey(localTime(2026, 2, 2))), false,
+            'the day before the window is not folded in')
+
+          // The complete history is unchanged: it is every recorded day.
+          const all = await store.summary({ days: 'all' })
+          is(all.window, 'all')
+          is(all.days.length, 8)
+          is(all.totals.requests, 8)
+        })
+      },
+    },
+    {
+      name: 'a fall-back day appears once, and the window still reaches seven local days',
+      async run() {
+        await withTimezone('America/New_York', async () => {
+          // On a fall DST change a local day is 25 hours, so two millisecond
+          // steps can land on the same calendar day: the window then repeats it
+          // and loses the oldest day it promised. Pinning the zone keeps this
+          // proof active in the default UTC CI job too.
+          const { store, clock } = await storeUnderTest()
+          const octoberDays = [27, 28, 29, 30, 31].map((day) => localTime(2026, 9, day))
+          const expectedInstants = [
+            ...octoberDays,
+            localTime(2026, 10, 1),
+            localTime(2026, 10, 2),
+          ]
+          for (const at of [localTime(2026, 9, 26), ...expectedInstants]) {
+            clock.value = at
+            store.record(call(`fall-${dayKey(at)}`, { inputTokens: 1 }))
+          }
+          clock.value = localTime(2026, 10, 2, 23, 30)
+
+          const week = await store.summary({ days: 7 })
+          equal(week.days.map((entry) => entry.day), expectedInstants.map((at) => dayKey(at)))
+          is(week.days.length, 7, 'the window still has seven days')
+          is(new Set(week.days.map((entry) => entry.day)).size, 7, 'the repeated hour did not repeat a day')
+          is(week.totals.requests, 7)
+          is(week.days.some((entry) => entry.day === dayKey(localTime(2026, 9, 26))), false,
+            'the oldest recorded day is outside the window')
+
+          const all = await store.summary({ days: 'all' })
+          is(all.days.length, 8)
+          is(all.totals.requests, 8)
+        })
       },
     },
     {
@@ -337,7 +533,7 @@ export default {
 
         const resumed = new UsageStore(
           { usagePath: join(directory, 'usage.json') },
-          { logger: { warn() {} }, now: () => Date.UTC(2026, 0, 15, 12, 0, 0), flushDelayMs: 0 },
+          { logger: { warn() {} }, now: () => localTime(2026, 0, 15), flushDelayMs: 0 },
         )
         const summary = await resumed.summary({ days: 1 })
         is(summary.totals.requests, 1)
@@ -359,6 +555,109 @@ export default {
       },
     },
     {
+      name: 'a call recorded while a write is in flight stays pending for the next flush',
+      async run() {
+        // `flush` serialises a snapshot, then awaits the write. A call counted
+        // during that await belongs to a newer revision: the completed write
+        // may not mark it written, or the next timer/unload flush would find
+        // nothing dirty and the record would never reach disk.
+        const { directory } = await storeUnderTest()
+        const path = join(directory, 'usage.json')
+        const day = dayKey(localTime(2026, 0, 15))
+        const gate = deferred()
+        const started = deferred()
+        let gated = false
+        const store = new UsageStore(
+          { usagePath: path },
+          {
+            logger: { warn() {} },
+            now: () => localTime(2026, 0, 15),
+            flushDelayMs: 0,
+            mkdir: async () => {},
+            writeFile: async (file, text, encoding) => {
+              if (!gated) {
+                gated = true
+                started.resolve()
+                await gate.promise
+              }
+              await writeFile(file, text, encoding)
+            },
+          },
+        )
+        store.record(call('glm-5.3', { inputTokens: 10, outputTokens: 1 }))
+        const first = store.flush()
+        await started.promise
+        store.record(call('glm-5.3', { inputTokens: 20, outputTokens: 2 }))
+        is(store.dirty, true, 'the newer call is not written by the snapshot in flight')
+        gate.resolve()
+
+        is(await first, true, 'the first write completed')
+        is(store.dirty, true, 'the older write did not clear the newer revision')
+        const firstWrite = JSON.parse(await readFile(path, 'utf8'))
+        is(firstWrite.days[day]['glm-5.3'].requests, 1, 'the first snapshot held only the first call')
+        is(await store.flush(), true, 'the next flush persists the call made during the write')
+        const final = JSON.parse(await readFile(path, 'utf8'))
+        is(final.days[day]['glm-5.3'].requests, 2)
+        is(final.days[day]['glm-5.3'].inputTokens, 30)
+      },
+    },
+    {
+      name: 'flush calls are serialised, so a snapshot written later cannot be overwritten by an older one',
+      async run() {
+        // Two flushes can overlap (a timer firing while an unload flush runs).
+        // Each serialises at a different moment; without a write queue the
+        // older snapshot can finish last and erase the newer call. The gated
+        // write is released by hand, so the order is decided by the case.
+        const { directory } = await storeUnderTest()
+        const path = join(directory, 'usage.json')
+        const day = dayKey(localTime(2026, 0, 15))
+        const calls = []
+        const firstStarted = deferred()
+        const secondStarted = deferred()
+        const store = new UsageStore(
+          { usagePath: path },
+          {
+            logger: { warn() {} },
+            now: () => localTime(2026, 0, 15),
+            flushDelayMs: 0,
+            mkdir: async () => {},
+            writeFile: async (file, text, encoding) => {
+              const gate = deferred()
+              calls.push({ file, text, gate })
+              if (calls.length === 1) firstStarted.resolve()
+              if (calls.length === 2) secondStarted.resolve()
+              await gate.promise
+              await writeFile(file, text, encoding)
+            },
+          },
+        )
+
+        store.record(call('glm-5.3', { inputTokens: 10, outputTokens: 1 }))
+        const first = store.flush()
+        await firstStarted.promise
+
+        store.record(call('glm-5.3', { inputTokens: 20, outputTokens: 2 }))
+        const second = store.flush()
+        // No sleep: one event-loop turn is enough for the second flush to reach
+        // its write if it is not queued behind the first.
+        await new Promise((resolve) => setImmediate(resolve))
+        is(calls.length, 1, 'the second flush waited for the write in flight')
+
+        calls[0].gate.resolve()
+        is(await first, true)
+        await secondStarted.promise
+        is(calls.length, 2, 'the queued flush wrote once the first finished')
+        const queued = JSON.parse(calls[1].text)
+        is(queued.days[day]['glm-5.3'].requests, 2, 'the queued flush carries the newer call')
+        calls[1].gate.resolve()
+        is(await second, true)
+
+        const final = JSON.parse(await readFile(path, 'utf8'))
+        is(final.days[day]['glm-5.3'].requests, 2)
+        is(final.days[day]['glm-5.3'].inputTokens, 30)
+      },
+    },
+    {
       name: 'a corrupt or foreign file costs history, not the plugin',
       async run() {
         const { store, directory } = await storeUnderTest()
@@ -371,7 +670,7 @@ export default {
         await writeFile(path, JSON.stringify({ version: 99, days: { '2026-01-15': { old: {} } } }), 'utf8')
         const other = new UsageStore(
           { usagePath: path },
-          { logger: { warn() {} }, now: () => Date.UTC(2026, 0, 15, 12, 0, 0), flushDelayMs: 0 },
+          { logger: { warn() {} }, now: () => localTime(2026, 0, 15), flushDelayMs: 0 },
         )
         is((await other.summary({ days: 1 })).totals.requests, 0, 'a version it cannot read is discarded')
       },
@@ -380,15 +679,15 @@ export default {
       name: 'the file and the all-history report keep days older than 30 days',
       async run() {
         const { store, clock, directory } = await storeUnderTest()
-        clock.value = Date.UTC(2026, 0, 1, 12, 0, 0)
+        clock.value = localTime(2026, 0, 1)
         store.record(call('old', { inputTokens: 1 }))
         await store.flush()
-        clock.value = Date.UTC(2026, 1, 15, 12, 0, 0)
+        clock.value = localTime(2026, 1, 15)
         store.record(call('recent', { inputTokens: 1 }))
         await store.flush()
 
         const raw = JSON.parse(await readFile(join(directory, 'usage.json'), 'utf8'))
-        equal(Object.keys(raw.days), ['2026-01-01', '2026-02-15'])
+        equal(Object.keys(raw.days), [dayKey(localTime(2026, 0, 1)), dayKey(localTime(2026, 1, 15))])
         is((await store.summary({ days: 30 })).totals.requests, 1, 'the rolling window still selects recent days')
         const all = await store.summary({ days: 'all' })
         is(all.totals.requests, 2, 'the complete report includes both days')
@@ -407,7 +706,7 @@ export default {
         await writeFile(blocker, 'not a directory', 'utf8')
         const store = new UsageStore(
           { usagePath: join(blocker, 'usage.json') },
-          { logger: { warn: (...args) => logs.push(args.map(String).join(' ')) }, now: () => Date.UTC(2026, 0, 15), flushDelayMs: 0 },
+          { logger: { warn: (...args) => logs.push(args.map(String).join(' ')) }, now: () => localTime(2026, 0, 15), flushDelayMs: 0 },
         )
         store.record(call('glm-5.3', { inputTokens: 1 }))
         store.record(call('glm-5.3', { inputTokens: 1 }))
@@ -426,13 +725,163 @@ export default {
         const { store, directory } = await storeUnderTest()
         const delayed = new UsageStore(
           { usagePath: join(directory, 'delayed.json') },
-          { logger: { warn() {} }, now: () => Date.UTC(2026, 0, 15, 12, 0, 0), flushDelayMs: 50 },
+          { logger: { warn() {} }, now: () => localTime(2026, 0, 15), flushDelayMs: 50 },
         )
         delayed.record(call('glm-5.3', { inputTokens: 1 }))
         is(await readFile(join(directory, 'delayed.json'), 'utf8').then(() => true).catch(() => false), false)
         is(await delayed.flush(), true, 'the unload path writes it out')
-        is(JSON.parse(await readFile(join(directory, 'delayed.json'), 'utf8')).days['2026-01-15']['glm-5.3'].requests, 1)
+        is(JSON.parse(await readFile(join(directory, 'delayed.json'), 'utf8')).days[dayKey(localTime(2026, 0, 15))]['glm-5.3'].requests, 1)
         void store
+      },
+    },
+    {
+      name: 'a model id that names an Object member is that day\'s own record',
+      async run() {
+        // Model ids reach the store from the harness, not from a list this
+        // plugin controls. On a plain day map, `__proto__` resolved to
+        // Object.prototype: the counters were written onto the global
+        // prototype and no record was created, so the call disappeared from
+        // every table. `constructor` and `toString` did the same to the Object
+        // constructor and the shared toString function.
+        const ids = ['__proto__', 'constructor', 'toString', 'not-in-catalog']
+        const surface = objectSurface()
+        const { store, clock, directory } = await storeUnderTest()
+        let expectedInput = 0
+        let expectedTotal = 0
+        ids.forEach((id, index) => {
+          const inputTokens = 10 + index
+          const outputTokens = 1 + index
+          expectedInput += inputTokens
+          expectedTotal += inputTokens + outputTokens
+          store.record(call(id, { inputTokens, outputTokens }))
+        })
+
+        const summary = await store.summary({ days: 1 })
+        is(summary.totals.requests, ids.length, 'every id is a request')
+        is(summary.totals.inputTokens, expectedInput)
+        is(summary.totals.totalTokens, expectedTotal)
+        is(summary.days.length, 1, 'one day holds them all')
+        is(summary.days[0].counters.requests, ids.length, 'the day row has every id')
+        is(summary.days[0].counters.inputTokens, expectedInput)
+        equal(summary.models.map((entry) => entry.model).sort(), [...ids].sort())
+        for (const entry of summary.models) {
+          is(entry.counters.requests, 1, `${entry.model} has its own request count`)
+          for (const [field, value] of Object.entries(entry.counters)) {
+            ok(Number.isFinite(value), `${entry.model}.${field} is a number, got ${String(value)}`)
+          }
+        }
+
+        const day = dayKey(clock.value)
+        const models = store.days[day]
+        for (const id of ids) {
+          ok(Object.hasOwn(models, id), `${id} is an own key`)
+          ok(Object.keys(models).includes(id), `${id} is enumerable`)
+          is(models[id].requests, 1)
+          is(models[id].inputTokens, 10 + ids.indexOf(id))
+        }
+
+        // The persisted shape keeps those names as ordinary JSON keys, and the
+        // read-back path must count them again rather than lose them.
+        is(await store.flush(), true)
+        const raw = JSON.parse(await readFile(join(directory, 'usage.json'), 'utf8'))
+        for (const id of ids) ok(Object.hasOwn(raw.days[day], id), `${id} was written as its own key`)
+
+        const resumed = new UsageStore(
+          { usagePath: join(directory, 'usage.json') },
+          { logger: { warn() {} }, now: () => clock.value, flushDelayMs: 0 },
+        )
+        const reloaded = await resumed.summary({ days: 1 })
+        is(reloaded.totals.requests, ids.length, 'every id survives the reload')
+        is(reloaded.totals.inputTokens, expectedInput)
+        equal(reloaded.models.map((entry) => entry.model).sort(), [...ids].sort())
+
+        assertObjectSurfaceIntact(surface)
+      },
+    },
+    {
+      name: 'untrusted day and model keys from the file are own records, not prototypes',
+      async run() {
+        // A JSON file can hold `__proto__` as an ordinary key, because JSON has
+        // no prototypes. Copying such a day or model into a plain object with
+        // bracket assignment invokes the inherited setter instead: the map's
+        // prototype becomes the row and the key vanishes from Object.keys.
+        const surface = objectSurface()
+        const { clock, directory } = await storeUnderTest()
+        const day = dayKey(clock.value)
+        const path = join(directory, 'usage.json')
+        const row = (inputTokens) => ({
+          requests: 1,
+          failures: 0,
+          inputTokens,
+          outputTokens: 0,
+          totalTokens: inputTokens,
+          cacheReadTokens: 0,
+          cacheWriteTokens: 0,
+          cacheReported: 0,
+        })
+        const models = Object.fromEntries([
+          ['__proto__', row(7)],
+          ['constructor', row(2)],
+          ['toString', row(3)],
+          ['glm-5.3', row(5)],
+        ])
+        const days = Object.fromEntries([
+          [day, models],
+          ['__proto__', Object.fromEntries([['shadow-day', row(11)]])],
+        ])
+        await writeFile(path, JSON.stringify({ version: 1, updatedAt: 0, days }), 'utf8')
+
+        const store = new UsageStore(
+          { usagePath: path },
+          { logger: { warn() {} }, now: () => clock.value, flushDelayMs: 0 },
+        )
+        // Counted before the first read, so the file's special keys and the
+        // in-memory one meet in the merge.
+        store.record(call('__proto__', { inputTokens: 1 }))
+        const summary = await store.summary({ days: 'all' })
+
+        ok(Object.hasOwn(store.days, '__proto__'), 'the day named __proto__ is an own key')
+        ok(Object.hasOwn(store.days[day], '__proto__'), 'the model named __proto__ is an own key')
+        const daysPrototype = Object.getPrototypeOf(store.days)
+        ok(daysPrototype === null || daysPrototype === Object.prototype,
+          'the day table did not take a model map as its prototype')
+        equal(Object.keys(store.days[day]).sort(),
+          ['__proto__', 'constructor', 'glm-5.3', 'toString'])
+        equal(summary.models.map((entry) => entry.model).sort(),
+          ['__proto__', 'constructor', 'glm-5.3', 'shadow-day', 'toString'])
+        is(summary.totals.requests, 6, 'four file rows, the merged __proto__ row, and the shadow day')
+        is(summary.totals.inputTokens, 29)
+        is(summary.totals.totalTokens, 29)
+        equal(summary.days.map((entry) => entry.day), [day, '__proto__'])
+        is(summary.days[0].counters.requests, 5, 'the normal day keeps the file rows and the new call')
+        is(summary.days[0].counters.inputTokens, 18)
+        is(summary.days[1].counters.requests, 1, 'the day named __proto__ is its own row')
+        is(summary.days[1].counters.inputTokens, 11)
+        for (const entry of summary.models) {
+          for (const [field, value] of Object.entries(entry.counters)) {
+            ok(Number.isFinite(value), `${entry.model}.${field} is a number, got ${String(value)}`)
+          }
+        }
+        is(summary.models.find((entry) => entry.model === '__proto__').counters.inputTokens, 8,
+          'the file row and the in-memory call add up')
+
+        // Writing the merged table back must keep those names as JSON keys, not
+        // serialise a prototype. A fresh store then reads the same numbers.
+        is(await store.flush(), true)
+        const raw = JSON.parse(await readFile(path, 'utf8'))
+        ok(Object.hasOwn(raw.days, '__proto__'))
+        ok(Object.hasOwn(raw.days[day], '__proto__'))
+        const resumed = new UsageStore(
+          { usagePath: path },
+          { logger: { warn() {} }, now: () => clock.value, flushDelayMs: 0 },
+        )
+        const reloaded = await resumed.summary({ days: 'all' })
+        is(reloaded.totals.requests, summary.totals.requests)
+        is(reloaded.totals.inputTokens, summary.totals.inputTokens)
+        equal(reloaded.models.map((entry) => entry.model).sort(),
+          ['__proto__', 'constructor', 'glm-5.3', 'shadow-day', 'toString'])
+
+        assertObjectSurfaceIntact(surface)
       },
     },
   ],

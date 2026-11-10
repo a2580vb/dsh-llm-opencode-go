@@ -273,6 +273,50 @@ export default {
       },
     },
     {
+      name: 'a service whose windows are all unreadable is unsupported, and the next read recovers',
+      async run() {
+        const unreadable = {
+          usage: {
+            rolling: { status: 'ok', percent: null },
+            weekly: { status: 'ok', percent: '' },
+            monthly: { status: 'ok', percent: true },
+          },
+        }
+        const { reader, requests, logger } = readerUnderTest({
+          script: { 0: { status: 200, body: unreadable }, default: { status: 200, body: ANSWER } },
+        })
+        const result = await reader.read()
+        is(result.ok, false)
+        is(result.reason, 'unsupported')
+        is(result.windows, undefined, 'no zeroed windows are handed to the page')
+        equal(logger.warnings, [], 'an unreadable shape is ordinary, not a warning')
+        // An unsupported answer is not cached as one: the next read asks again
+        // and can recover, which is the contract every failure here keeps.
+        const recovered = await reader.read()
+        is(recovered.ok, true)
+        equal(recovered.windows.map((window) => window.percent), [8, 8, 13])
+        is(requests.length, 2)
+      },
+    },
+    {
+      name: 'a partly unreadable answer reaches the page with only the windows that were read',
+      async run() {
+        const partial = {
+          usage: {
+            rolling: { status: 'ok', percent: null, resetsAt: '2026-10-02T23:41:02.184Z' },
+            weekly: { status: 'ok', percent: 8, resetsAt: '2026-10-05T00:00:00.000Z' },
+            monthly: { status: 'ok', percent: false, resetsAt: '2026-10-21T05:02:55.000Z' },
+          },
+        }
+        const { reader } = readerUnderTest({ script: { default: { status: 200, body: partial } } })
+        const result = await reader.read()
+        is(result.ok, true)
+        equal(result.windows.map((window) => window.name), ['weekly'])
+        equal(result.windows.map((window) => window.percent), [8])
+        is(result.windows[0].resetsAt, '2026-10-05T00:00:00.000Z')
+      },
+    },
+    {
       name: 'a failure is not cached, so the next read tries again',
       async run() {
         const { reader, requests } = readerUnderTest({
@@ -346,6 +390,43 @@ export default {
         // not a number a reader can act on differently from 100%.
         equal(parsed.windows.map((window) => window.percent), [13, 100])
         is(parsed.windows[1].status, 'limited')
+      },
+    },
+    {
+      name: 'only a finite number is a percentage, so a null or a boolean is not 0%',
+      run() {
+        // `Number(...)` would read `null`, `''` and `false` as 0 and `true` as
+        // 1. A window the service did not report must not be drawn as an
+        // untouched allowance, so anything that is not a number is "no
+        // percentage" rather than a zero. Numeric strings are not guessed at
+        // either — `Number('  ')` would guess 0.
+        const unreadablePercentages = [
+          null, '', '   ', true, false, '8', ' 8 ', [], [8], {}, NaN, Infinity, -Infinity, undefined,
+        ]
+        for (const percent of unreadablePercentages) {
+          const parsed = parseSubscription({ usage: { rolling: { status: 'ok', percent } } })
+          is(parsed, undefined, `${JSON.stringify(percent) ?? String(percent)} is not a percentage`)
+        }
+        // A reported zero is still a percentage: "nothing spent yet" is a fact
+        // the page may state, unlike a missing figure.
+        const zero = parseSubscription({ usage: { rolling: { status: 'ok', percent: 0 } } })
+        equal(zero.windows.map((window) => window.percent), [0])
+      },
+    },
+    {
+      name: 'an unreadable window is dropped while the readable ones keep their figures',
+      run() {
+        const parsed = parseSubscription({
+          usage: {
+            rolling: { status: 'ok', percent: null },
+            weekly: { status: 'ok', percent: '8' },
+            monthly: { status: 'ok', percent: 13, resetsAt: '2026-10-21T05:02:55.000Z' },
+          },
+        })
+        // The two unreadable windows are absent, not zeroes: the page lists
+        // what the service actually reported and nothing else.
+        equal(parsed.windows.map((window) => window.name), ['monthly'])
+        equal(parsed.windows.map((window) => window.percent), [13])
       },
     },
     {
