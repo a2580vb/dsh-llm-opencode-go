@@ -153,10 +153,10 @@ export default {
       run() {
         const config = resolveConfig({})
         const base = buildCatalog(config, []).get('deepseek-v4-flash')
-        // A row restored from a version 1 cache is a historical name list, not a
+        // A row restored from a cache file is a historical statement, not a
         // statement about what the service serves now.
-        const legacy = discoveryRecord({ id: 'deepseek-v4-flash', name: 'Legacy', legacy: true }, config, base)
-        is(legacy.retired, true)
+        const restored = discoveryRecord({ id: 'deepseek-v4-flash', name: 'Legacy', fromDisk: true }, config, base)
+        is(restored.retired, true)
         const live = discoveryRecord({ id: 'deepseek-v4-flash', name: 'Back' }, config, base)
         is(live.retired, false)
       },
@@ -517,6 +517,12 @@ export default {
           String(info.description).includes('audio') && String(info.description).includes('video'),
           `the note names what the route cannot send: ${info.description}`,
         )
+        // Audio and video have no wire here; image is a route setting. The two
+        // limits must not collapse into the same claim.
+        ok(String(info.description).includes('no protocol on this route can send'),
+          `the wire-less abilities say so: ${info.description}`)
+        is(/image[^.;]*no protocol/i.test(String(info.description)), false,
+          'the deployment-limited image is not blamed on the protocols')
       },
     },
     {
@@ -538,6 +544,64 @@ export default {
         is(supportsImages(vision), true)
         equal(resolvedInputModalities(vision, { imageRoute: true, mode: 'off' }), ['text'])
         equal(resolvedInputModalities(vision, { imageRoute: false, mode: 'always' }), ['text', 'image'])
+      },
+    },
+    {
+      name: 'an explicit text-only input list wins over the provider’s known image ability',
+      run() {
+        const config = resolveConfig({
+          models: [{ id: 'deepseek-v4.1-flash', input: ['text'] }],
+        })
+        const records = buildCatalog(config, [{ id: 'deepseek-v4.1-flash', modalities: ['text', 'image/png'] }])
+        const record = records.get('deepseek-v4.1-flash')
+        // The model's own ability is still reported as such…
+        equal([...record.providerModalities], ['text', 'image'])
+        // …while the deployment's explicit limit is what this route declares.
+        is(record.inputModalities.includes('image'), false)
+        is(supportsImages(record), false)
+        equal(resolvedInputModalities(record, { imageRoute: true, mode: 'always' }), ['text'])
+        equal(resolvedModelInfo('opencode-go', record, { imageRoute: true, mode: 'auto' }).inputModalities, ['text'])
+        // With no explicit list, the provider's own answer is the fallback.
+        const discovered = buildCatalog(
+          resolveConfig({}),
+          [{ id: 'deepseek-v4.1-flash', modalities: ['text', 'image/png'] }],
+        ).get('deepseek-v4.1-flash')
+        is(discovered.inputModalities, undefined)
+        is(supportsImages(discovered), true)
+      },
+    },
+    {
+      name: 'a route that cannot send images is not described as a protocol without a wire',
+      run() {
+        // A narrowed deployment and a switched-off image route both leave the
+        // provider's image ability out of the declared list. Neither is the
+        // protocols' fault, and the description has to keep the model's ability
+        // and the route's limit apart.
+        const narrowed = buildCatalog(resolveConfig({
+          models: [{ id: 'deepseek-v4.1-flash', input: ['text'] }],
+        }), []).get('deepseek-v4.1-flash')
+        equal([...narrowed.providerModalities], ['text', 'image'])
+        const narrowedInfo = resolvedModelInfo('opencode-go', narrowed, { imageRoute: true, imageMode: 'auto' })
+        equal(narrowedInfo.inputModalities, ['text'])
+        const narrowedNote = String(narrowedInfo.description)
+        ok(narrowedNote.includes('image'), `the model's ability is still named: ${narrowedNote}`)
+        is(/image[^.;]*no protocol/i.test(narrowedNote), false,
+          `the deployment's text-only list is not a wire limitation: ${narrowedNote}`)
+        ok(/deployment|route/.test(narrowedNote), `the note says where the limit is: ${narrowedNote}`)
+        is(String(catalogModelInfo('opencode-go', narrowed, { imageRoute: true, imageMode: 'auto' }).description)
+          .includes('no protocol'), false, 'the listing keeps the same distinction')
+
+        // `sendImages: off` narrows the same route without an explicit input
+        // list, so only the deployment facts can explain the missing image.
+        const vision = buildCatalog(resolveConfig({}), []).get('deepseek-v4.1-flash')
+        const offInfo = resolvedModelInfo('opencode-go', vision, { imageRoute: true, imageMode: 'off' })
+        equal(offInfo.inputModalities, ['text'])
+        const offNote = String(offInfo.description)
+        ok(offNote.includes('image'), `the model's ability is still named: ${offNote}`)
+        is(/image[^.;]*no protocol/i.test(offNote), false,
+          `a switched-off route is not a wire limitation: ${offNote}`)
+        // With images declared, the note is gone: the route can carry them.
+        is(resolvedModelInfo('opencode-go', vision, { imageRoute: true, imageMode: 'auto' }).description, undefined)
       },
     },
     {
