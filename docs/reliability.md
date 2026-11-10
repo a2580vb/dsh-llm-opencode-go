@@ -49,8 +49,13 @@ A code and a sentence are all that survives a call, which is not enough to
 explain one afterwards: a `TRANSPORT` failure's own message is `fetch failed`,
 and whether the request never connected or died mid-stream is decided by facts
 only the attempt knows. So each failed attempt also appends a metadata-only line
-to the [diagnostics log](configuration.md#diagnostics-log) — the stage, the
-timing, and the cause chain — and nothing about a call is written anywhere else.
+to the [diagnostics log](configuration.md#diagnostics-log): the phase, the
+timings, the HTTP status, the harness code beside the provider's stable type/code
+and request id, and — only for a `connect` or `stream` failure — the cause chain
+of the error that ended the attempt. Provider or HTTP message text and raw
+response bodies are not fields. The local [usage counters](configuration.md#usage)
+keep their aggregates at `usagePath` — they count what a call spent, not what it
+met — and no other per-call detail is persisted.
 
 ## Limits
 

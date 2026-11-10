@@ -70,7 +70,8 @@ OpenCode 的中继会把共享同一个 `x-opencode-session` 值的所有请求�
 发一个 API 必然拒绝的请求。
 
 **推理历史**只在协议支持的情况下回放：Chat Completions 接收 `reasoning_content`，Messages 接收
-带 provider 签发签名的 thinking block（按 block 的确切文本寻址，在没有保留签名时降级为纯文本）。
+带 provider 签发签名的 thinking block——签名按它所属的消息与 content block 位置关联，而不是按
+文本查找（两轮可以说出同一句话，却各自持有不同的签名）——没有保留签名时降级为纯文本。
 Responses 上则只为**上游要求**的模型回放——`deepseek-*` 家族的思考模式在请求带 `tools` 时，若没有
 把此前每一轮的推理交回就会拒绝——以纯文本 `reasoning` 项、`summary` part 的形式，紧挨在它所属的
 assistant 消息之前。同一条线路上的其他上游（OpenAI、xAI）自己保存推理状态，并会用该状态校验回放的

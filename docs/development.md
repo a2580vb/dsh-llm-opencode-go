@@ -17,8 +17,8 @@ plugin, how to re-measure the live facts, and how the code is laid out.
 ## Verification
 
 ```sh
-npm test            # 477 offline checks: config, SSE framing, catalog, all three protocols, adapter, plugin body, the settings bridge, the client bundle, the display metadata, the diagnostics log, release coherence and the repository's own CI
-npm run test:cordis # 43 checks mounting the plugin on the harness's own cordis
+npm test            # 554 offline checks: config, SSE framing, catalog, all three protocols, adapter, plugin body, the settings bridge, the client bundle, the display metadata, the diagnostics log, release coherence and the repository's own CI
+npm run test:cordis # 44 checks mounting the plugin on the harness's own cordis
 npm run test:live   # the live suite; needs OC_KEY
 npm run check:pack  # what `npm publish` would upload
 ```
@@ -64,11 +64,11 @@ The suites that cover the configuration page run offline as well:
   into its fields, press its controls, and read what a person would see. It
   checks that a save writes the config shape rather than the snapshot it read,
   that a window switch reads the window the reader chose, that a disabled control
-  is inert, and that a failure is reported in the reader's own words. It
-  evaluates the bundle once and materializes its factory once, the way the
-  browser's module loader memoizes a package, and gives each registered slot a
-  hook store of its own — which is what lets a case watch one surface's read
-  reach the other one drawing the same fact.
+  is inert, and that a failure is reported in the reader's own words and can be
+  retried. It evaluates the bundle once and materializes its factory once, the
+  way the browser's module loader memoizes a package, and gives each registered
+  slot a hook store of its own — which is what lets a case watch one surface's
+  read reach the other one drawing the same fact.
 - The page's **clock is the suite's**. Delays the page would wait at most a
   second for — the beat after a write — still run themselves, and anything longer
   waits for `page.advance(ms)`, which walks the scheduled work in due order so a
@@ -126,7 +126,9 @@ One constraint to keep in mind when writing the plugin: the exported `Config` is
 not free-form. cordis calls `Config['~standard'].validate(raw)` before starting
 the plugin, so a plain object there fails activation with
 `Cannot read properties of undefined (reading 'validate')` — an isolated unit test
-will not catch that class of mistake, and `test:cordis` will.
+will not catch that class of mistake, and `test:cordis` will. A malformed value,
+a container of the wrong type included, comes back as Standard Schema `issues`
+naming the field, never as a thrown error.
 
 `npm run check:pack` packs the real tarball and reads it, because `files` is an
 allowlist and both of its failure modes are silent: a document the repository has
@@ -202,14 +204,14 @@ a branch has a ref name like `main` — and refuses a tag whose version is not w
 `package.json` says, which is a tag on the wrong commit.
 
 `.github/workflows/release.yml` runs on a `v*` tag and does the rest: resolves the
-version, re-runs the syntax check, the offline suite and the pack check on the
-tagged commit, reads the notes, publishes to npm with provenance, and opens the
-release. It authenticates through npm's **trusted publishing**: the workflow
-exchanges its OIDC token for a short-lived publisher credential, so no npm token
-is stored in this repository or anywhere else. `workflow_dispatch` finishes a
-release that failed halfway — it checks out the tag it names, so what is published
-is still the tagged commit — and skips the publish when the version is already on
-npm, which is what makes a re-run safe.
+version, re-runs the syntax check, the offline suite, the activation suite and
+the pack check on the tagged commit, reads the notes, publishes to npm with
+provenance, and opens the release. It authenticates through npm's **trusted
+publishing**: the workflow exchanges its OIDC token for a short-lived publisher
+credential, so no npm token is stored in this repository or anywhere else.
+`workflow_dispatch` finishes a release that failed halfway — it checks out the
+tag it names, so what is published is still the tagged commit — and skips the
+publish when the version is already on npm, which is what makes a re-run safe.
 
 Two things have to be true on npm's side, once: the package must name this
 repository and `release.yml` under **Trusted Publishers**, and the workflow must

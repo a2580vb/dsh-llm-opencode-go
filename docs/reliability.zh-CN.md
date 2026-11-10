@@ -36,8 +36,11 @@ rate limit 之类），分别保留 `SERVER` 与 `RATE_LIMIT`。这两类都像 
 
 一次调用能留下的只有一个错误码和一句话，这不足以事后解释它：`TRANSPORT` 失败自己的消息就是
 `fetch failed`，而这次请求是根本没连上、还是流到一半断的，取决于只有那次尝试知道的事实。所以每次
-失败的尝试还会往[诊断日志](configuration.zh-CN.md#诊断日志)追加一行纯元数据——阶段、耗时、
-`cause` 链——一次调用除了这些之外不写到任何地方。
+失败的尝试还会往[诊断日志](configuration.zh-CN.md#诊断日志)追加一行纯元数据：阶段、耗时、HTTP
+状态、Harness 错误码，以及 provider 稳定的 type/code 与 request id；只有失败发生在 `connect` 或
+`stream` 阶段时，才附带让这次尝试结束的那个错误的 cause 链。provider 或 HTTP 的自由文本消息与原始
+响应体不是字段。本地的[用量计数](configuration.zh-CN.md#用量)另把聚合写在 `usagePath`——记的是花了
+多少、不是遇到了什么——除此之外不再持久化任何逐调用细节。
 
 ## 限制
 

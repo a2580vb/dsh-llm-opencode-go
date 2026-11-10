@@ -231,6 +231,11 @@ a field for — `video`, `audio`, `pdf` — so two facts are kept apart:
   harness models two and this adapter has a wire for two, so the resolved model
   declares `['text']` or `['text', 'image']`.
 
+A catalog entry that states its own `input` list decides this route's answer and
+wins over the provider's list: a deployment can narrow a vision model to
+text-only. Only an entry that states nothing falls back to what the model itself
+accepts.
+
 The split is observable: the harness projects durable image blocks on the strength
 of the resolved list — a route that declares `image` is handed real image blocks
 and must resolve their bytes, while one that does not gets a text placeholder. A

@@ -41,7 +41,7 @@ view, or read `Config` from the plugin for the authoritative list.
 | `hideTrainingModels` | `false` | Keep models whose provider trains on request data out of the listing (see [Models](models.md#models-that-train-on-request-data)) |
 | `hiddenModels` | `[]` | Model ids this deployment keeps out of the listing; hiding never makes a model unusable |
 | `modelVariants` | `[]` | Named presets of one model, each offered as its own `<model>@<name>` entry |
-| `healthCheck` | `off` | `startup` logs a credential + catalog report |
+| `healthCheck` | `off` | `startup` logs a three-step report — credential, models, catalog — and the models step names the catalog's source (see [Fetching the model list](#fetching-the-model-list)) |
 | `retryPolicy` | normal, 5 retries | Provider-owned policy the retry executor applies |
 
 ## Fast entries
@@ -153,7 +153,7 @@ covers the facts that are per-deployment and change often:
 | **Model variants** | Named presets of one model, written to `modelVariants`, in an editable list inside the Models card: pick a model, name it, then open a row's **Edit** to change its fields, or **Delete** to drop it. |
 | **Quota refresh** | The two intervals that pace the capsule's quota checks, written to `subscriptionMinIntervalSeconds` and `subscriptionMaxIntervalSeconds`. Each field saves when it loses focus (or on Enter), and a floor above its ceiling is refused on the page before any write. |
 | **Sidebar capsule** | One switch for `showQuotaCapsule` — whether the quota capsule at the sidebar's foot is shown. It applies when toggled; hiding the row leaves the panel, its shortcut, and the Settings tab in place. |
-| **Transport and retries** | One switch for `freshConnectionOnLargeBody` — a request body of 256 KiB or more asks for its own connection — plus the two deadlines (`timeoutMs`, `streamIdleTimeoutMs`) and the retry policy's limit and delays (`retryPolicy`). The switch applies when toggled; each number applies when its field is left. The deadlines are typed in seconds and written in milliseconds, and the whole policy is written back, so fields the page does not edit keep their values. |
+| **Transport and retries** | One switch for `freshConnectionOnLargeBody` — a request body of 256 KiB or more asks for its own connection — plus the two deadlines (`timeoutMs`, `streamIdleTimeoutMs`) and the retry policy's limit and delays (`retryPolicy`). The switch applies when toggled; each number applies when its field is left. The deadlines are typed in seconds and written in milliseconds, and the whole policy is written back, so fields the page does not edit keep their values. A hand-written policy is held to the same rules as one saved here: an out-of-range number, or a first delay above the longest, is refused by name. |
 | **Fetch available models** | Re-reads `GET /models` on demand and reports what appeared and what went away. |
 | **Usage and history** | Two things side by side: the service's own metered quota for the subscription, and the calls and tokens this plugin counted itself, per model and per day. This is the same block the panel under [fast entries](#fast-entries) carries. |
 
@@ -199,12 +199,12 @@ while the client is open:
 |---|---|---|
 | `/opencode-go/state` | `GET` | the route, the `apiKeyEnv` in use, the credential's status — never its value — and the profile override of each managed field |
 | `/opencode-go/models` | `GET` | the whole catalog, listed and hidden, with the reason each hidden model is hidden and, for a retired one, the replacement the service named |
-| `/opencode-go/config` | `POST` | writes one managed field into the profile patch |
+| `/opencode-go/config` | `POST` | writes one or more managed fields into the profile patch |
 | `/opencode-go/credential` | `POST` | stores the API key; `DELETE` clears it |
 | `/opencode-go/refresh` | `POST` | re-reads `GET /models` and reports what changed |
 | `/opencode-go/usage` | `GET` | the usage table for `?days=1`, `7`, `30`, or `all` |
 | `/opencode-go/subscription` | `GET` | the subscription's own quota, read from the service; `?refresh=1` bypasses the cache |
-| `/opencode-go/activity` | `GET` | whether that quota answer has gone old — answered from memory, never from the service |
+| `/opencode-go/activity` | `GET` | whether this route spent anything since that quota answer was read — answered from memory, never from the service |
 
 How the surface is guarded:
 
@@ -233,8 +233,11 @@ a model released after the fallback snapshot was taken still reports its own
 capacity and modalities. A gateway that still answers with ids only, or a cache
 file written before rows carried these facts, is still usable: those models fall
 back to the built-in table and the `models.dev` snapshot in
-`lib/model/limits.js`. The configuration page can also re-read the list on
-demand, which is the one thing the page does that costs a request:
+`lib/model/limits.js`. The cache file names the endpoint it was written for and
+is served for that one only: changing `baseURL` makes the next read ask the new
+gateway instead of advertising the old one's models. The configuration page can
+also re-read the model list on demand; that explicit refresh reaches the
+provider's model endpoint:
 
 - **What it reports** is what changed, counted over the *listing* rather than
   over the raw answer. A model the service stops listing but the built-in
@@ -244,6 +247,17 @@ demand, which is the one thing the page does that costs a request:
 - **The first read is the only awaited one.** Everything else — startup, the
   listing, the page's own load — is answered from memory or the cache file, so
   opening the page is not a request.
+
+`healthCheck: startup` writes one report with three steps: the credential
+resolves, the catalog resolves, and every listed model resolves a context
+window.
+The models step names where the catalog came from — `service` for a live
+`GET /models` in this process, `cache` for a file restored from disk, `config`
+for the explicit list, and `builtin` for the fallback — and states
+`serviceReached` separately, so a warm cache or a configured list is never
+reported as proof that the service answered. A credential that does not resolve
+fails the report even when the catalog came from a warm cache. The report is
+logged once at activation and never blocks a call.
 
 `modelSource: config` has nothing to fetch: the catalog is exactly the entries
 the deployment wrote, and the control says so.
@@ -323,14 +337,14 @@ and a per-day series.
 | Fact | How it is counted |
 |---|---|
 | **A call** | One per harness call, however many protocols it took: a request that fell back and then succeeded is one call, not two. |
-| **A failure** | A call that ended in an error, including one the provider refused before any stream. |
+| **A failure** | A call that ended in an error, including one the provider refused before any stream. Usage the provider had already reported before the stream broke still counts. |
 | **The model** | The id the harness asked for, so a variant appears under its own alias. |
 | **The day** | This machine's local calendar day, so a token spent at 23:00 belongs to the evening it was spent. |
-| **The range** | Today, 7 days, 30 days, or **All history**, applied to totals and per-model counters. Numeric ranges end today. |
+| **The range** | Today, 7 days, 30 days, or **All history**, applied to totals and per-model counters. Numeric ranges end today and step local calendar days, so a daylight-saving change neither skips nor repeats one. |
 | **History retention** | Every per-day, per-model aggregate is kept. Writes do not remove older days, so the file grows with active days and models rather than requests. |
 | **Token number format** | Decimal `K/M/B/T` units by default, with a full-number alternative. Only token columns are shortened; call counts, failure counts, and hit rates stay unchanged. A shortened value carries its full number in its tooltip and accessible name. The choice is persisted in `usageNumberFormat` and shared by every usage surface. |
 | **Daily pagination** | Always the complete history, independent of the selected range. Newest day first, 10 days per page by default, with 30- and 100-day options. Previous/next controls page through the days already read without another Host request. |
-| **A write** | Debounced a few seconds and flushed on unload, so a stream never waits on an `fs` call and a reload does not lose the tail. |
+| **A write** | Debounced a few seconds, queued one write at a time, and flushed on unload, so a stream never waits on an `fs` call and a reload does not lose the tail. |
 | **Uncached input** | The part of the prompt the service did not serve from cache. Not the whole prompt: see below. |
 | **Cache read / write** | What the service said it read from, and wrote to, its prompt cache. |
 | **Hit rate** | Cache read ÷ (uncached input + cache read) — the share of the prompt that came from cache. Shown as `—` when no call reported a cache figure at all. |
@@ -398,20 +412,23 @@ So every attempt that fails appends one JSON line to
 
 | What | Why it is there |
 |---|---|
-| `ts`, `durationMs`, `prepareMs`, `headersMs`, `streamMs` | When it happened, and which stage spent the time |
+| `ts`, `event`, `outcome`, `durationMs`, `prepareMs`, `headersMs`, `streamMs` | When it happened, whether the attempt succeeded, and which stage spent the time |
 | `provider`, `model`, `protocol`, `attempt`/`attempts` | Which of the model's protocols it was, and where in the fallback order |
 | `phase` | `connect` (no response headers), `response` (a refusal), `stream` (accepted, then died) |
-| `headersReceived`, `events` | How far the attempt got, and how many events had arrived when it stopped |
-| `status`, `code`, `message`, `requestId`, `retryAfterMs` | What the harness was told, next to the provider's own request id |
-| `cause` | The flattened `cause` chain, including the members of an `AggregateError` |
-| `requestBytes`, `timeoutMs`, `streamIdleTimeoutMs` | What was sent, and the budgets the attempt ran under |
+| `headersReceived`, `events`, `requestBytes` | How far the attempt got, how many events had arrived when it stopped, and how many bytes were sent |
+| `status`, `code`, `providerType`, `providerCode`, `requestId`, `retryAfterMs` | The HTTP status and the harness code beside the provider's stable type/code, its request id, and its retry advice |
+| `transport` | Only for a `connect` or `stream` failure: the flattened `cause` chain of the error the attempt ended with — name, a bounded transport message, stable code, errno, syscall, address, port — with the members of an `AggregateError` included |
+| `timeoutMs`, `streamIdleTimeoutMs` | The budgets the attempt ran under |
 
 Three consequences are intentional:
 
-- **No credential, no headers, no message bodies.** The file is metadata only, so
-  it can be pasted into a bug report. `diagnostics: all` adds the attempts that
-  succeeded — for a latency question, those are the measurement — and still
-  records nothing a conversation contained.
+- **No credential, no headers, no provider or HTTP message text, no response
+  body.** The file is an allowlist: what the harness was told, the provider's
+  stable identifiers, timing, and — only for a `connect` or `stream` failure —
+  the error chain the attempt ended with. Raw refusal bodies and anything a
+  conversation contained are not fields, so the file can be pasted into a bug
+  report. `diagnostics: all` adds the attempts that succeeded — for a latency
+  question, those are the measurement — and records no more than the same facts.
 - **A working installation writes nothing.** The default, `failures`, records
   only failed attempts; `off` records none; `all` records every attempt.
 - **The file is bounded.** It rotates at 1 MB and keeps two predecessors
@@ -420,8 +437,8 @@ Three consequences are intentional:
   cannot be written is one warning — never a failed call.
 
 This log answers "what happened to that request". The [usage
-counters](#usage) answer a different question — what the route spent — and the
-two are deliberately separate files.
+counters](#usage) answer a different question — what the route spent — and they
+live at `usagePath`, deliberately a separate file.
 
 ## Model variants
 
@@ -468,8 +485,9 @@ The remaining rules:
   snapshot happened to carry — is refused by name rather than written into
   `cordis.patch.yml`.
 
-Everything else — protocol shaping, timeouts, retry policy, cache paths — stays
-in `cordis.patch.yml`.
+Protocol shaping and cache paths stay in `cordis.patch.yml`; the transport
+settings the page offers are described under
+[Graphical configuration](#graphical-configuration).
 
 Two further properties of the configuration page:
 

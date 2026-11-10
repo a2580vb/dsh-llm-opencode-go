@@ -87,8 +87,10 @@ thinking is omitted rather than sent as a request the API would reject.
 
 Reasoning **history** is replayed where the protocol supports it: Chat
 Completions takes `reasoning_content` back, and Messages takes thinking blocks
-with the signature the provider issued (addressed by the block's exact text, and
-degraded to plain text when no signature was retained). On the Responses wire it
+with the signature the provider issued, associated by the message and
+content-block position it was issued for rather than by text — two turns can
+say the same thing and hold different signatures — and degraded to plain text
+when no signature was retained. On the Responses wire it
 is replayed for the models whose upstream requires it — the `deepseek-*` family,
 whose thinking mode refuses a request that carries tools unless every earlier
 turn's reasoning comes back — as a plain-text `reasoning` item, in a `summary`

@@ -16,8 +16,8 @@
 ## 验证
 
 ```sh
-npm test            # 477 项离线检查：配置、SSE 分帧、目录、三种协议、适配器、插件本体、配置桥接、客户端 bundle、显示元数据、诊断日志、版本一致性，以及本仓库自己的 CI
-npm run test:cordis # 43 项检查，把插件挂到 Harness 自己的 cordis 上
+npm test            # 554 项离线检查：配置、SSE 分帧、目录、三种协议、适配器、插件本体、配置桥接、客户端 bundle、显示元数据、诊断日志、版本一致性，以及本仓库自己的 CI
+npm run test:cordis # 44 项检查，把插件挂到 Harness 自己的 cordis 上
 npm run test:live   # 对线上服务的实测套件；需要 OC_KEY
 npm run check:pack  # `npm publish` 会真正上传的那个 tarball
 ```
@@ -51,9 +51,9 @@ npm run check:pack  # `npm publish` 会真正上传的那个 tarball
 - **页面套件**直接渲染页面：`tests/suites/_client-harness.mjs` 提供一个带可用 hooks 的 React 替身，
   所以套件能打开页面、在输入框里打字、按下控件，并读到一个人会看到的内容。它检查保存写回的是配置
   的形状而不是读到的快照、切换窗口读取的是读者选择的窗口、禁用的控件按不动、失败信息用读者自己的
-  话说出来。它只求值一次 bundle、也只物化一次工厂——和浏览器的模块加载器缓存一个包的做法一样——
-  并给每个注册进去的 slot 各自一份 hook 存储，正因如此，用例才能看到某个面读到的东西传到了另一个
-  画着同一事实的面上。
+  话说出来并且可以重试。它只求值一次 bundle、也只物化一次工厂——和浏览器的模块加载器缓存一个包的
+  做法一样——并给每个注册进去的 slot 各自一份 hook 存储，正因如此，用例才能看到某个面读到的东西
+  传到了另一个画着同一事实的面上。
 - 页面的**时钟归套件所有**。页面最多等一秒的延时——写回之后那一拍——照旧自己跑；更长的要等
   `page.advance(ms)`，它按到期顺序走完被安排的活儿，所以用例能问出额度节奏在 30 秒、半小时、
   或十分钟忙碌会话上分别做了什么。`page.surface(name).close()` 是这件事的另一半：它把一个面卸载，
@@ -89,7 +89,8 @@ OC_KEY=oc_sk_... npm run test:live
 写插件时的一条约束：导出的 `Config` 不是自由形式的。cordis 在启动插件前会调用
 `Config['~standard'].validate(raw)`，所以那里如果是个普通对象，激活就会以
 `Cannot read properties of undefined (reading 'validate')` 失败——孤立的单元测试抓不到这一类错误，
-`test:cordis` 能。
+`test:cordis` 能。形状不对的值——包括类型错误的容器——会以点名该字段的 Standard Schema `issues`
+返回，而不是抛异常。
 
 那个归档只是这些包的**打包方式**，并不是这套检查成立的原因：同样的库在 npm 上就是同样的版本，
 所以找不到安装时，该套件会改从 `node_modules` 里加载——CI 就是这么跑的，用的是锁文件钉住的版本，
@@ -150,10 +151,11 @@ node scripts/release.mjs notes 0.2.5      # 那段更新日志，作为发布说
 名会是 `main` 这种——也拒绝版本与 `package.json` 不一致的标签，因为那意味着标签打在了错误的提交上。
 
 `.github/workflows/release.yml` 由 `v*` 标签触发，其余的事它做完：解析版本、在被打标签的提交上重跑
-语法检查、离线套件与打包检查、读出说明、带 provenance 发布到 npm，然后建 release。它通过 npm 的
-**可信发布**认证：workflow 用自己的一次性 OIDC token 换取短期的发布凭据，所以本仓库（以及任何别处）
-都不存 npm token。`workflow_dispatch` 用来收尾一次中途失败的发布——它会检出自己点名的那个标签，所以
-发出去的仍然是那个被打标签的提交——版本已在 npm 上时会跳过发布那一步，这正是重跑安全的原因。
+语法检查、离线套件、激活套件与打包检查、读出说明、带 provenance 发布到 npm，然后建 release。它通过
+npm 的**可信发布**认证：workflow 用自己的一次性 OIDC token 换取短期的发布凭据，所以本仓库（以及任何
+别处）都不存 npm token。`workflow_dispatch` 用来收尾一次中途失败的发布——它会检出自己点名的那个
+标签，所以发出去的仍然是那个被打标签的提交——版本已在 npm 上时会跳过发布那一步，这正是重跑安全的
+原因。
 
 npm 那一侧有两个一次性设置：包必须在 **Trusted Publishers** 里指名本仓库与 `release.yml`，workflow
 必须跑在 npm 11.5.1 或更新版本上——这就是它在发布前先升级 npm 的原因。凭据交换是自己写入 token 的，
