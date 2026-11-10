@@ -381,6 +381,21 @@ export default {
       },
     },
     {
+      name: 'the one fetch call site reports a transport failure instead of throwing',
+      async run() {
+        // Every surface reads through `call`, so a rejected fetch — the bridge
+        // is down, the page lost its socket — is caught once and becomes a
+        // result with no status. A second fetch call site would be a read that
+        // can leave a surface loading or a promise unhandled.
+        const sites = [...clientSource.matchAll(/\bfetch\(/g)].length
+        is(sites, 1, 'one fetch call site')
+        const helper = /async function call\([\s\S]*?\n    \}/.exec(clientSource)?.[0] ?? ''
+        ok(helper.includes('try {'), 'the request is attempted inside a try')
+        ok(helper.includes('catch {'), 'and a rejection is caught')
+        ok(helper.includes('network: true'), 'the rejection is reported as a network failure')
+      },
+    },
+    {
       name: 'the managed fields are the ones the page offers to write',
       run() {
         // `MANAGED_CONFIG_FIELDS` is the lock on the write path: the bridge

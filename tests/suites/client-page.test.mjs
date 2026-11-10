@@ -259,6 +259,25 @@ function modelsSection(tree) {
   return section
 }
 
+/** The usage and history group: the quota panel and this route's counters. */
+function usageSection(tree) {
+  const section = group(tree, 'Usage and history')
+  ok(section !== undefined, 'the usage section rendered')
+  return section
+}
+
+/** A counters block whose totals are all zero. */
+const NO_CALLS = {
+  requests: 0,
+  failures: 0,
+  inputTokens: 0,
+  outputTokens: 0,
+  totalTokens: 0,
+  cacheReadTokens: 0,
+  cacheWriteTokens: 0,
+  cacheReported: 0,
+}
+
 /** The variants editor nested in the models card. */
 function variantsSection(tree) {
   const section = group(tree, 'A variant fixes a model')
@@ -527,6 +546,72 @@ export default {
         // depends on the Host guessing what it meant.
         equal(windowsAsked(page.calls), [7])
         is(page.calls.some((call) => call.path.includes('refresh=1')), false)
+      },
+    },
+    {
+      name: 'a bridge that cannot be reached fails the page instead of hanging it',
+      async run() {
+        // A rejected fetch has no status to report: the page shows the transport
+        // sentence and a retry, and no read is left as an unhandled rejection.
+        let reachable = false
+        const base = host()
+        const page = await renderPage({
+          fetch: async (path, init) => {
+            if (!reachable) throw new Error('fetch failed')
+            return base(path, init)
+          },
+        })
+        const rejections = []
+        const onRejection = (reason) => rejections.push(reason)
+        process.on('unhandledRejection', onRejection)
+        let failed
+        try {
+          failed = await page.open()
+          await new Promise((resolve) => setImmediate(resolve))
+        } finally {
+          process.off('unhandledRejection', onRejection)
+        }
+        equal(rejections.map((reason) => String(reason?.message ?? reason)), [], 'no read is left unhandled')
+        ok(text(failed).includes('Could not read the plugin state: Could not reach the local bridge'), text(failed))
+        is(text(failed).includes('Loading'), false, 'the page is not left on Loading')
+        is(text(failed).includes('HTTP'), false, 'no status is invented for a transport failure')
+        ok(buttons(failed).includes('Retry'), 'the failed read offers a retry')
+
+        reachable = true
+        const recovered = await page.click((node) => node.type === 'button' && text(node).trim() === 'Retry')
+        ok(text(recovered).includes('Choose which models appear'), 'the retry reads the page once the bridge answers')
+      },
+    },
+    {
+      name: 'the ways a state read can fail are named apart from one another',
+      async run() {
+        // An HTTP failure, a Host refusal on an HTTP 200, a malformed envelope,
+        // and a transport rejection are four different facts. Each one leaves a
+        // retryable error state, and only the HTTP failure prints a status.
+        const cases = [
+          ['an HTTP failure', { status: 500, body: { ok: false, error: 'internal' } },
+            'Could not read the plugin state: Request failed (HTTP 500).'],
+          ['an HTTP failure with a message', { status: 500, body: { ok: false, message: 'the profile is unreadable' } },
+            'Could not read the plugin state: the profile is unreadable'],
+          ['a Host refusal on HTTP 200', { body: { ok: false } },
+            'Could not read the plugin state: The local bridge reported a failure.'],
+          ['a malformed answer', { body: { ok: true } },
+            'Could not read the plugin state: The local bridge returned an unrecognized response.'],
+          ['a malformed route container', { body: { ok: true, route: [], config: {} } },
+            'Could not read the plugin state: The local bridge returned an unrecognized response.'],
+        ]
+        for (const [label, answer, expected] of cases) {
+          const page = await renderPage({
+            fetch: async (path, init) => {
+              if (String(path) === 'opencode-go/state') return answer
+              return host()(path, init)
+            },
+          })
+          const tree = await page.open()
+          ok(text(tree).includes(expected), `${label}: ${text(tree).slice(0, 200)}`)
+          is(text(tree).includes('Loading'), false, `${label}: the read settled`)
+          ok(buttons(tree).includes('Retry'), `${label}: a retry is offered`)
+        }
       },
     },
     {
@@ -870,6 +955,53 @@ export default {
       },
     },
     {
+      name: 'a range with no calls still lists the days that have them',
+      async run() {
+        // A quiet day beside a busy month is a table, not an empty page: the
+        // selected range decides the totals, while the daily series is the
+        // whole local history.
+        const quietRange = {
+          ...USAGE,
+          window: 1,
+          totals: { ...NO_CALLS },
+          models: [],
+          days: [],
+          historyDays: [
+            { day: '2025-11-01', counters: { ...CACHED, requests: 2 } },
+            { day: '2026-01-14', counters: { ...CACHED, requests: 1 } },
+          ],
+        }
+        const page = await renderPage({ fetch: host({ usage: { body: quietRange } }) })
+        await page.open()
+        const tree = await choose(page, 'Today')
+        const section = usageSection(tree)
+        is(text(section).includes('No calls were recorded in this range.'), false,
+          'the daily history is not hidden by an empty range')
+        const [totals, models, daily] = tables(section)
+        equal(rows(totals)[1][1], '0', 'the selected range is still the empty one')
+        equal(rows(models).length, 1, 'no per-model row for an empty range')
+        equal(rows(daily).slice(1).map((row) => row[0]), ['2026-01-14', '2025-11-01'],
+          'the recorded days are listed newest first')
+      },
+    },
+    {
+      name: 'only a range and a history that are both empty read as no calls',
+      async run() {
+        const nothing = {
+          ...USAGE,
+          totals: { ...NO_CALLS },
+          models: [],
+          days: [],
+          historyDays: [],
+        }
+        const page = await renderPage({ fetch: host({ usage: { body: nothing } }) })
+        const tree = await page.open()
+        const section = usageSection(tree)
+        ok(text(section).includes('No calls were recorded in this range.'), text(section))
+        equal(tables(section).length, 0, 'there is no table to draw')
+      },
+    },
+    {
       name: 'the models section offers the whole catalog and the fetch control',
       async run() {
         const page = await renderPage({ fetch: host() })
@@ -879,6 +1011,198 @@ export default {
         const fetched = await page.click((node) => node.type === 'button' && text(node).trim() === 'Fetch available models')
         equal(page.calls.filter((call) => call.path === 'opencode-go/refresh').length, 1)
         ok(text(fetched).includes('Re-read 3 models'), text(fetched).slice(-200))
+      },
+    },
+    {
+      name: 'a model list that cannot be read is a read failure, not an empty catalog',
+      async run() {
+        // The list is loading, readable, or unreadable; only a readable empty
+        // catalog is called empty. A failed first read says what failed and
+        // offers the retry, and the variants area does not claim to be loading
+        // behind it.
+        const cases = [
+          ['an HTTP failure', { status: 503, body: { ok: false, error: 'catalog-unavailable', message: 'the catalog file is gone' } },
+            'Could not read the model list: the catalog file is gone'],
+          ['a Host refusal on HTTP 200', { body: { ok: false } },
+            'Could not read the model list: The local bridge reported a failure.'],
+          ['a malformed answer', { body: { ok: true } },
+            'Could not read the model list: The local bridge returned an unrecognized response.'],
+          ['a malformed model row', { body: { ok: true, models: [{}] } },
+            'Could not read the model list: The local bridge returned an unrecognized response.'],
+          ['a model row without a protocol list', { body: { ok: true, models: [{ id: 'glm-5.3' }] } },
+            'Could not read the model list: The local bridge returned an unrecognized response.'],
+          ['a model row whose id is not a string', { body: { ok: true, models: [{ id: 7, protocols: ['chat-completions'] }] } },
+            'Could not read the model list: The local bridge returned an unrecognized response.'],
+          ['a transport rejection', 'throw', 'Could not read the model list: Could not reach the local bridge'],
+        ]
+        for (const [label, answer, expected] of cases) {
+          const page = await renderPage({
+            fetch: async (path, init) => {
+              if (String(path) === 'opencode-go/models') {
+                if (answer === 'throw') throw new Error('fetch failed')
+                return answer
+              }
+              return host()(path, init)
+            },
+          })
+          const tree = await page.open()
+          const section = modelsSection(tree)
+          ok(text(section).includes(expected), `${label}: ${text(section).slice(0, 240)}`)
+          is(text(section).includes('The model catalog is empty.'), false, `${label}: not called empty`)
+          is(text(section).includes('Loading'), false, `${label}: not left loading`)
+          ok(buttons(section).includes('Retry'), `${label}: the failure offers a retry`)
+        }
+      },
+    },
+    {
+      name: 'a failed model re-read keeps the table it had and recovers on retry',
+      async run() {
+        let failModels = false
+        const base = host()
+        const page = await renderPage({
+          fetch: async (path, init) => {
+            if (failModels && String(path) === 'opencode-go/models') throw new Error('fetch failed')
+            return base(path, init)
+          },
+        })
+        const opened = await page.open()
+        ok(text(opened).includes('glm-5.3'), 'the first read shows the catalog')
+
+        failModels = true
+        const failed = await page.click((node) => node.type === 'button' && text(node).trim() === 'Refresh page list')
+        const section = modelsSection(failed)
+        ok(text(section).includes('Could not read the model list: Could not reach the local bridge'),
+          text(section).slice(0, 240))
+        ok(text(section).includes('glm-5.3'), 'the table the reader had is kept')
+        is(text(section).includes('The model catalog is empty.'), false,
+          'a failed re-read is not an empty catalog')
+        ok(buttons(section).includes('Retry'), 'the retry sits beside the failure')
+
+        failModels = false
+        const recovered = await clickIn(page, section, (node) => node.type === 'button' && text(node).trim() === 'Retry')
+        const recoveredSection = modelsSection(recovered)
+        is(text(recoveredSection).includes('Could not read the model list'), false, 'the retry clears the failure')
+        ok(text(recoveredSection).includes('glm-5.3'), 'and the list is back')
+      },
+    },
+    {
+      name: 'a malformed model re-read keeps the table it had',
+      async run() {
+        // A row missing the fields the list reads is not an empty catalog and
+        // not a reason to discard the rows already on screen: the read fails,
+        // the old table stays, and the retry sits beside the failure.
+        let malformed = false
+        const base = host()
+        const page = await renderPage({
+          fetch: async (path, init) => {
+            if (malformed && String(path) === 'opencode-go/models') {
+              return { body: { ok: true, models: [{ id: 'glm-5.3' }] } }
+            }
+            return base(path, init)
+          },
+        })
+        const opened = await page.open()
+        ok(text(opened).includes('glm-5.3'), 'the first read shows the catalog')
+
+        malformed = true
+        const failed = await page.click((node) => node.type === 'button' && text(node).trim() === 'Refresh page list')
+        const section = modelsSection(failed)
+        ok(text(section).includes('Could not read the model list: The local bridge returned an unrecognized response.'),
+          text(section).slice(0, 240))
+        ok(text(section).includes('glm-5.3'), 'the table the reader had is kept')
+        is(text(section).includes('The model catalog is empty.'), false,
+          'a malformed re-read is not an empty catalog')
+        is(text(section).includes('Loading'), false, 'the malformed read settled')
+        ok(buttons(section).includes('Retry'), 'the failure offers a retry')
+      },
+    },
+    {
+      name: 'a refresh whose catalog rows are malformed reports a failure and keeps the table',
+      async run() {
+        // The refresh answer embeds the catalog directly, so its rows have to be
+        // checked before they replace what is on screen; an unusable row is a
+        // failure notice, not an exception during the next render.
+        const base = host()
+        let catalog = { ...CATALOG, models: [{ id: 'glm-5.3' }] }
+        const page = await renderPage({
+          fetch: async (path, init) => {
+            if (String(path) === 'opencode-go/refresh') {
+              return {
+                body: {
+                  ok: true,
+                  discovered: 4,
+                  added: [],
+                  removed: [],
+                  catalog,
+                },
+              }
+            }
+            return base(path, init)
+          },
+        })
+        await page.open()
+        const refreshed = await page.click((node) => node.type === 'button' && text(node).trim() === 'Fetch available models')
+        const section = modelsSection(refreshed)
+        ok(text(section).includes('Could not read the model list: The local bridge returned an unrecognized response.'),
+          text(section).slice(0, 240))
+        is(text(section).includes('Re-read'), false, 'the malformed catalog is not reported as a successful fetch')
+        ok(text(section).includes('glm-5.3'), 'the table the reader had is kept')
+
+        catalog = undefined
+        const missing = await page.click((node) => node.type === 'button' && text(node).trim() === 'Fetch available models')
+        const missingSection = modelsSection(missing)
+        ok(text(missingSection).includes('Could not read the model list: The local bridge returned an unrecognized response.'),
+          'a success envelope without a catalog is malformed too')
+        is(text(missingSection).includes('Re-read'), false, 'the missing catalog is not reported as a successful fetch')
+        ok(text(missingSection).includes('glm-5.3'), 'the missing catalog does not clear the old table')
+      },
+    },
+    {
+      name: 'a successful page-list read clears a failed fetch notice',
+      async run() {
+        // The fetch notice belongs to the last fetch, not to the list: once a
+        // page-list read succeeds, the old failure is no longer true.
+        const page = await renderPage({
+          fetch: host({
+            refresh: { status: 503, body: { ok: false, message: 'the provider is unavailable' } },
+          }),
+        })
+        await page.open()
+        const failed = await page.click((node) => node.type === 'button' && text(node).trim() === 'Fetch available models')
+        ok(text(failed).includes('Could not read the model list: the provider is unavailable'),
+          text(failed).slice(-240))
+
+        const recovered = await page.click((node) => node.type === 'button' && text(node).trim() === 'Refresh page list')
+        is(text(recovered).includes('the provider is unavailable'), false, 'the old failure is gone')
+        ok(text(recovered).includes('glm-5.3'), 'the successful read is shown')
+      },
+    },
+    {
+      name: 'a model list still on its way is loading, not empty',
+      async run() {
+        // The third state is not an empty catalog: an answer that has not
+        // arrived is loading, and only a readable list gets drawn.
+        let release
+        const gate = new Promise((resolve) => {
+          release = resolve
+        })
+        const base = host()
+        const page = await renderPage({
+          fetch: async (path, init) => {
+            if (String(path) === 'opencode-go/models') await gate
+            return base(path, init)
+          },
+        })
+        const waiting = await page.open()
+        const waitingSection = modelsSection(waiting)
+        ok(text(waitingSection).includes('Loading'), 'the list says it is loading')
+        is(text(waitingSection).includes('The model catalog is empty.'), false, 'and is not called empty')
+
+        release()
+        await page.update()
+        const settled = modelsSection(page.tree())
+        is(text(settled).includes('Loading'), false, 'the list settles when the answer arrives')
+        ok(text(settled).includes('glm-5.3'), 'and draws the catalog it read')
       },
     },
     {
@@ -1485,6 +1809,27 @@ export default {
         await refused.change((node) => node.props.type === 'password', 'sk-wrong')
         await clickIn(refused, group(await refused.tree(), 'API key'), (node) => node.type === 'button' && text(node).trim() === 'Save')
         ok(text(refused.tree()).includes('the credential store refused it'), text(refused.tree()).slice(0, 300))
+      },
+    },
+    {
+      name: 'a key save that cannot reach the bridge says so instead of inventing a status',
+      async run() {
+        const base = host()
+        let broke = false
+        const page = await renderPage({
+          fetch: async (path, init) => {
+            if (broke && String(path) === 'opencode-go/credential') throw new Error('fetch failed')
+            return base(path, init)
+          },
+        })
+        await page.open()
+        await page.change((node) => node.type === 'input' && node.props.type === 'password', 'sk-a-secret-value')
+        broke = true
+        const after = await clickIn(page, group(await page.tree(), 'API key'),
+          (node) => node.type === 'button' && text(node).trim() === 'Save')
+        const section = group(after, 'API key')
+        ok(text(section).includes('Could not reach the local bridge'), text(section).slice(0, 240))
+        is(text(section).includes('HTTP'), false, 'no status is invented for a transport failure')
       },
     },
     {
@@ -2276,6 +2621,38 @@ export default {
         const total = reads()
         is(total <= 23, true, `one read per floor, not a burst: ${String(total)} in ten minutes`)
         is(total >= 20, true, `and it does keep reading: ${String(total)}`)
+      },
+    },
+    {
+      name: 'an activity probe that cannot answer makes the page re-read the quota',
+      async run() {
+        // The probe is the cheap reason not to read; losing it is a reason to
+        // read, not a licence to trust the answer on file. HTTP errors, a Host
+        // `{ok:false}`, a malformed body, and a transport rejection all have to
+        // land on the conservative side.
+        const cases = [
+          ['an HTTP failure', { status: 500, body: { ok: false, error: 'internal' } }],
+          ['a Host refusal on HTTP 200', { body: { ok: false } }],
+          ['a malformed answer', { body: { ok: true } }],
+          ['a transport rejection', 'throw'],
+        ]
+        for (const [label, answer] of cases) {
+          const base = host()
+          const page = await renderPage({
+            fetch: async (path, init) => {
+              if (String(path) === 'opencode-go/activity') {
+                if (answer === 'throw') throw new Error('fetch failed')
+                return answer
+              }
+              return base(path, init)
+            },
+          })
+          await page.surface('sidebar.footer.action').open({ wide: true })
+          const reads = () => page.calls.filter((call) => call.path === 'opencode-go/subscription').length
+          equal(reads(), 1, `${label}: mounting read the quota once`)
+          await page.advance(31_000)
+          equal(reads(), 2, `${label}: the floor re-read instead of trusting the probe`)
+        }
       },
     },
     {
