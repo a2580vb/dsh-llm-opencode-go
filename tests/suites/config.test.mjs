@@ -18,6 +18,10 @@ import { equal, is, ok, rejectsWith } from '../helpers.mjs'
 // places the manifest cannot reach by itself.
 const { version } = JSON.parse(await readFile(new URL('../../package.json', import.meta.url), 'utf8'))
 
+// The harness bounds every locally scheduled timer at 2^31 - 1 ms; a retry
+// delay above it is a `setTimeout` overflow, so the policy has to stop here.
+const MAX_DELAY_MS = 2_147_483_647
+
 export default {
   name: 'config',
   cases: [
@@ -302,6 +306,164 @@ export default {
           ok(issues.some((issue) => String(issue.message).includes('modelVariants')), 'by name')
         }
         is('issues' in Config['~standard'].validate({ modelVariants: [{ model: 'glm-5.3', name: 'fast' }] }), false)
+      },
+    },
+    {
+      name: 'a wrong container type is reported as issues, never thrown',
+      run() {
+        // Cordis calls the schema before any plugin code runs, so a type
+        // mistake must come back as an issue naming the field: a validator
+        // that throws its own TypeError aborts activation with no field named.
+        const fields = ['models', 'hiddenModels', 'modelVariants', 'reasoningEfforts']
+        const wrong = [true, 7, {}, { length: 1 }, 'not-a-list']
+        for (const field of fields) {
+          for (const value of wrong) {
+            let result
+            try {
+              result = Config['~standard'].validate({ [field]: value })
+            } catch (error) {
+              throw new Error(`${field}: ${JSON.stringify(value)} made the validator throw: ${error?.message}`)
+            }
+            ok(Array.isArray(result.issues), `${field}: ${JSON.stringify(value)} returned issues`)
+            ok(result.issues.length > 0, `${field}: ${JSON.stringify(value)} was refused`)
+            ok(
+              result.issues.some((issue) => String(issue.message).includes(field)),
+              `${field}: the issue names the field: ${JSON.stringify(result.issues)}`,
+            )
+
+            // The schema and the resolution are the two validators a row
+            // crosses, so the resolution refuses the same value by name.
+            let thrown
+            try {
+              resolveConfig({ [field]: value })
+            } catch (error) {
+              thrown = error
+            }
+            ok(thrown !== undefined, `${field}: ${JSON.stringify(value)} did not reach the snapshot`)
+            ok(String(thrown.message).includes(field), `${field}: the resolution names the field`)
+          }
+          is('issues' in Config['~standard'].validate({ [field]: [] }), false, `${field}: an empty list is valid`)
+        }
+
+        // The row config itself is a container too. A Date, Map, or RegExp has
+        // no declared keys, so accepting one would silently resolve every
+        // field to its default. Both validators name the config instead.
+        for (const value of [new Date(0), new Map(), /config/, new Set()]) {
+          let result
+          try {
+            result = Config['~standard'].validate(value)
+          } catch (error) {
+            throw new Error(`${String(value)} made the validator throw: ${error?.message}`)
+          }
+          ok(Array.isArray(result.issues) && result.issues.length > 0, `${String(value)} returned issues`)
+          ok(result.issues.some((issue) => String(issue.message).includes('config')), 'the issue names the config')
+          let thrown
+          try {
+            resolveConfig(value)
+          } catch (error) {
+            thrown = error
+          }
+          ok(thrown !== undefined, `${String(value)} did not reach the snapshot`)
+        }
+      },
+    },
+    {
+      name: 'a retry policy the page refuses is refused by the schema and by resolution',
+      run() {
+        const rejected = [
+          [{ maxRetries: 'many' }, 'maxRetries'],
+          [{ maxRetries: -1 }, 'maxRetries'],
+          [{ maxRetries: 21 }, 'maxRetries'],
+          [{ maxRetries: 1.5 }, 'maxRetries'],
+          [{ initialDelayMs: 20_000, maxDelayMs: 10_000 }, 'initialDelayMs'],
+          // A partial policy is judged against the defaults it inherits, so a
+          // handwritten floor above the default ceiling cannot slip through.
+          [{ initialDelayMs: 20_000 }, 'initialDelayMs'],
+          [{ maxDelayMs: 100 }, 'initialDelayMs'],
+          [{ initialDelayMs: 0 }, 'initialDelayMs'],
+          [{ maxDelayMs: 1.5 }, 'maxDelayMs'],
+          // The delay ceiling is the harness's own timer bound, inclusive: one
+          // millisecond over it would overflow `setTimeout` and fire at once.
+          [{ maxDelayMs: MAX_DELAY_MS + 1 }, 'maxDelayMs'],
+          [{ initialDelayMs: MAX_DELAY_MS + 1, maxDelayMs: MAX_DELAY_MS + 1 }, 'initialDelayMs'],
+          [{ jitterRatio: 2 }, 'jitterRatio'],
+          [{ jitterRatio: -0.1 }, 'jitterRatio'],
+          [{ mode: 'turbo' }, 'mode'],
+          // This route only exposes the bounded mode; `always` is not a value
+          // the page or a hand-written row may select here.
+          [{ mode: 'always' }, 'mode'],
+          [{ retryableCodes: 'TRANSPORT' }, 'retryableCodes'],
+          [{ retryableCodes: [''] }, 'retryableCodes'],
+          [{ extra: 1 }, 'extra'],
+          ['normal', 'retryPolicy'],
+          [[], 'retryPolicy'],
+          [new Date(0), 'retryPolicy'],
+          [new Map(), 'retryPolicy'],
+          [/retry/, 'retryPolicy'],
+        ]
+        for (const [policy, field] of rejected) {
+          const result = Config['~standard'].validate({ retryPolicy: policy })
+          ok(Array.isArray(result.issues) && result.issues.length > 0, `${JSON.stringify(policy)} was refused`)
+          const text = result.issues.map((issue) => issue.message).join(' | ')
+          ok(text.includes(field), `${JSON.stringify(policy)} names ${field}: ${text}`)
+
+          let thrown
+          try {
+            resolveConfig({ retryPolicy: policy })
+          } catch (error) {
+            thrown = error
+          }
+          ok(thrown !== undefined, `${JSON.stringify(policy)} did not reach the snapshot`)
+          ok(String(thrown.message).includes(field), `${JSON.stringify(policy)} names ${field}: ${thrown.message}`)
+        }
+      },
+    },
+    {
+      name: 'a retry policy is normalized over the one default set and frozen',
+      run() {
+        equal(resolveConfig(undefined).retryPolicy, DEFAULT_RETRY_POLICY)
+        // An absent row field and an explicit null both mean "use the
+        // defaults"; only a submitted value is a policy to check.
+        is('issues' in Config['~standard'].validate({ retryPolicy: null }), false, 'null is the defaults')
+        equal(resolveConfig({ retryPolicy: null }).retryPolicy, DEFAULT_RETRY_POLICY)
+
+        const codes = ['TIMEOUT']
+        const config = resolveConfig({ retryPolicy: { maxRetries: 0, retryableCodes: codes } })
+        equal(config.retryPolicy, {
+          ...DEFAULT_RETRY_POLICY,
+          maxRetries: 0,
+          retryableCodes: ['TIMEOUT'],
+        })
+        ok(Object.isFrozen(config.retryPolicy), 'the policy is frozen')
+        ok(Object.isFrozen(config.retryPolicy.retryableCodes), 'its code list is frozen too')
+
+        // The snapshot owns its copy: a caller that later mutates the array it
+        // passed in cannot change what the adapter reports.
+        codes.push('SERVER')
+        equal([...config.retryPolicy.retryableCodes], ['TIMEOUT'])
+
+        for (const policy of [
+          { maxRetries: 0 },
+          { maxRetries: 20 },
+          { jitterRatio: 0 },
+          { jitterRatio: 1 },
+          { initialDelayMs: 100, maxDelayMs: 100 },
+          // The ceiling itself is a legal delay; the two delays may both sit on
+          // it, because the cross-field rule is "not above", not "below".
+          { maxDelayMs: MAX_DELAY_MS },
+          { initialDelayMs: MAX_DELAY_MS, maxDelayMs: MAX_DELAY_MS },
+        ]) {
+          is('issues' in Config['~standard'].validate({ retryPolicy: policy }), false, `${JSON.stringify(policy)} is valid`)
+          const resolved = resolveConfig({ retryPolicy: policy }).retryPolicy
+          if (policy.initialDelayMs !== undefined) is(resolved.initialDelayMs, policy.initialDelayMs)
+          if (policy.maxDelayMs !== undefined) is(resolved.maxDelayMs, policy.maxDelayMs)
+        }
+
+        // "Plain object" includes a null-prototype record: it has no inherited
+        // members, so it is exactly the shape a lookup table hands over.
+        const nullPrototype = Object.assign(Object.create(null), { maxRetries: 1 })
+        is('issues' in Config['~standard'].validate({ retryPolicy: nullPrototype }), false, 'a null-prototype record is a policy')
+        is(resolveConfig({ retryPolicy: nullPrototype }).retryPolicy.maxRetries, 1)
       },
     },
     {

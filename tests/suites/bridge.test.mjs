@@ -8,16 +8,23 @@
  * lands in — not the rendering, which only a browser can show.
  */
 
+import { mkdtemp, rm, writeFile } from 'node:fs/promises'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
+
 import {
   MANAGED_CONFIG_FIELDS,
   UI_ROUTES,
   UI_ROUTE_PREFIX,
   VARIANT_FIELDS,
+  createBridge,
   findEntry,
   nextOverride,
   validateApiKey,
   validateFieldValue,
 } from '../../lib/ui/bridge.js'
+import { Config, DEFAULT_RETRY_POLICY, resolveConfig } from '../../lib/config.js'
+import { UsageStore, dayKey } from '../../lib/usage/store.js'
 import { fenceRejection, isLoopbackHostname } from '../../lib/ui/http.js'
 import {
   bridgeUnderTest,
@@ -29,6 +36,10 @@ import {
   local,
 } from './_bridge-harness.mjs'
 import { equal, includes, is, ok } from '../helpers.mjs'
+
+// The harness's timer ceiling (2^31 - 1 ms), which a retry delay may equal but
+// must not exceed: `setTimeout` overflows above it and fires immediately.
+const MAX_DELAY_MS = 2_147_483_647
 
 export default {
   name: 'ui bridge',
@@ -250,6 +261,54 @@ export default {
         const all = await call(instance, local({ url: `${UI_ROUTES.usage}?days=all` }))
         is(all.captured.statusCode, 200)
         is(all.json.window, 'all')
+      },
+    },
+    {
+      name: 'the first GET usage serves the complete file history to the window and to all days',
+      async run() {
+        // The endpoint asks the store for the selected window and for all days
+        // at once. Both reads must share the store's first file read: otherwise
+        // the historical answer is computed from an empty memory table and the
+        // page loses every day before the window until it reloads.
+        const directory = await mkdtemp(join(tmpdir(), 'oc-bridge-usage-'))
+        try {
+          const path = join(directory, 'usage.json')
+          const olderDay = dayKey(new Date(2026, 0, 10, 12).getTime())
+          const today = dayKey(new Date(2026, 0, 15, 12).getTime())
+          const row = (requests, inputTokens) => ({
+            requests,
+            failures: 0,
+            inputTokens,
+            outputTokens: 0,
+            totalTokens: inputTokens,
+            cacheReadTokens: 0,
+            cacheWriteTokens: 0,
+            cacheReported: 0,
+          })
+          await writeFile(path, JSON.stringify({
+            version: 1,
+            updatedAt: 0,
+            days: {
+              [olderDay]: { 'glm-5.3': row(1, 50) },
+              [today]: { 'glm-5.3': row(2, 100) },
+            },
+          }), 'utf8')
+          const store = new UsageStore(
+            { usagePath: path },
+            { logger: { warn() {} }, now: () => new Date(2026, 0, 15, 12).getTime(), flushDelayMs: 0 },
+          )
+          const { instance } = bridgeUnderTest({ usage: (days) => store.summary({ days }) })
+          const res = await call(instance, local({ url: `${UI_ROUTES.usage}?days=1` }))
+
+          is(res.captured.statusCode, 200)
+          is(res.json.window, 1)
+          equal(res.json.days.map((entry) => entry.day), [today], 'the selected window is one day')
+          equal(res.json.historyDays.map((entry) => entry.day), [olderDay, today],
+            'the complete file history is there on the first read')
+          is(res.json.historyDays.reduce((total, entry) => total + entry.counters.requests, 0), 3)
+        } finally {
+          await rm(directory, { recursive: true, force: true })
+        }
       },
     },
     {
@@ -480,6 +539,65 @@ export default {
         is(res.captured.statusCode, 401)
         is(res.captured.body, undefined)
         equal(asked, [UI_ROUTES.state])
+      },
+    },
+    {
+      name: 'a connection service that cannot be resolved answers 500, not nothing',
+      async run() {
+        // The fence runs before dispatch, but it is still inside the request
+        // boundary: a service accessor that throws must be answered like any
+        // other failure, not left to reject the route handler with statusCode 0
+        // and nothing written.
+        const canary = 'connection lookup exploded: sk-do-not-echo'
+        let snapshots = 0
+        const instance = createBridge({
+          config: () => resolveConfig({}),
+          connection: () => {
+            throw new Error(canary)
+          },
+          snapshot: async () => {
+            snapshots += 1
+            return fakeSnapshot()
+          },
+          logger: { warn() {} },
+        })
+        const res = await call(instance, local())
+
+        is(res.captured.statusCode, 500)
+        is(res.json.ok, false)
+        is(res.json.error, 'internal')
+        is(res.json.message, undefined, 'the fence failure is not echoed to the caller')
+        ok(!String(res.captured.body).includes(canary), 'the fence failure stays out of the response')
+        is(snapshots, 0, 'no endpoint ran behind an unresolved fence')
+      },
+    },
+    {
+      name: 'a connection policy that throws fails closed before any endpoint runs',
+      async run() {
+        // `requestRejection` is the authorization boundary itself. If asking it
+        // throws, admitting the request would be a fail-open, and leaving the
+        // response untouched would give the caller no answer at all.
+        const canary = 'session lookup exploded: cookie=sk-do-not-echo'
+        let snapshots = 0
+        const { instance } = bridgeUnderTest({
+          connection: {
+            requestRejection() {
+              throw new Error(canary)
+            },
+          },
+          snapshot: async () => {
+            snapshots += 1
+            return fakeSnapshot()
+          },
+        })
+        const res = await call(instance, local())
+
+        is(res.captured.statusCode, 500)
+        is(res.json.ok, false)
+        is(res.json.error, 'internal')
+        is(res.json.message, undefined, 'the policy failure is not echoed to the caller')
+        ok(!String(res.captured.body).includes(canary), 'the policy failure stays out of the response')
+        is(snapshots, 0, 'no endpoint ran behind a failing policy')
       },
     },
     {
@@ -999,6 +1117,120 @@ export default {
         ok(String(validateFieldValue('retryPolicy', { ...policy, jitterRatio: 2 })).includes('jitterRatio'))
         ok(String(validateFieldValue('retryPolicy', { ...policy, extra: 1 })).includes('extra'))
         is(validateFieldValue('retryPolicy', null), 'retryPolicy must be an object')
+        // A Date, Map, or RegExp carries no declared policy keys; treating one
+        // as a record would silently resolve the whole policy to its defaults.
+        for (const value of [new Date(0), new Map(), /policy/]) {
+          is(validateFieldValue('retryPolicy', value), 'retryPolicy must be an object')
+        }
+        // The delay ceiling is inclusive, and one millisecond over it is the
+        // same refusal the schema and the resolution make.
+        ok(String(validateFieldValue('retryPolicy', { ...policy, maxDelayMs: MAX_DELAY_MS + 1 })).includes('maxDelayMs'))
+        is(
+          validateFieldValue('retryPolicy', {
+            ...policy,
+            initialDelayMs: MAX_DELAY_MS,
+            maxDelayMs: MAX_DELAY_MS,
+          }),
+          undefined,
+        )
+      },
+    },
+    {
+      name: 'the page and a handwritten row apply one retry-policy rule',
+      run() {
+        // The field arrives two ways: the settings page posts it, and a
+        // deployment writes it into YAML by hand. A rule enforced on only one
+        // path lets the other persist a policy the adapter cannot use.
+        const rejected = [
+          { maxRetries: 'many' },
+          { maxRetries: -1 },
+          { maxRetries: 21 },
+          { maxRetries: 1.5 },
+          { initialDelayMs: 20_000, maxDelayMs: 10_000 },
+          { initialDelayMs: 20_000 },
+          { maxDelayMs: 100 },
+          { maxDelayMs: MAX_DELAY_MS + 1 },
+          { initialDelayMs: MAX_DELAY_MS + 1, maxDelayMs: MAX_DELAY_MS + 1 },
+          { jitterRatio: 2 },
+          { jitterRatio: -0.1 },
+          { mode: 'turbo' },
+          // This route exposes only the bounded mode; the page and a
+          // hand-written row must agree that `always` is not selectable here.
+          { mode: 'always' },
+          { retryableCodes: 'TRANSPORT' },
+          { retryableCodes: [''] },
+          { extra: 1 },
+          new Date(0),
+          new Map(),
+          /policy/,
+        ]
+        for (const policy of rejected) {
+          const page = validateFieldValue('retryPolicy', policy)
+          ok(typeof page === 'string', `the page refused ${JSON.stringify(policy)}`)
+
+          const handwritten = Config['~standard'].validate({ retryPolicy: policy })
+          ok(
+            Array.isArray(handwritten.issues) && handwritten.issues.length > 0,
+            `the schema refused ${JSON.stringify(policy)}`,
+          )
+          ok(
+            handwritten.issues.some((issue) => String(issue.message).includes(page)),
+            `the schema reports the page's rule for ${JSON.stringify(policy)}`,
+          )
+
+          let thrown
+          try {
+            resolveConfig({ retryPolicy: policy })
+          } catch (error) {
+            thrown = error
+          }
+          ok(thrown !== undefined, `the resolution refused ${JSON.stringify(policy)}`)
+          ok(String(thrown?.message).includes(page), `the resolution reports the page's rule for ${JSON.stringify(policy)}`)
+        }
+
+        const accepted = [
+          {},
+          { maxRetries: 0 },
+          { maxRetries: 20 },
+          { jitterRatio: 0 },
+          { jitterRatio: 1 },
+          { initialDelayMs: 100, maxDelayMs: 100 },
+          { maxDelayMs: MAX_DELAY_MS },
+          { initialDelayMs: MAX_DELAY_MS, maxDelayMs: MAX_DELAY_MS },
+          { mode: 'normal', retryableCodes: ['TIMEOUT'] },
+          // A null-prototype record is a plain object too: no inherited keys,
+          // just the fields the row states.
+          Object.assign(Object.create(null), { maxRetries: 1 }),
+        ]
+        for (const policy of accepted) {
+          is(validateFieldValue('retryPolicy', policy), undefined, `the page accepts ${JSON.stringify(policy)}`)
+          is('issues' in Config['~standard'].validate({ retryPolicy: policy }), false, `the schema accepts ${JSON.stringify(policy)}`)
+          equal(resolveConfig({ retryPolicy: policy }).retryPolicy, { ...DEFAULT_RETRY_POLICY, ...policy })
+        }
+      },
+    },
+    {
+      name: 'a retry policy the config would refuse never reaches the profile',
+      async run() {
+        const editor = fakeEditor()
+        const { instance } = bridgeUnderTest({ configEditor: editor })
+        for (const policy of [
+          { maxRetries: 21 },
+          { initialDelayMs: 20_000 },
+          { maxDelayMs: MAX_DELAY_MS + 1 },
+          { jitterRatio: 2 },
+        ]) {
+          const res = await call(instance, local({
+            method: 'POST',
+            url: UI_ROUTES.config,
+            headers: { host: '127.0.0.1:1' },
+            body: { set: { retryPolicy: policy } },
+          }))
+          is(res.captured.statusCode, 400)
+          is(res.json.error, 'invalid-field-value')
+          includes(res.json.message, 'retryPolicy')
+        }
+        equal(editor.writes, [])
       },
     },
     {
