@@ -74,7 +74,7 @@ export default {
     {
       name: 'the shipped development page states the manifest version',
       async run() {
-        const shape = /^\|\s*\*\*(?:Version|版本)\*\*\s*\|\s*(\d+\.\d+\.\d+)/m
+        const shape = /^\|\s*\*\*(?:Version|版本)\*\*\s*\|\s*(\d+\.\d+\.\d+(?:[-+][0-9A-Za-z.-]+)?)/m
         for (const path of ['docs/development.md', 'docs/development.zh-CN.md']) {
           is(statedVersion(path, await read(path), shape), version, `${path} states a stale version`)
         }
@@ -123,7 +123,7 @@ export default {
     {
       name: 'the shipped protocol example carries the manifest version',
       async run() {
-        const shape = /User-Agent: dsh-opencode-go\/(\d+\.\d+\.\d+)/
+        const shape = /User-Agent: dsh-opencode-go\/(\d+\.\d+\.\d+(?:[-+][0-9A-Za-z.-]+)?)/
         for (const path of ['docs/wire-protocol.md', 'docs/wire-protocol.zh-CN.md']) {
           is(statedVersion(path, await read(path), shape), version, `${path} shows a stale User-Agent`)
         }

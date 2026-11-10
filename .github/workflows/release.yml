@@ -75,6 +75,13 @@ jobs:
       - name: Offline suite
         run: npm test
 
+      # The offline suite cannot activate the plugin: cordis validates the
+      # exported config through `Config['~standard'].validate()` before it starts
+      # anything, and a plain-object schema fails only there. A tag can point at
+      # a commit that never passed on main, so this check has to run here too.
+      - name: Cordis activation
+        run: npm run test:cordis
+
       # The tarball is what a reader installs, and it is built by an allowlist.
       - name: Packed package
         run: npm run check:pack

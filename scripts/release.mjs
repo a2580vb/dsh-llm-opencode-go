@@ -47,25 +47,59 @@ export function versionFromTag(tag) {
 }
 
 /**
+ * The version a release tag names, once the manifest is known to state it.
+ *
+ * A tag is the release here, but it is only a release of this package when the
+ * manifest says the same version: a tag on the wrong commit would publish a
+ * tarball whose version is not the one the tag, and its release notes, name.
+ * Both refusals state the two values, because this runs on a tag where the log
+ * is the only thing a person sees.
+ *
+ * @param {string} tag - the ref or tag name to read.
+ * @returns {string} the version, without the `v`.
+ * @throws {Error} when the tag is not a version tag or names another version.
+ */
+export function checkTag(tag) {
+  const version = versionFromTag(tag)
+  if (version === undefined) {
+    throw new Error(`expected a v-prefixed version tag, got '${tag}'`)
+  }
+  const stated = manifestVersion()
+  if (version !== stated) {
+    throw new Error(`the tag says ${version} and package.json says ${stated}`)
+  }
+  return version
+}
+
+/**
  * One section of a changelog, without its heading.
  *
  * Sections are `## <version> — <date>`, newest first, and a section ends at the
- * next heading of the same level. Matching the heading rather than searching for
- * the version string matters: `0.2.1` appears in prose about `0.2.1`, and only
- * the heading is a section.
+ * next level-two heading. The version is the first token after `##`, compared as
+ * a whole string: `0.2.1` is not `0.2.1-rc.1` and `0.2.1+build.7` is not
+ * `0.2.1`, so a release reads only the section whose token it asked for.
+ * Matching the heading rather than searching for the version string matters:
+ * `0.2.1` appears in prose about `0.2.1`, and only the heading is a section.
  *
  * @param {string} text - the changelog's contents.
  * @param {string} version - the version to read, without a leading `v`.
  * @returns {string | undefined} the body, trimmed, or `undefined` when absent.
  */
 export function section(text, version) {
-  const heading = new RegExp(`^##\\s+v?${version.replace(/\./g, '\\.')}\\s*(?:—|-|$).*$`, 'm')
-  const start = heading.exec(text)
-  if (start === null) return undefined
-  const rest = text.slice(start.index + start[0].length)
-  const next = /^##\s+/m.exec(rest)
-  const body = (next === null ? rest : rest.slice(0, next.index)).trim()
-  return body === '' ? undefined : body
+  const body = []
+  let inSection = false
+  for (const line of text.split(/\r?\n/)) {
+    const heading = /^##\s+(\S+)/.exec(line)
+    if (heading !== null) {
+      if (inSection) break
+      const named = heading[1].startsWith('v') ? heading[1].slice(1) : heading[1]
+      if (named === version) inSection = true
+      continue
+    }
+    if (inSection) body.push(line)
+  }
+  const notes = body.join('\n').trim()
+  return notes === '' ? undefined : notes
 }
 
 /**
@@ -84,17 +118,7 @@ const COMMANDS = {
   version() {
     return manifestVersion()
   },
-  'check-tag': (tag) => {
-    const version = versionFromTag(tag)
-    if (version === undefined) {
-      throw new Error(`expected a v-prefixed version tag, got '${tag}'`)
-    }
-    const stated = manifestVersion()
-    if (version !== stated) {
-      throw new Error(`the tag says ${version} and package.json says ${stated}`)
-    }
-    return version
-  },
+  'check-tag': checkTag,
   notes: (version) => {
     const body = releaseNotes(version)
     if (body === undefined) throw new Error(`CHANGELOG.md has no section for ${version}`)

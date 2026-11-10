@@ -28,8 +28,8 @@ import { readFile } from 'node:fs/promises'
 import { existsSync } from 'node:fs'
 
 import { ANCHORS, FORBIDDEN } from '../../scripts/check-pack.mjs'
-import { manifestVersion, releaseNotes, section, versionFromTag } from '../../scripts/release.mjs'
-import { equal, is, ok } from '../helpers.mjs'
+import { checkTag, manifestVersion, releaseNotes, section, versionFromTag } from '../../scripts/release.mjs'
+import { assert, equal, is, ok } from '../helpers.mjs'
 
 const read = (path) => readFile(new URL(`../../${path}`, import.meta.url), 'utf8')
 
@@ -277,21 +277,50 @@ export default {
         for (const tag of ['main', '0.2.1', 'v', 'v0.2', 'release-0.2.1', 'v0.2.1.4', '']) {
           is(versionFromTag(tag), undefined, `'${tag}' is not a release tag`)
         }
+        // The tag decides what is published; the manifest decides what the
+        // tarball says it is. Both refusals name both values, so a tag on the
+        // wrong commit says what to fix rather than publishing a version whose
+        // release notes describe another one.
+        is(checkTag(`v${version}`), version, 'the tag naming the manifest version is accepted')
+        assert.throws(() => checkTag('main'), /expected a v-prefixed version tag/, 'a branch name is refused')
+        // The mismatches are derived from the manifest's numeric core rather
+        // than decorated with its own prerelease/build: a manifest that is
+        // itself a prerelease would otherwise make `v<version>-rc.1` a tag
+        // `versionFromTag` refuses for its shape, testing the wrong refusal.
+        const [core] = version.split(/[-+]/)
+        const other = core.replace(/^\d+/, (major) => String(Number(major) + 1))
+        for (const tag of [`v${other}`, `v${other}-rc.1`, `v${other}+build.7`]) {
+          assert.throws(
+            () => checkTag(tag),
+            (error) =>
+              error.message.includes(`the tag says ${tag.slice(1)}`) &&
+              error.message.includes(`package.json says ${version}`),
+            `${tag} does not name the manifest version and is refused`,
+          )
+        }
       },
     },
     {
       name: 'a release runs the same checks a push does, plus the notes',
       async run() {
         const text = await read('.github/workflows/release.yml')
-        const scripts = scriptsRun(text)
-        for (const script of ['check', 'test', 'check:pack']) {
-          is(scripts.includes(script), true, `release runs \`${script}\` before publishing`)
+        const releaseScripts = scriptsRun(text)
+        // The list is read from CI instead of being restated here, so a check
+        // added to a push is a check the release is held to as well. A tag can
+        // point at a commit that never passed on main, so "the same checks" has
+        // to mean every one of them — activation included.
+        const ciScripts = scriptsRun(await read('.github/workflows/ci.yml'))
+        for (const script of ciScripts) {
+          is(releaseScripts.includes(script), true, `release runs \`${script}\`, which a push runs`)
         }
-        // A tag can point at a commit that never passed on main, so the checks
-        // have to run here rather than be assumed.
+        // Every check runs before the publish step: a tarball is not uploaded on
+        // the strength of a check that runs after it.
         const publishAt = text.indexOf('Publish to npm')
-        for (const script of ['npm run check', 'npm test', 'npm run check:pack']) {
-          is(text.indexOf(script) < publishAt, true, `\`${script}\` runs before the publish step`)
+        ok(publishAt >= 0, 'release has a publish step')
+        for (const command of ['npm run check', 'npm test', 'npm run check:pack', 'npm run test:cordis']) {
+          const at = text.indexOf(command)
+          is(at >= 0, true, `release runs \`${command}\``)
+          is(at < publishAt, true, `\`${command}\` runs before the publish step`)
         }
       },
     },
@@ -363,6 +392,13 @@ export default {
         const crlf = ci.replace(/\r\n/g, '\n').replace(/\n/g, '\r\n')
         is(scriptsRun(crlf).includes('test'), true, 'the offline suite is still found in a CRLF checkout')
         is(scriptsRun(crlf).includes('check:pack'), true, 'and so is the pack check, which is a step of its own')
+        // The release adds the activation suite in both line-ending variants:
+        // this is the step a parser that only understood LF would miss.
+        const release = await read('.github/workflows/release.yml')
+        const releaseLf = release.replace(/\r\n/g, '\n')
+        const releaseCrlf = releaseLf.replace(/\n/g, '\r\n')
+        is(scriptsRun(releaseLf).includes('test:cordis'), true, 'a release runs activation in an LF checkout')
+        is(scriptsRun(releaseCrlf).includes('test:cordis'), true, 'and in a CRLF checkout, which Windows gets')
       },
     },
     {
@@ -382,10 +418,39 @@ export default {
         is(section('## 0.2.1 — x\n\n## 0.2.0 — y\n\nolder\n', '0.2.1'), undefined, 'a heading with no body is not notes')
         is(section('## 0.2.1 — x\n\nbody\n\n## 0.2.0 — y\n\nolder\n', '0.2.1'), 'body', 'and a section stops at the next')
         is(section('# Changelog\n\nsee 0.2.1 for details\n', '0.2.1'), undefined, 'prose is not a section')
+        // Stable, prerelease and build are three different version tokens, not
+        // one token with decorations: `0.2.1` must not read `0.2.1-rc.1`, and
+        // `0.2.1+build.7` has a section of its own.
+        const history = [
+          '## 0.2.1-rc.1 — x',
+          '',
+          'candidate',
+          '',
+          '## 0.2.1+build.7 — x',
+          '',
+          'build',
+          '',
+          '## 0.2.1 — x',
+          '',
+          'stable',
+        ].join('\n')
+        is(section(history, '0.2.1'), 'stable', 'the stable release does not read its prerelease')
+        is(section(history, '0.2.1-rc.1'), 'candidate', 'a prerelease reads its own section')
+        is(section(history, '0.2.1+build.7'), 'build', 'build metadata is part of the version token')
+        is(
+          section('## 0.2.1-rc.1 — x\n\ncandidate\n', '0.2.1'),
+          undefined,
+          'a prerelease alone does not become the stable release',
+        )
+        is(
+          section(history.replace(/\n/g, '\r\n'), '0.2.1+build.7'),
+          'build',
+          'a CRLF checkout reads the same section',
+        )
         // Version headings are exactly what a release reads, so every one of them
         // in the shipped changelog has to have notes behind it.
         const text = await read('CHANGELOG.md')
-        for (const match of text.matchAll(/^##\s+v?(\d+\.\d+\.\d+)/gm)) {
+        for (const match of text.matchAll(/^##\s+v?(\d+\.\d+\.\d+(?:[-+][0-9A-Za-z.-]+)?)/gm)) {
           ok(section(text, match[1]) !== undefined, `the ## ${match[1]} heading has a body`)
         }
         is(manifestVersion(), version, 'the notes default to the manifest version')
