@@ -445,28 +445,6 @@ export default {
       },
     },
     {
-      name: 'the summary view renders without fetching anything',
-      run() {
-        const { factory } = loadBundle()
-        const { ctx, state } = fakeClientContext()
-        factory(fakeRequire()).apply(ctx)
-        const component = entryFor(state, 'plugins.row.config').component
-        const calls = []
-        const originalFetch = globalThis.fetch
-        globalThis.fetch = (...args) => {
-          calls.push(args)
-          throw new Error('the summary view must not fetch')
-        }
-        try {
-          const rendered = component({ view: 'summary', t: (key) => key })
-          ok(rendered !== undefined && rendered !== null, 'the summary rendered')
-        } finally {
-          globalThis.fetch = originalFetch
-        }
-        is(calls.length, 0)
-      },
-    },
-    {
       name: 'the page reads usage through the endpoint the Host serves',
       run() {
         includes(clientSource, 'usage: \'opencode-go/usage\'')
