@@ -16,7 +16,7 @@
 ## 验证
 
 ```sh
-npm test            # 554 项离线检查：配置、SSE 分帧、目录、三种协议、适配器、插件本体、配置桥接、客户端 bundle、显示元数据、诊断日志、版本一致性，以及本仓库自己的 CI
+npm test            # 554 项离线检查，覆盖配置、SSE 分帧、目录与发现、三种协议、适配器、用量计数、订阅、插件本体、配置桥接与页面、显示元数据、诊断日志、版本一致性，以及本仓库自己的 CI
 npm run test:cordis # 44 项检查，把插件挂到 Harness 自己的 cordis 上
 npm run test:live   # 对线上服务的实测套件；需要 OC_KEY
 npm run check:pack  # `npm publish` 会真正上传的那个 tarball
@@ -42,7 +42,7 @@ npm run check:pack  # `npm publish` 会真正上传的那个 tarball
 - **`flex` 的 basis 在行容器里是宽度，在列容器里是高度。** 所以不要给控件设 basis：给标签（行里的 flex 项）定宽，让控件用 `styles.fieldInput`（`flex: 'none'`）填满它。套件会遍历渲染出的树，找出所有处于列祖先之下的控件，拒绝任何带着 basis 的。
 - **塞不下的 placeholder 就是一句被截断的话。** 套件会按列声明的宽度估算每个 placeholder，过长的提示在这里就被抓住。关于「允许输入什么」的规则应该放在字段下方的提示文字里，那里能换行、能读。
 
-`npm run test:live` 会消耗真实配额。它针对线上中继检查：模型发现与服务行事实的缓存、快照之后新增的模型能解析出自己的 live 事实、三种协议各自的往返、每种协议的完整工具调用往返、被强行指定到非首选协议的模型仍然可用、重复 session id 上的缓存复用、历史中存在「被记录但从未派发」的工具调用时请求仍被接受、每个模型都报告自己的上下文窗口、输出上限与模态、每一个对外公布的思考等级都被接受，以及被 workspace 门控的模型要么正常作答、要么被明确报成「需要该 workspace 的同意」。
+`npm run test:live` 会消耗真实配额。它针对线上中继检查：模型发现与服务行事实的缓存、快照之后新增的模型能解析出自己的 live 事实、三种协议各自的往返、每种协议的完整工具调用往返、被强行指定到非首选协议的模型仍然可用、同一 session id 上的第二轮调用能完成并报出缓存数字、历史中存在「被记录但从未派发」的工具调用时请求仍被接受、每个在列模型都报告自己的上下文窗口与输出上限、一个视觉模型与一个纯文本模型分别报出 attachment seam 允许的模态、某个 Responses 模型对外公布的思考等级逐个被接受，以及被 workspace 门控的模型要么正常作答、要么被明确报成「需要该 workspace 的同意」。
 
 ```sh
 OC_KEY=oc_sk_... npm run test:live
@@ -61,14 +61,14 @@ OC_KEY=oc_sk_... npm run test:live
 
 `.github/workflows/ci.yml` 在每次推送到 `main` 和每个 pull request 上运行：语法检查、离线套件，以及打包检查——后者只在矩阵的一行上跑而不是四行，因为四种组合产出的字节是一样的。另一个 job 在 Node 20、22、24 上跑激活套件。实测套件不在其中：它需要凭据，并且消耗真实配额。
 
-action 钉在大版本上，而这个大版本是**保持跟进**的，不只是「可复现」：它决定这个 action 认为自己跑在哪个 Node 上。GitHub 已经弃用 Node 20 作为 action 运行时，而仍然指向它的 action 照跑不误—— 被强制换到 Node 24，并在每个 job 上带一条警告。这里面真正有分量的是 `setup-node`：v7 之前它会导出一个 dummy 的 `NODE_AUTH_TOKEN`；维护者的说法是「不是破坏，只是一个无效 token」，而发布路径恰恰是 OIDC + `registry-url` + 不存 token——正是一个来路不明的 token 最容易造成困惑的地方。
+action 钉在大版本上，而这个大版本是**保持跟进**的，不只是「可复现」：它决定这个 action 认为自己跑在哪个 Node 运行时上。`setup-node` v7 不再写 dummy 的 `NODE_AUTH_TOKEN`；发布路径是 OIDC + `registry-url` + 不存 token，所以一个来路不明的 token 恰恰是最容易造成困惑的东西。
 
 workflow 本身也在被检查，由 `ci` 套件负责。除此之外没有任何东西读它们，而写错的 workflow 只在 GitHub 上跑、不在任何别处跑——在那里，一个笔误就是一个安静地从不做它该做之事的 job。所以该套件会拒绝：制表符（YAML 不允许，而在编辑器里看不见）、钉在分支而不是版本上的 action、一个可能在比对 tag 与 manifest 之前就发布的 release、仓库里存着的 npm token、调用了不存在的 npm 脚本的步骤，以及指向仓库里并不存在的文件的打包锚点。
 
-那个套件吃过两次亏，现在各自是一条用例：
+这个套件要守住两条规则：
 
-- **克隆不等于工作区。** `.test-cache/`、`.live-cache/` 和 `.npm-cache/` 都在 `.gitignore` 里，所以它们只存在于造出它们的机器上，任何克隆里都没有。于是「断言某个路径**存在**」的用例对写它的人永远通过、在 CI 上必然失败——打包检查那条禁止目录的守卫正是如此：本地绿，却让矩阵四行全红。
-- **一份检出也不等于另一份检出。** `core.autocrlf` 在 Windows 上默认为 true，于是同一份文件在 Windows 上是 CRLF、在 Linux runner 上是 LF。用 `$` 锚定的解析器在 CRLF 文件里**什么都匹配不到**—— `.` 吃不下那个 `\r`，`$` 也不肯在它前面匹配——于是「workflow 跑没跑测试」在一个平台上答「没跑」，而报错信息里一个字都没提换行符。现在两种都能解析，并有一条用例断言两者给出同一答案。
+- **克隆不等于工作区。** `.test-cache/`、`.live-cache/` 和 `.npm-cache/` 都在 `.gitignore` 里，所以它们只存在于造出它们的机器上，任何克隆里都没有。于是「断言某个路径**存在**」的用例在本地通过、在克隆里必然失败；禁止前缀因此接受 gitignore 里的路径，而打包锚点仍必须在仓库里存在。
+- **一份检出也不等于另一份检出。** `core.autocrlf` 在 Windows 上默认为 true，于是同一份 workflow 在 Windows 上是 CRLF、在 CI 上是 LF；`.` 吃不下 `\r`，`$` 也不肯在它前面匹配，只认 LF 的解析器什么都找不到，于是「workflow 跑没跑测试」答「没跑」，而报错信息里一个字都没提换行符。套件按 `/\r?\n/` 切分，并有一条用例断言两种换行给出同一答案。
 
 ## 发布
 
@@ -118,6 +118,8 @@ lib/
 ├── index.js                  adapter 类、注册、健康检查
 ├── client.js                 浏览器半侧：插件自己的配置页
 ├── config.js                 schema、默认值、校验
+├── diagnostics/
+│   └── log.js                只记元数据的失败日志
 ├── error/
 │   ├── errors.js             本插件自有的失败类型与 brand 辅助
 │   └── mapping.js            HTTP 状态 / 传输失败 → 稳定错误码

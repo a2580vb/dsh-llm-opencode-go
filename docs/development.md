@@ -16,7 +16,7 @@ This page is for contributors: the project's current status, how to verify the p
 ## Verification
 
 ```sh
-npm test            # 554 offline checks: config, SSE framing, catalog, all three protocols, adapter, plugin body, the settings bridge, the client bundle, the display metadata, the diagnostics log, release coherence and the repository's own CI
+npm test            # 554 offline checks, including config, SSE framing, catalog and discovery, all three protocols, adapter, usage counters, subscription, plugin body, the settings bridge and page, display metadata, diagnostics, release coherence and CI
 npm run test:cordis # 44 checks mounting the plugin on the harness's own cordis
 npm run test:live   # the live suite; needs OC_KEY
 npm run check:pack  # what `npm publish` would upload
@@ -42,7 +42,7 @@ Two checks in the page suite are **structural**, and they double as rules for ne
 - **A `flex` basis is a width in a row container and a height in a column one.** So do not put a basis on a control: size the label (the flex item of the row) and let the control fill it with `styles.fieldInput`, which sets `flex: 'none'`. The suite walks the rendered tree, finds every control inside a column ancestor, and refuses any that carries a basis.
 - **A placeholder that does not fit is a cut-off sentence.** The suite estimates each placeholder against the width its column declares, so a long hint is caught here. Rules about accepted input belong in the hint text under the field, where they can wrap and be read.
 
-`npm run test:live` spends real quota. It checks, against the live relay: model discovery and the caching of the service's row facts, a model added after the snapshot resolving with its live facts, a round trip over each of the three protocols, a full tool-calling round trip per protocol, a model forced onto a non-preferred protocol still serving, cache reuse on a repeated session id, a history holding a tool call that was never dispatched, that every model reports its own context window, output cap, and modalities, that every advertised reasoning effort is accepted, and that a workspace-gated model either answers or is refused as needing that workspace's consent.
+`npm run test:live` spends real quota. It checks, against the live relay: model discovery and the caching of the service's row facts, a model added after the snapshot resolving with its live facts, a round trip over each of the three protocols, a full tool-calling round trip per protocol, a model forced onto a non-preferred protocol still serving, a second turn on one session id finishing and reporting its cache figures, a history holding a tool call that was never dispatched, that every listed model reports its own context window and output cap, that a vision model and a text-only model report the modalities the attachment seam allows, that one Responses model's advertised reasoning ladder is accepted, and that a workspace-gated model either answers or is refused as needing that workspace's consent.
 
 ```sh
 OC_KEY=oc_sk_... npm run test:live
@@ -61,14 +61,14 @@ One constraint to keep in mind when writing the plugin: the exported `Config` is
 
 `.github/workflows/ci.yml` runs on every push to `main` and every pull request: the syntax check, the offline suite, and — on one leg of the matrix rather than all four, since the bytes are the same — the pack check. A second job runs the activation suite on Node 20, 22 and 24. The live suite is not there: it needs a credential and spends real quota.
 
-The actions are pinned to a major, and the major is kept current rather than merely reproducible: it decides which Node the action expects. GitHub deprecated Node 20 as an action runtime, and an action that still targets it runs anyway — forced onto Node 24, with a warning on every job. `setup-node` is the one that mattered here, because before v7 it exported a dummy `NODE_AUTH_TOKEN`; the maintainers call that a non-functional token rather than a break, but the release path is OIDC with `registry-url` and no stored token, which is exactly where a stray one is most confusing.
+The actions are pinned to a major, and the major is kept current rather than merely reproducible: it decides which Node runtime the action expects. `setup-node` v7 writes no dummy `NODE_AUTH_TOKEN`; the release path is OIDC with `registry-url` and no stored token, so a stray one is exactly what would confuse it.
 
 The workflows are themselves checked, by the `ci` suite. Nothing else reads them, and a workflow that is wrong runs on GitHub and nowhere else, where a typo is a job that quietly never does what it was added for. So the suite refuses a tab character (illegal in YAML, invisible in an editor), an action pinned to a branch rather than a version, a release that could publish before checking the tag against the manifest, a stored npm token, a step naming an npm script that does not exist, and a pack anchor pointing at a file the repository does not have.
 
-Two things that suite learned the hard way, both now cases of their own:
+Two rules this suite exists to keep:
 
-- **A clone is not the working tree.** `.test-cache/`, `.live-cache/` and `.npm-cache/` are gitignored, so they exist on the machine that made them and in no clone at all. A case that asserts a path is *there* therefore passes for whoever wrote it and fails in CI — which is what happened: the guard over the pack check's forbidden directories passed locally and took down all four matrix legs.
-- **A checkout is not a checkout.** `core.autocrlf` is true by default on Windows, so those files have CRLF there and LF on a Linux runner. A parser anchored to `$` finds *nothing* in a CRLF file, because `.` cannot consume the `\r` and `$` will not match before it — so "does the workflow run the tests"answers no, on one platform, with nothing about line endings in the message. The suite parses either, and one case asserts both give the same answer.
+- **A clone is not the working tree.** `.test-cache/`, `.live-cache/` and `.npm-cache/` are gitignored, so they exist only on the machine that made them. A case that asserts a path is *there* therefore passes locally and fails in a clone; a forbidden prefix therefore accepts a gitignored path as known, while a pack anchor still has to exist in the repository.
+- **A checkout is not another checkout.** `core.autocrlf` is true by default on Windows, so a workflow is CRLF there and LF in CI; `.` cannot consume the `\r` and `$` will not match before it, so an LF-only parser finds nothing, and "does the workflow run the tests" answers no with nothing about line endings in the message. The suite splits on `/\r?\n/`, and a case asserts both give the same answer.
 
 ## Releasing
 
@@ -118,6 +118,8 @@ lib/
 ├── index.js                  adapter class, registration, health check
 ├── client.js                 the browser half: the plugin's configuration page
 ├── config.js                 schema, defaults, validation
+├── diagnostics/
+│   └── log.js                the metadata-only failure log
 ├── error/
 │   ├── errors.js             the failure type and brand helpers this plugin owns
 │   └── mapping.js            HTTP status / transport failure → stable code
