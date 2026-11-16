@@ -754,7 +754,7 @@ export default {
       async run() {
         // The resolution behind this does `max(floor, ceiling)`, so the write
         // would land and the number the reader typed would be replaced by one
-        // they did not. Naming both numbers is what makes the refusal a fix.
+        // they did not. Naming both numbers is what makes the refusal actionable.
         const editor = fakeEditor({ inherited: { provider: 'opencode-go' } })
         const { instance } = bridgeUnderTest({ configEditor: editor })
         const res = await call(instance, local({
@@ -1444,10 +1444,9 @@ export default {
     {
       name: 'GET activity answers from memory, and never spends a service read',
       async run() {
-        // The page checks this on its floor, which makes it the most-asked route
-        // here by a wide margin — and the whole point of it is that asking is
-        // free. If it ever reached the service, the schedule it serves would be
-        // the poll it exists to avoid.
+        // The page checks this on its floor, and asking is free — that is the
+        // whole point of it. If it ever reached the service, the schedule it
+        // serves would be the poll it exists to avoid.
         let asks = 0
         let service = 0
         const { instance } = bridgeUnderTest({
@@ -1574,7 +1573,7 @@ export default {
       name: 'the entry is found by row id, then by module name, and by identity',
       run() {
         // Loader entries nest the row fields under `options`; reading them flat
-        // is the bug that made the real deployment answer "no profile entry".
+        // makes the real deployment answer "no profile entry".
         const row = (id, name) => ({ options: { id, name, config: {} }, fiber: { state: 2 } })
         const rows = [row('ui-settings', '@deepseek-ai/dsh-client-ui-settings')]
         is(findEntry(rows, 'opencode-go'), undefined)
