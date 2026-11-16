@@ -80,8 +80,8 @@ export function fakeCredentials(initial) {
  *   change(entry.options.config, inherited)
  *
  * The stand-in reproduces all three checks, because a stand-in that accepted a
- * flatter shape would keep passing while the real deployment answered
- * "no profile entry for dsh-llm-opencode-go" — which is exactly what happened.
+ * flatter shape would keep passing while the real deployment answers
+ * "no profile entry for dsh-llm-opencode-go".
  */
 export function fakeEditor({ id = 'opencode-go', name = 'dsh-llm-opencode-go', inherited = {}, override = {} } = {}) {
   const fiber = { state: 2 }
@@ -189,7 +189,7 @@ export function fakeCounters(overrides = {}) {
 }
 
 /**
- * The bridge under test, with every optional collaborator controllable. *
+ * The bridge under test, with every optional collaborator controllable.
  * Presence is read with `in`, not by value: a suite that says
  * `credentials: undefined` is asking for a deployment without a credential
  * store, which is a different case from leaving the collaborator out.
