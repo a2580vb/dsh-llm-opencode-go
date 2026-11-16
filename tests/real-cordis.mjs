@@ -47,8 +47,8 @@ const check = (name, ok, detail) => {
 // A machine with nothing installed is not a reason to check nothing, though: the
 // same packages are on npm at the same versions, and CI has them from
 // `devDependencies`. So an archive named by `DSH_ASAR` is tried first and
-// `node_modules` is the fallback, which turns a suite that used to skip on every
-// build into one that runs there. `DSH_BUNDLE` overrides both.
+// `node_modules` is the fallback, so the suite runs in CI and on a machine with
+// no DSH installation. `DSH_BUNDLE` overrides both.
 // ---------------------------------------------------------------------------
 
 /** Where the harness's packages sit, or `undefined` when this machine has none. */
@@ -207,7 +207,7 @@ const pluginModule = await import(url(join(PLUGIN, 'lib/index.js')))
     error = thrown
   }
   check(
-    "cordis' Config['~standard'].validate() no longer throws",
+    "cordis' Config['~standard'].validate() returns a result instead of throwing",
     error === undefined && value?.issues === undefined,
     error?.message,
   )
@@ -293,12 +293,9 @@ const pluginModule = await import(url(join(PLUGIN, 'lib/index.js')))
 // ---------------------------------------------------------------------------
 // 5. A full streaming call through the real runtime, with only the socket faked.
 // ---------------------------------------------------------------------------
-// The usage file is per run, like the discovery caches above. It used to be one
-// fixed path under the shared bundle cache, and the case below asserted the file
-// held exactly one call — which only ever held because a bug threw the recorded
-// call away on the write that followed it, so the number could never grow. A
-// path of its own is what makes "one call went through, one call was counted"
-// an assertion about the plugin rather than about the machine's history.
+// The usage file is per run, like the discovery caches above: a path of its own
+// makes "one call went through, one call was counted" an assertion about the
+// plugin, not about whatever this machine counted before.
 const USAGE_RUN = `run-${String(Date.now())}-${String(process.pid)}`
 const USAGE_PATH = join(CACHE, 'usage', `${USAGE_RUN}.json`)
 const DIAGNOSTICS_PATH = join(CACHE, 'diagnostics', `${USAGE_RUN}.jsonl`)
@@ -542,10 +539,10 @@ const DIAGNOSTICS_PATH = join(CACHE, 'diagnostics', `${USAGE_RUN}.jsonl`)
     const unknown = await fetch(`http://127.0.0.1:${port}/opencode-go/absent`)
     check('an unknown path under the prefix is not answered as a page', unknown.status === 404, String(unknown.status))
 
-    // The refresh control is the page's one call that reaches the provider.
-    // The cache file is fresh, so the Host answers from the service: a failed
-    // request is reported with the catalog kept, which is what an offline
-    // machine must see rather than a page that lost its models.
+    // The refresh control is the page's one call that reaches the provider: it
+    // forces a read even though the cache file is fresh, so a failed request is
+    // reported with the catalog kept, which is what an offline machine must see
+    // rather than a page that lost its models.
     const refreshed = await fetch(`http://127.0.0.1:${port}/opencode-go/refresh`, { method: 'POST' })
     const refreshPayload = await refreshed.json()
     check(
