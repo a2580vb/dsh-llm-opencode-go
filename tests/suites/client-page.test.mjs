@@ -671,8 +671,7 @@ export default {
 
         const [totalsTable, modelTable, dayTable] = tables(section)
         // All three tables share one column set, so a reader who has learned one
-        // has learned the rest -- including the cache columns, which used to
-        // appear only on the totals row.
+        // has learned the rest.
         const columns = [
           'Total', 'Calls', 'Failed', 'Uncached input', 'Output tokens',
           'Cache read', 'Cache write', 'Hit rate', 'Total tokens',
@@ -1898,10 +1897,9 @@ export default {
     {
       name: 'a deployment the page cannot write into says which part is missing, in words',
       async run() {
-        // The report was "configuration is read-only: no profile entry for this
-        // plugin was found", which names the symptom rather than what to do.
-        // A composition with no editor at all is a different reason from one
-        // whose editor cannot address this row, and both must read as English.
+        // A composition with no editor and one whose editor cannot address this
+        // row are different reasons; both are reported as a reason line followed
+        // by what still works.
         const noEditor = await renderPage({
           fetch: host({ state: { body: { ...STATE, config: { editable: false, reason: 'no-config-editor' } } } }),
         })
@@ -1984,9 +1982,8 @@ export default {
         // A placeholder that does not fit is not a hint, it is a cut-off
         // sentence: the reader sees "例如 fast（字母、数字、点、横线、下划" and learns
         // nothing about where the rest went. The boxes are a known width, so a
-        // rough width estimate is enough to catch a placeholder that outgrew
-        // its control -- which is how the rules ended up in the hint text
-        // under the field instead.
+        // rough width estimate catches a placeholder that outgrew its control;
+        // that is why the rules live in the hint text under the field instead.
         const page = await renderPage({ fetch: host() })
         const tree = await page.open()
         const problems = []
@@ -2512,11 +2509,10 @@ export default {
     {
       name: 'one read of a window is the table every surface showing it draws',
       async run() {
-        // The counters are drawn by three surfaces in three separate React trees,
-        // and each of them used to hold its own copy: *Refresh usage* on the panel
-        // moved the panel and left the page and the settings tab on the numbers
-        // they had read when they mounted. What is shared is the answer for a
-        // window, whichever surface asked for it.
+        // The counters are drawn by three surfaces in three separate React trees:
+        // holding the answer in each would let a refresh on one surface leave the
+        // other two on the numbers they mounted with. What is shared is the answer
+        // for a window, whichever surface asked.
         let reads = 0
         const base = host()
         const page = await renderPage({
@@ -2746,9 +2742,9 @@ export default {
     {
       name: 'the re-read control sits with the quota label, once per surface',
       async run() {
-        // The same action used to be drawn twice on the panel — once in the
-        // header and once inside the quota block — which reads as two different
-        // actions. It belongs with the label it acts on, and there is one of it.
+        // Drawing the same action in both the header and the quota block reads
+        // as two different actions; it belongs with the label it acts on, once
+        // per surface.
         const page = await renderPage({ fetch: host() })
         const trees = [
           ['the configuration page', await page.open()],
@@ -2791,7 +2787,7 @@ export default {
         const capsuleTree = await capsule.open()
         await capsule.click((node) => node.type === 'button' && node.props['aria-label'] === 'Open the plugin configuration page')
         equal(opened, ['dsh-llm-opencode-go', 'dsh-llm-opencode-go'])
-        is(text(tree).includes('Plugins →'), false, 'the entry no longer spells out the path in prose')
+        is(text(tree).includes('Plugins →'), false, 'the entry names the destination without spelling out the Plugins path in prose')
       },
     },
     {
@@ -2955,8 +2951,8 @@ export default {
         // transparent one would let them show through the title.
         ok(String(pinned.node.props.style.background).startsWith('var(--dsw-alias-'),
           `the row covers what it pins over, got ${String(pinned.node.props.style.background)}`)
-        // The column's own headroom moved onto the row, so the title still has
-        // its 28px once the row has taken hold against the scrollport's edge.
+        // The column's headroom sits on the row, so the title keeps its 28px
+        // once the row holds against the scrollport's edge.
         is(pinned.node.props.style.paddingTop, '28px')
         const scroller = find(tree, (node) => node.props?.style?.overflowY === 'auto')
         is(scroller.props.style.padding, '0 clamp(24px, 4vw, 48px) 48px', 'and only onto the row')
@@ -3115,9 +3111,8 @@ export default {
     {
       name: 'the models toolbar actions share one button size',
       async run() {
-        // Four secondary actions sit on one toolbar row. One of them used the
-        // 36px button primitive and the other three the 28px one, so the row
-        // read as two toolbars stapled together.
+        // Five secondary actions sit on one toolbar row. A different button
+        // primitive on any of them would read as two toolbars stapled together.
         const page = await renderPage({ fetch: host() })
         const tree = await page.open()
         const labels = ['Show all', 'Hide all', 'Fetch available models', 'Refresh page list', 'Hide retired models']
