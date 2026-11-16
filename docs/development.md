@@ -16,7 +16,7 @@ This page is for contributors: the project's current status, how to verify the p
 ## Verification
 
 ```sh
-npm test            # 560 offline checks: config, SSE framing, catalog, all three protocols, adapter, plugin body, the settings bridge, the client bundle, the display metadata, the diagnostics log, release coherence and the repository's own CI
+npm test            # 559 offline checks: config, SSE framing, catalog, all three protocols, adapter, plugin body, the settings bridge, the client bundle, the display metadata, the diagnostics log, release coherence and the repository's own CI
 npm run test:cordis # 44 checks mounting the plugin on the harness's own cordis
 npm run test:live   # the live suite; needs OC_KEY
 npm run check:pack  # what `npm publish` would upload
@@ -98,6 +98,7 @@ The service publishes each model's capacity, modalities, and reasoning ladder in
 OC_KEY=oc_sk_... node scripts/probe-protocols.mjs [model ...]   # one probe per served model
 OC_KEY=oc_sk_... node scripts/probe-image.mjs                   # image shapes, all three protocols
 node scripts/snapshot-models.mjs [--write]                      # fallback snapshot vs the catalogue
+node scripts/check-cached-models.mjs                            # fallback table vs this machine's OpenCode cache
 ```
 
 `probe-protocols.mjs` answers `served=[…]` per model. The `api` map in a live row is a preference, not a whitelist, so that measured list is what the remaining protocols behind the preferred entry are kept for. The probe keeps every request above the service's minimum output budget (16 tokens, so it sends 32) and fails on a stream error event as well as on the HTTP status, because a request shape the service rejects otherwise reads like a protocol refusal.
@@ -105,6 +106,8 @@ node scripts/snapshot-models.mjs [--write]                      # fallback snaps
 `probe-image.mjs` posts a PNG over each protocol and checks the model can actually read it — twice per protocol, once with the image in a user turn and once with it carried by a tool result, because those are two different shapes and only the second one carries what `read_image` answers with. Point it at any picture with `OC_IMAGE=path/to.png` (the default, `.live-cache/probe-image.png`, is untracked scratch) and read the printed answer against what the picture holds.
 
 `snapshot-models.mjs` maintains the fallback: it compares `lib/model/limits.js` with the OpenCode catalogue (`models.dev`), prints what changed — `new`, `changed`, `gone` — and, with `--write`, writes the catalogue's current rows into the current table, moves the rows it no longer lists into the delisted table, and moves `CAPABILITY_SOURCE` to the new date. Nothing measured is deleted from the file: a retired model's capacity stays readable to a session that still names it.
+
+`check-cached-models.mjs` is the comparison that depends on a local file: it checks the measured context windows against the OpenCode catalogue this machine has cached, and says so when there is none. It is a script rather than an offline case because a fresh clone has no cache; a case there would count as a check while comparing nothing.
 
 The catalog itself follows the same append-only rule. A new model arrives as a new row in `FALLBACK_MODELS`; a model the service retires keeps its row, marked `retired` with the successor the service named, rather than being deleted. The row is what lets a session still pinned to the id resolve its last measured figures and receive the service's own `MODEL_DEPRECATED` / `MODEL_UNAVAILABLE` instead of an unknown-model error, and only a later `GET /models` listing clears the mark. See [Retired models](models.md#retired-models).
 
@@ -144,6 +147,7 @@ lib/
 
 scripts/
 ├── snapshot-models.mjs       refresh lib/model/limits.js from the catalogue
+├── check-cached-models.mjs   compare the table with this machine's OpenCode cache
 ├── probe-protocols.mjs       measure which protocol each served model accepts
 ├── probe-image.mjs           measure the image request shape per protocol
 ├── check-pack.mjs            what `npm publish` would upload, read back

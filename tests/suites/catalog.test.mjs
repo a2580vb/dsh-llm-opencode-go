@@ -4,30 +4,9 @@ import { PROTOCOLS, normalizeProtocol, resolveConfig } from '../../lib/config.js
 import { catalogModelInfo, resolvedInputModalities, resolvedModelInfo, supportsImages, trainingConsentNote } from '../../lib/model/capabilities.js'
 import { FALLBACK_MODELS, buildCatalog, discoveryRecord, displayName, hiddenReason, preferredProtocol, requiresTrainingConsent, splitVariantId, unmatchedVariantModels, wireModelId } from '../../lib/model/catalog.js'
 import { parseModelList } from '../../lib/model/cache.js'
-import { CAPABILITY_SOURCE, capabilityFor, isMeasured, measuredIds } from '../../lib/model/limits.js'
+import { capabilityFor, isMeasured } from '../../lib/model/limits.js'
 import { orderAttempts } from '../../lib/index.js'
 import { equal, is, ok } from '../helpers.mjs'
-
-/** A read-only view of the cached OpenCode catalogue, when this machine has one. */
-async function cachedCatalogue() {
-  const { readFile } = await import('node:fs/promises')
-  const { homedir } = await import('node:os')
-  const { join } = await import('node:path')
-  const paths = [
-    process.env.OC_MODELS_CACHE,
-    join(homedir(), '.cache', 'opencode', 'models.json'),
-  ].filter((path) => path !== undefined)
-  for (const path of paths) {
-    try {
-      const parsed = JSON.parse(await readFile(path, 'utf8'))
-      const provider = parsed?.['opencode-go']
-      if (provider?.models !== undefined) return provider.models
-    } catch {
-      // Try the next candidate; a missing catalogue just skips the comparison.
-    }
-  }
-  return undefined
-}
 
 export default {
   name: 'model/catalog',
@@ -475,29 +454,6 @@ export default {
         ok(isMeasured('qwen3.7-max'), 'the exact id is measured')
         is(capabilityFor('qwen3.7-max', {}).contextWindow, 1_000_000)
         is(capabilityFor('qwen3.7-max', {}).exact, true)
-      },
-    },
-    {
-      name: 'the snapshot still agrees with the OpenCode catalogue this machine caches',
-      async run() {
-        const models = await cachedCatalogue()
-        if (models === undefined) {
-          ok(true, 'no local OpenCode catalogue to compare against')
-          return
-        }
-        const measured = new Set(measuredIds())
-        const mismatches = []
-        for (const id of Object.keys(models)) {
-          if (!measured.has(id)) continue
-          const entry = models[id]
-          const context = entry?.limit?.context
-          if (context === undefined) continue
-          const record = capabilityFor(id, {})
-          if (record.contextWindow !== context) {
-            mismatches.push(`${id}: table ${record.contextWindow} vs catalogue ${context}`)
-          }
-        }
-        equal(mismatches, [], `snapshot ${CAPABILITY_SOURCE} disagrees with the cached catalogue`)
       },
     },
     {

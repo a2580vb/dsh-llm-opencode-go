@@ -16,7 +16,7 @@
 ## 验证
 
 ```sh
-npm test            # 560 项离线检查：配置、SSE 分帧、目录、三种协议、适配器、插件本体、配置桥接、客户端 bundle、显示元数据、诊断日志、版本一致性，以及本仓库自己的 CI
+npm test            # 559 项离线检查：配置、SSE 分帧、目录、三种协议、适配器、插件本体、配置桥接、客户端 bundle、显示元数据、诊断日志、版本一致性，以及本仓库自己的 CI
 npm run test:cordis # 44 项检查，把插件挂到 Harness 自己的 cordis 上
 npm run test:live   # 对线上服务的实测套件；需要 OC_KEY
 npm run check:pack  # `npm publish` 会真正上传的那个 tarball
@@ -98,6 +98,7 @@ npm 那一侧有两个一次性设置：包必须在 **Trusted Publishers** 里�
 OC_KEY=oc_sk_... node scripts/probe-protocols.mjs [model ...]   # 对每个在服务的模型逐个探测协议
 OC_KEY=oc_sk_... node scripts/probe-image.mjs                   # 三种协议的图片请求形状
 node scripts/snapshot-models.mjs [--write]                      # 兜底快照与线上目录的差异
+node scripts/check-cached-models.mjs                            # 兜底表与本机 OpenCode 缓存的差异
 ```
 
 `probe-protocols.mjs` 会逐模型给出 `served=[…]`。live 行里的 `api` 只是偏好、不是白名单，所以首选入口背后保留其余协议，依据的正是这份实测清单。探针会让每个请求的预算高于服务的最小输出限制（16 token，所以发 32），并且除了 HTTP 状态之外还会在流里出现 error 事件时判失败——否则一个被服务拒绝的请求形状读起来就像一次协议拒绝。
@@ -105,6 +106,8 @@ node scripts/snapshot-models.mjs [--write]                      # 兜底快照�
 `probe-image.mjs` 会把一张 PNG 按每种协议发出去，验证模型是否真的能读图——每种协议发两次：一次图片在用户那一轮，一次图片由工具结果带出，因为这是两种不同的形状，而只有后一种才承载 `read_image` 的返回。用 `OC_IMAGE=path/to.png` 可以换任意一张图（默认的 `.live-cache/probe-image.png` 是未纳入版本控制的草稿区），把打印出来的回答与图片内容对一遍即可。
 
 `snapshot-models.mjs` 维护那份兜底：把 `lib/model/limits.js` 与 OpenCode 目录（`models.dev`）对比，打印 `new`、`changed`、`gone`；加 `--write` 则把目录当前的行写进当前表、把目录不再列出的行移进已下线表，并把 `CAPABILITY_SOURCE` 挪到新日期。文件里已经实测到的东西不会被删掉：已失效模型的容量仍可供点名它的会话读取。
+
+`check-cached-models.mjs` 是依赖本机文件的那一项对比：拿实测的上下文窗口与本机缓存的 OpenCode 目录核对，没有缓存时直接说明。它被放在脚本里而不是离线用例里，因为全新克隆没有缓存；放在用例里会算作一次检查，却什么都没比对。
 
 目录本身也遵守同一条只增不删的规则。新模型作为新行加进 `FALLBACK_MODELS`；服务停止提供的模型保留自己的行，标上 `retired` 并带上服务点名的继任者，而不是被删除。正是这行让仍锁定该 id 的会话能解析出它最后的实测数字，并拿到服务自己的 `MODEL_DEPRECATED` / `MODEL_UNAVAILABLE`，而不是一个「未知模型」错误；只有之后某次 `GET /models` 重新列出该 id 才会解除标记。见 [已失效模型](models.zh-CN.md#已失效模型)。
 
@@ -144,6 +147,7 @@ lib/
 
 scripts/
 ├── snapshot-models.mjs       从目录刷新 lib/model/limits.js
+├── check-cached-models.mjs   把兜底表与本机 OpenCode 缓存对照
 ├── probe-protocols.mjs       实测每个在服务的模型接受哪些协议
 ├── probe-image.mjs           实测每种协议的图片请求形状
 ├── check-pack.mjs            把 `npm publish` 会传的东西打出来再读一遍
