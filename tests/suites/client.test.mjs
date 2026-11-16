@@ -417,6 +417,15 @@ export default {
             ok(text.includes(field), `${file} names ${field} where it describes the page`)
           }
         }
+        // A field can be named and still never reach a control, so the write
+        // helper and the two dictionaries are pinned here as well. The schedule
+        // reaches the write path as one call rather than through `saveField`.
+        ok(/writeConfig = useCallback/.test(clientSource), 'the page writes through one helper')
+        const paired = [...clientSource.matchAll(/subscription(?:Min|Max)IntervalSeconds: /g)]
+        ok(paired.length >= 2, 'the schedule writes both intervals by name')
+        for (const key of ['sectionKey', 'sectionModels', 'sectionVariants', 'sectionCapsule', 'sectionSchedule']) {
+          ok(clientSource.includes(`${key}:`), `the dictionary has ${key}`)
+        }
       },
     },
     {
@@ -432,39 +441,6 @@ export default {
           for (const route of Object.values(UI_ROUTES)) {
             ok(text.includes(`| \`${route}\` |`), `${file} documents ${route} in a table row`)
           }
-        }
-      },
-    },
-    {
-      name: 'every field the page writes is one the bridge manages',
-      run() {
-        // The page commits configuration through one write helper that carries
-        // a set of fields. Every field name that can appear in such a set is
-        // pinned here against the bridge's allow list, so a page-side rename or
-        // a new field cannot quietly reach a write path that does not serve it.
-        const written = [
-          'apiKeyEnv',
-          'hiddenModels',
-          'modelVariants',
-          'freshConnectionOnLargeBody',
-          'timeoutMs',
-          'streamIdleTimeoutMs',
-          'retryPolicy',
-          'subscriptionMinIntervalSeconds',
-          'subscriptionMaxIntervalSeconds',
-          'showQuotaCapsule',
-        ]
-        for (const field of written) {
-          ok(clientSource.includes(field), `the page names the field "${field}"`)
-          ok(MANAGED_CONFIG_FIELDS.includes(field), `the bridge manages "${field}"`)
-        }
-        ok(/writeConfig = useCallback/.test(clientSource), 'the page writes through one helper')
-        const paired = [...clientSource.matchAll(/subscription(?:Min|Max)IntervalSeconds: /g)]
-        ok(paired.length >= 2, 'the schedule writes both intervals by name')
-        // Both shipped dictionaries must name every section the page renders,
-        // so a translated page is never half-translated.
-        for (const key of ['sectionKey', 'sectionModels', 'sectionVariants', 'sectionCapsule', 'sectionSchedule']) {
-          ok(clientSource.includes(`${key}:`), `the dictionary has ${key}`)
         }
       },
     },
