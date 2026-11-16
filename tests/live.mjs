@@ -206,7 +206,8 @@ for (const testCase of [
   { model: 'gpt-5.6-luna', protocol: PROTOCOLS.RESPONSES },
   // The Responses round trip that carries reasoning back: DeepSeek's thinking
   // mode refuses the follow-up without it, so this is the case that proves the
-  // replay (the model is also reachable over chat, which would hide the bug).
+  // replay (the same model is reachable over chat, which would hide a broken
+  // reasoning replay).
   { model: 'deepseek-v4.1-flash', protocol: PROTOCOLS.RESPONSES },
   { model: 'qwen3.8-max', protocol: PROTOCOLS.ANTHROPIC },
 ]) {
