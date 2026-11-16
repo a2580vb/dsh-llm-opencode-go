@@ -45,6 +45,32 @@ export default {
       },
     },
     {
+      name: 'the model list and overrides are frozen through their nested values',
+      run() {
+        const raw = {
+          models: [{ id: 'sees', input: ['text', 'image'], limits: { context: 1_000 } }],
+          modelOverrides: { 'glm-5.3': { name: 'GLM', limits: { context: 2_000 } } },
+          protocolOverrides: { 'glm-5.3': 'anthropic' },
+        }
+        const config = resolveConfig(raw)
+        for (const [label, value] of [
+          ['models', config.models],
+          ['a model entry', config.models[0]],
+          ['a model input list', config.models[0].input],
+          ['a model limits object', config.models[0].limits],
+          ['modelOverrides', config.modelOverrides],
+          ['a model override', config.modelOverrides['glm-5.3']],
+          ['a model override limits object', config.modelOverrides['glm-5.3'].limits],
+          ['protocolOverrides', config.protocolOverrides],
+        ]) {
+          ok(Object.isFrozen(value), `${label} is frozen`)
+        }
+        // The snapshot is a copy: freezing it must not freeze the caller's row.
+        is(Object.isFrozen(raw.models), false, 'the raw models array is still the caller\'s')
+        is(Object.isFrozen(raw.models[0]), false, 'the raw model entry is still the caller\'s')
+      },
+    },
+    {
       name: 'the quota schedule\'s two intervals default, and the ceiling never falls under the floor',
       run() {
         // The page's own schedule is bounded by these, and a ceiling below the
