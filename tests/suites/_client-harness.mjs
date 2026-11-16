@@ -60,14 +60,12 @@ export function localeStore() {
 /**
  * One "page", rendered.
  *
- * The bundle is evaluated once and its factory materialized once, as the
- * browser's module loader does per package, so the surfaces it registers share
- * whatever the factory built outside a component. Each registered slot then
- * gets its own hook store, which is what a component instance gets in React:
- * two surfaces rendered against one store would silently write into each
- * other's slots. They all share the same `fetch` recorder, so `calls` is the
- * whole picture in order, and one settle loop, so a change on one surface is
- * rendered everywhere before a case reads either of them.
+ * The bundle is materialized once, as described at the top of this file; each
+ * registered slot then gets its own hook store, which is what a component
+ * instance gets in React: two surfaces rendered against one store would silently
+ * write into each other's slots. They all share the same `fetch` recorder, so
+ * `calls` is the whole picture in order, and one settle loop, so a change on one
+ * surface is rendered everywhere before a case reads either of them.
  *
  * @param {object} options - how to build it.
  * @param {(path: string, init?: object) => Promise<object>} options.fetch - answers the page's own requests.
@@ -85,8 +83,8 @@ export async function renderPage({ fetch: fetchImpl, locale = 'en', document } =
    * after a write, which is a scheduling detail no case asserts, and intervals
    * measured in tens of seconds or minutes — the quota's own schedule — which
    * are the whole thing a case is checking. So delays up to
-   * {@link IMMEDIATE_DELAY_MS} still run themselves, as they always have, and
-   * anything longer waits for the case to move the clock with `advance`.
+   * {@link IMMEDIATE_DELAY_MS} still run themselves, and anything longer waits
+   * for the case to move the clock with `advance`.
    */
   const clock = { value: Date.parse('2026-01-15T12:00:00.000Z'), nextId: 1, timers: new Map() }
 
