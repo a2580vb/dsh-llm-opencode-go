@@ -55,7 +55,9 @@ function readerUnderTest({ script = {}, now = 1_000_000, ...config } = {}) {
       fetch: async (url, init) => {
         requests.push({ url, init })
         const step = script[requests.length - 1] ?? script.default ?? { status: 200, body: ANSWER }
-        if (step.throws !== undefined) throw new Error(step.throws)
+        if (step.throws !== undefined) {
+          throw step.throws instanceof Error ? step.throws : new Error(step.throws)
+        }
         return {
           status: step.status ?? 200,
           ok: (step.status ?? 200) >= 200 && (step.status ?? 200) < 300,
@@ -251,6 +253,14 @@ export default {
         const offline = readerUnderTest({ script: { default: { throws: 'connect ECONNREFUSED' } } })
         is((await offline.reader.read()).reason, 'unreachable')
         ok(offline.logger.warnings.length === 1, 'one warning per failed read')
+
+        // `AbortSignal.timeout` rejects with a TimeoutError; the page must see
+        // the same "could not reach the service" reason as a refused socket.
+        const timeout = Object.assign(new Error('The operation was aborted due to timeout'), { name: 'TimeoutError' })
+        const timedOut = readerUnderTest({ script: { default: { throws: timeout } } })
+        const timeoutResult = await timedOut.reader.read()
+        is(timeoutResult.reason, 'unreachable')
+        ok(timeoutResult.message.includes('timeout'), timeoutResult.message)
 
         const broken = readerUnderTest({ script: { default: { status: 500 } } })
         const brokenResult = await broken.reader.read()
