@@ -33,7 +33,7 @@ export default {
         ok(call !== undefined, 'a tool-call block was assembled')
         is(call.name, 'get_weather')
         is(call.arguments, '{"city": "Paris"}')
-        is(call.id, 'call_ed5b2fc3fcfe4697a4bd275d')
+        is(call.id, 'call_test_tools')
         // The provider reported `tool_calls`, so the harness finish follows it.
         equal(finish, { kind: 'tool-calls' })
         // Arguments stay a raw JSON string, never a parsed object.

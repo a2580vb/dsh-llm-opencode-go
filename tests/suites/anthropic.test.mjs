@@ -72,7 +72,7 @@ export default {
         const terminal = finishChunk(chunks)
         // The signature is what makes a thinking block replayable later.
         const entry = terminal.replayState.blocks.find((block) => block.type === 'reasoning')
-        is(entry.signature, 'f9fc27f12fa06675d12751cefcdf901ab0ca1fb2cfeb286170f599b016e8f7b3')
+        is(entry.signature, 'sig-test-text')
         usageChunk(chunks)
       },
     },

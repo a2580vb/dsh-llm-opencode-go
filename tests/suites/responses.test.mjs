@@ -30,7 +30,7 @@ export default {
         ok(call !== undefined, 'a tool-call block was assembled')
         is(call.name, 'get_weather')
         is(call.arguments, '{"city":"Paris"}')
-        is(call.id, 'call_QQfpY6z8xmJv6aM5oIaCTege')
+        is(call.id, 'call_test_tools')
         is(typeof call.arguments, 'string')
         equal(finish, { kind: 'tool-calls' })
       },

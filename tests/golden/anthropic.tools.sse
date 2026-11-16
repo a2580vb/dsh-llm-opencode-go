@@ -1,5 +1,5 @@
 event: message_start
-data: {"type":"message_start","message":{"id":"070e067703d120bf43008230a36d17bf","type":"message","role":"assistant","stop_reason":null,"stop_sequence":null,"model":"minimax-m2.7","content":[],"usage":{"input_tokens":202,"output_tokens":0}}}
+data: {"type":"message_start","message":{"id":"msg_test_tools","type":"message","role":"assistant","stop_reason":null,"stop_sequence":null,"model":"minimax-m2.7","content":[],"usage":{"input_tokens":202,"output_tokens":0}}}
 
 event: ping
 data: {"type":"ping"}
@@ -17,13 +17,13 @@ event: content_block_delta
 data: {"type":"content_block_delta","index":0,"delta":{"type":"thinking_delta","thinking":". I'll call this function with \"Paris\" as the city."}}
 
 event: content_block_delta
-data: {"type":"content_block_delta","index":0,"delta":{"type":"signature_delta","signature":"2cf3125b99675728380b09f9a064ecd02bb267c195123dec1e48a2bac62fbc6a"}}
+data: {"type":"content_block_delta","index":0,"delta":{"type":"signature_delta","signature":"sig-test-tools"}}
 
 event: content_block_stop
 data: {"type":"content_block_stop","index":0}
 
 event: content_block_start
-data: {"type":"content_block_start","index":1,"content_block":{"type":"tool_use","id":"call_function_628n0hme3g04_1","name":"get_weather","input":{}}}
+data: {"type":"content_block_start","index":1,"content_block":{"type":"tool_use","id":"call_test_tools","name":"get_weather","input":{}}}
 
 event: content_block_delta
 data: {"type":"content_block_delta","index":1,"delta":{"type":"input_json_delta","partial_json":"{\"city\": \"Paris"}}
