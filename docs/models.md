@@ -2,28 +2,17 @@
 
 > Back to [README](../README.md).
 
-This page describes the model catalog: what the service publishes for each model,
-how the adapter opens a call, which models are gated by a training-data policy,
-and what capacity and input modalities the catalog reports. The catalog is built
-from the live `GET /models` rows, with the measured protocol table and the
-`models.dev` capacity snapshot as its fallbacks (`lib/model/catalog.js`,
-`lib/model/limits.js`).
+This page describes the model catalog: what the service publishes for each model, how the adapter opens a call, which models are gated by a training-data policy, and what capacity and input modalities the catalog reports. The catalog is built from the live `GET /models` rows, with the measured protocol table and the `models.dev` capacity snapshot as its fallbacks (`lib/model/catalog.js`, `lib/model/limits.js`).
 
 ## Protocol selection is per model
 
-OpenCode Go serves three wire protocols. Its catalogue names one **preferred
-entry** per model in the row's `api` map — `chat-completions`, `responses`, or
-`messages` — but that is a recommendation, not a capability limit: a probe on
-2026-11-08 accepted all three protocols for every served model. So every model
-carries an ordered protocol list, the preferred entry first and the other two
-behind it. If a call is nonetheless refused that way, it answers:
+OpenCode Go serves three wire protocols. Its catalogue names one **preferred entry** per model in the row's `api` map — `chat-completions`, `responses`, or `messages` — but that is a recommendation, not a capability limit: a probe on 2026-11-08 accepted all three protocols for every served model. So every model carries an ordered protocol list, the preferred entry first and the other two behind it. If a call is nonetheless refused that way, it answers:
 
 ```json
 {"type":"error","error":{"type":"ModelProtocolUnsupported","message":"Model does not support this protocol."}}
 ```
 
-The adapter logs it and retries the same call over the model's next protocol.
-Grouped by the entry each row names, the modeled order is:
+The adapter logs it and retries the same call over the model's next protocol. Grouped by the entry each row names, the modeled order is:
 
 | Models | Protocols, in order |
 |---|---|
@@ -32,24 +21,11 @@ Grouped by the entry each row names, the modeled order is:
 | `claude-haiku-5-5`, `minimax-m3`, `qwen3.7-plus`, `qwen3.8-flash`, `qwen3.8-max` | anthropic, responses, chat-completions |
 | `muse-spark-1.3-contributor`, `muse-spark-1.2-contributor` | responses, chat-completions, anthropic, and only while the workspace allows providers that train on request data (see [Models that train on request data](#models-that-train-on-request-data)) |
 
-The built-in catalog has an **active** row for every id `GET /models` listed on
-2026-11-08, so no served model has to discover its own protocol by failing first.
-The table is append-only: a model the service retires keeps its row, marked
-`retired`, with the protocols it last answered on, so a session that still names
-it keeps resolving (see [Retired models](#retired-models)). Re-measure after a
-service change with the probe described in
-[Development](development.md#re-measuring-the-live-facts).
+The built-in catalog has an **active** row for every id `GET /models` listed on 2026-11-08, so no served model has to discover its own protocol by failing first. The table is append-only: a model the service retires keeps its row, marked `retired`, with the protocols it last answered on, so a session that still names it keeps resolving (see [Retired models](#retired-models)). Re-measure after a service change with the probe described in [Development](development.md#re-measuring-the-live-facts).
 
-The `api` map also names a per-protocol SDK base URL
-(`/inference/go/openai/…`, `/inference/go/anthropic/…`, `/inference/go/google/…`).
-Those are the catalogue's SDK entry points; the relay serves the same protocols
-at the unified `baseURL` this plugin uses, so no host changes. The one model
-whose row names Google's `generate-content` (`gemini-4-argon`) is served over all
-three protocols here too — this adapter has no Google transport, so its row opens
-with responses.
+The `api` map also names a per-protocol SDK base URL (`/inference/go/openai/…`, `/inference/go/anthropic/…`, `/inference/go/google/…`). Those are the catalogue's SDK entry points; the relay serves the same protocols at the unified `baseURL` this plugin uses, so no host changes. The one model whose row names Google's `generate-content` (`gemini-4-argon`) is served over all three protocols here too — this adapter has no Google transport, so its row opens with responses.
 
-Change the opening protocol for one model with `protocolOverrides`; the model's
-other protocols stay behind it as fallbacks:
+Change the opening protocol for one model with `protocolOverrides`; the model's other protocols stay behind it as fallbacks:
 
 ```yaml
 config:
@@ -59,44 +35,19 @@ config:
 
 A model the catalog does not describe falls into one of two cases:
 
-- **An id the service lists but this plugin has no built-in row for**: its live
-  `api` entry opens the call, with the other protocols behind it; a row that names
-  no entry this adapter can carry opens with `defaultProtocol`, again with the
-  rest behind it.
-- **An id that appears nowhere** — new enough that even `GET /models` has not
-  caught up, or reached through a gateway with no discovery: its protocol is
-  unknown, so it tries every protocol in order.
+- **An id the service lists but this plugin has no built-in row for**: its live `api` entry opens the call, with the other protocols behind it; a row that names no entry this adapter can carry opens with `defaultProtocol`, again with the rest behind it.
+- **An id that appears nowhere** — new enough that even `GET /models` has not caught up, or reached through a gateway with no discovery: its protocol is unknown, so it tries every protocol in order.
 
 Neither case needs a plugin release before the model can be used.
 
 ## Retired models
 
-The built-in catalog is append-only. When the service stops serving a model, its
-row is not deleted: it is marked `retired`, keeping the protocols it last
-answered on and its capacity in `lib/model/limits.js`. A retired row is the
-opposite of an unknown id — it is fully described, and only the service can
-refuse it:
+The built-in catalog is append-only. When the service stops serving a model, its row is not deleted: it is marked `retired`, keeping the protocols it last answered on and its capacity in `lib/model/limits.js`. A retired row is the opposite of an unknown id — it is fully described, and only the service can refuse it:
 
-- **Not listed.** The model picker leaves a retired id out. The configuration
-  page shows its row — with a warning-coloured `retired` tag (or
-  `retired → <successor>` when the service names one) and a disabled checkbox —
-  though the card's Hide retired models control can keep those rows out of the
-  list it renders. When the deployment's own `hiddenModels` also names it, the
-  snapshot's `hiddenReason` says `configured` rather than `retired`, because that
-  choice was made first.
-- **Resolvable.** A session that still names the id resolves to its last
-  measured capacity — its row in `lib/model/limits.js`, current or delisted, or
-  its family's figures when neither has a row. Resolving a retired model is not
-  an error; only the wire call is.
-- **Refused by the service.** The call is attempted with the retired row's last
-  protocol order and ends with the service's own `MODEL_DEPRECATED` (carrying the
-  replacement it names) or `MODEL_UNAVAILABLE`. No other protocol is tried, and
-  the adapter does not invent an unknown-model error of its own — the service's
-  answer is what says what happened.
-- **Cleared by discovery, not configuration.** If a later `GET /models` lists
-  the id again, its row becomes active again automatically. Editing `models` or
-  `modelOverrides` cannot clear the mark: retirement is a fact about the service,
-  not a deployment setting.
+- **Not listed.** The model picker leaves a retired id out. The configuration page shows its row — with a warning-coloured `retired` tag (or `retired → <successor>` when the service names one) and a disabled checkbox — though the card's Hide retired models control can keep those rows out of the list it renders. When the deployment's own `hiddenModels` also names it, the snapshot's `hiddenReason` says `configured` rather than `retired`, because that choice was made first.
+- **Resolvable.** A session that still names the id resolves to its last measured capacity — its row in `lib/model/limits.js`, current or delisted, or its family's figures when neither has a row. Resolving a retired model is not an error; only the wire call is.
+- **Refused by the service.** The call is attempted with the retired row's last protocol order and ends with the service's own `MODEL_DEPRECATED` (carrying the replacement it names) or `MODEL_UNAVAILABLE`. No other protocol is tried, and the adapter does not invent an unknown-model error of its own — the service's answer is what says what happened.
+- **Cleared by discovery, not configuration.** If a later `GET /models` lists the id again, its row becomes active again automatically. Editing `models` or `modelOverrides` cannot clear the mark: retirement is a fact about the service, not a deployment setting.
 
 Six retired ids name the successor to move to:
 
@@ -109,63 +60,38 @@ Six retired ids name the successor to move to:
 | `minimax-m2.7` | `minimax-m3.1-flash` |
 | `qwen3.7-max` | `qwen3.8-max` |
 
-The other nine have none: `deepseek-v4-flash`, `deepseek-v4-flash-vision-exp`,
-`deepseek-flash`, `grok-4.6`, `minimax-m2.5`, `qwen3.6-plus`, `space-bunny-free`,
-`longcat-2.5-preview-free`, `omen-alpha`.
+The other nine have none: `deepseek-v4-flash`, `deepseek-v4-flash-vision-exp`, `deepseek-flash`, `grok-4.6`, `minimax-m2.5`, `qwen3.6-plus`, `space-bunny-free`, `longcat-2.5-preview-free`, `omen-alpha`.
 
-The maintenance rule is the same in both directions: a model that appears gets a
-new row, and a model the service retires gets marked — no row is ever removed, so
-a session pinned to an id can always resolve what it was using.
+The maintenance rule is the same in both directions: a model that appears gets a new row, and a model the service retires gets marked — no row is ever removed, so a session pinned to an id can always resolve what it was using.
 
 ## Models that train on request data
 
-The providers of `muse-spark-1.3-contributor` and `muse-spark-1.2-contributor` use
-prompts and completions to train future models. The relay gates them on a
-**workspace** setting and refuses the call before the model is reached:
+The providers of `muse-spark-1.3-contributor` and `muse-spark-1.2-contributor` use prompts and completions to train future models. The relay gates them on a **workspace** setting and refuses the call before the model is reached:
 
 ```json
 {"type":"error","error":{"type":"DataPolicyError","message":"This model collects data used to improve its quality and requires explicit opt in: https://opencode.ai/workspace/<workspace>/go"}}
 ```
 
-Deployments that surface the refusal from the upstream service answer the same
-thing as `400` with an `Account.TrainingNotAllowed` code and the sentence "This Go
-model trains on request data…"; both spellings are recognized. Until an admin
-enables **Allow models that train on request data**, every call to those ids fails
-— here and in OpenCode itself. The switch lives on the workspace's Go page
-(`https://opencode.ai/workspace` → the workspace → Go → Providers); on console
-builds that hide it from the sidebar, `…/settings/privacy` still reaches it.
+Deployments that surface the refusal from the upstream service answer the same thing as `400` with an `Account.TrainingNotAllowed` code and the sentence "This Go model trains on request data…"; both spellings are recognized. Until an admin enables **Allow models that train on request data**, every call to those ids fails — here and in OpenCode itself. The switch lives on the workspace's Go page (`https://opencode.ai/workspace` → the workspace → Go → Providers); on console builds that hide it from the sidebar, `…/settings/privacy` still reaches it.
 
 How the adapter handles that refusal:
 
-- **It is classified separately, and no other protocol is tried.** It is reported
-  as `TRAINING_CONSENT_REQUIRED`, carrying the setting to enable and where to
-  enable it, instead of as `INVALID_REQUEST` (nothing about the request is wrong)
-  or `AUTH` (the credential is fine). The gate is an account policy, so a second
-  request cannot answer differently.
-- **The model states what it needs while it is still being chosen.** A gated model
-  carries the note in its listing and in its resolved metadata, so a selector can
-  show the requirement before the first call rather than after a refused one.
-- **The plugin does not change the setting for a deployment.** No header, body
-  field, or config switch here flips it; the adapter only reports it. It does log
-  the gated models once, when the catalog is assembled.
+- **It is classified separately, and no other protocol is tried.** It is reported as `TRAINING_CONSENT_REQUIRED`, carrying the setting to enable and where to enable it, instead of as `INVALID_REQUEST` (nothing about the request is wrong) or `AUTH` (the credential is fine). The gate is an account policy, so a second request cannot answer differently.
+- **The model states what it needs while it is still being chosen.** A gated model carries the note in its listing and in its resolved metadata, so a selector can show the requirement before the first call rather than after a refused one.
+- **The plugin does not change the setting for a deployment.** No header, body field, or config switch here flips it; the adapter only reports it. It does log the gated models once, when the catalog is assembled.
 
-A deployment that cannot enable the setting — a workspace in a region the model is
-not offered in, or one route shared by several accounts — can keep those ids out
-of the model list:
+A deployment that cannot enable the setting — a workspace in a region the model is not offered in, or one route shared by several accounts — can keep those ids out of the model list:
 
 ```yaml
 config:
   hideTrainingModels: true
 ```
 
-Hiding is a listing decision, not a routing one: the ids still resolve and still
-stream, so a session already using one keeps working and enabling the setting
-later needs no plugin change.
+Hiding is a listing decision, not a routing one: the ids still resolve and still stream, so a session already using one keeps working and enabling the setting later needs no plugin change.
 
 ## Capacity and modalities
 
-`GET /models` describes each model. A row, trimmed to the fields this adapter
-reads:
+`GET /models` describes each model. A row, trimmed to the fields this adapter reads:
 
 ```json
 {
@@ -182,23 +108,9 @@ reads:
 }
 ```
 
-`created` in a live row is the moment of the request, not the model's release
-date; `release_date` and `last_updated` carry those. A discovered row is the
-first source for the model's facts: `limit` supplies the context window and
-output cap (and, on a few models, a `limit.input` single-request cap this adapter
-does not model separately), `modalities` supplies the provider's input list,
-`capabilities.reasoning.effort` supplies the thinking ladder, and `api` names the
-preferred protocol. Discovery keeps the rows in its cache, so a model added since
-the snapshot was taken still reports its own figures.
+`created` in a live row is the moment of the request, not the model's release date; `release_date` and `last_updated` carry those. A discovered row is the first source for the model's facts: `limit` supplies the context window and output cap (and, on a few models, a `limit.input` single-request cap this adapter does not model separately), `modalities` supplies the provider's input list, `capabilities.reasoning.effort` supplies the thinking ladder, and `api` names the preferred protocol. Discovery keeps the rows in its cache, so a model added since the snapshot was taken still reports its own figures.
 
-Behind that sits a snapshot. `lib/model/limits.js` carries the same facts
-measured from the OpenCode catalogue (`models.dev`) on the date in
-`CAPABILITY_SOURCE` (`models.dev/opencode-go@2026-11-08`). It answers whenever
-discovery has not described a model — a `modelSource: config` entry that states
-no capacity, a deployment with no network, a gateway that answers with ids only,
-or a cache file written before rows carried facts — because a call that needs a
-context window must not wait on a third-party endpoint, and a deployment with no
-egress must still show real limits. Every resolved model reports its own:
+Behind that sits a snapshot. `lib/model/limits.js` carries the same facts measured from the OpenCode catalogue (`models.dev`) on the date in `CAPABILITY_SOURCE` (`models.dev/opencode-go@2026-11-08`). It answers whenever discovery has not described a model — a `modelSource: config` entry that states no capacity, a deployment with no network, a gateway that answers with ids only, or a cache file written before rows carried facts — because a call that needs a context window must not wait on a third-party endpoint, and a deployment with no egress must still show real limits. Every resolved model reports its own:
 
 | Model | Context | Output cap | Model input |
 |---|---|---|---|
@@ -210,36 +122,18 @@ egress must still show real limits. Every resolved model reports its own:
 | `mimo-v2.6-pro` | 1,048,576 | 131,072 | text, image, audio, video |
 | `hy3` | 256,000 | 128,000 | text |
 
-A model neither source describes — one released after both — is matched to its
-family's measured figures (`qwen…`, `glm-…`, `grok-…`, …) before falling back to
-`defaultContextWindow`. A compatible gateway that publishes the same fields is
-read the same way; see [Configuration](configuration.md#shaping-the-catalog).
-The row's `capabilities.reasoning.effort` is also what the model advertises as
-its thinking ladder; see [Wire protocol](wire-protocol.md#reasoning).
+A model neither source describes — one released after both — is matched to its family's measured figures (`qwen…`, `glm-…`, `grok-…`, …) before falling back to `defaultContextWindow`. A compatible gateway that publishes the same fields is read the same way; see [Configuration](configuration.md#shaping-the-catalog). The row's `capabilities.reasoning.effort` is also what the model advertises as its thinking ladder; see [Wire protocol](wire-protocol.md#reasoning).
 
 ### Modalities: what the model takes versus what a route can send
 
-A live row lists input modalities as MIME types (`image/jpeg`,
-`application/pdf`, `video/mp4`, …); the snapshot lists the same abilities in the
-catalogue's vocabulary (`image`, `pdf`, `video`, …). Both are normalized to one
-list — after which the service's abilities include some no wire protocol here has
-a field for — `video`, `audio`, `pdf` — so two facts are kept apart:
+A live row lists input modalities as MIME types (`image/jpeg`, `application/pdf`, `video/mp4`, …); the snapshot lists the same abilities in the catalogue's vocabulary (`image`, `pdf`, `video`, …). Both are normalized to one list — after which the service's abilities include some no wire protocol here has a field for — `video`, `audio`, `pdf` — so two facts are kept apart:
 
-- **`providerModalities`** is the provider's own list, normalized to those names
-  and kept whole.
-- **`inputModalities`** is what this adapter can actually put in a request. The
-  harness models two and this adapter has a wire for two, so the resolved model
-  declares `['text']` or `['text', 'image']`.
+- **`providerModalities`** is the provider's own list, normalized to those names and kept whole.
+- **`inputModalities`** is what this adapter can actually put in a request. The harness models two and this adapter has a wire for two, so the resolved model declares `['text']` or `['text', 'image']`.
 
-A catalog entry that states its own `input` list decides this route's answer and
-wins over the provider's list: a deployment can narrow a vision model to
-text-only. Only an entry that states nothing falls back to what the model itself
-accepts.
+A catalog entry that states its own `input` list decides this route's answer and wins over the provider's list: a deployment can narrow a vision model to text-only. Only an entry that states nothing falls back to what the model itself accepts.
 
-The split is observable: the harness projects durable image blocks on the strength
-of the resolved list — a route that declares `image` is handed real image blocks
-and must resolve their bytes, while one that does not gets a text placeholder. A
-model whose abilities this route cannot carry therefore carries a note saying so:
+The split is observable: the harness projects durable image blocks on the strength of the resolved list — a route that declares `image` is handed real image blocks and must resolve their bytes, while one that does not gets a text placeholder. A model whose abilities this route cannot carry therefore carries a note saying so:
 
 ```
 "description": "the model also accepts video, audio, which no protocol on this route can send"
@@ -253,20 +147,11 @@ model whose abilities this route cannot carry therefore carries a note saying so
 | `always` | Declare `image` for every model whose row takes images, mounted seam or not. A request that then contains an image fails with the reason instead of silently sending text. |
 | `off` | Never declare `image`. |
 
-Set it to `always` if your deployment mounts images somewhere other than the
-attachment seam:
+Set it to `always` if your deployment mounts images somewhere other than the attachment seam:
 
 ```yaml
 config:
   sendImages: always
 ```
 
-All three protocols carry images once declared: Chat Completions and Responses
-receive a `data:` URL part, Messages receives a base64 `source`. An image reaches
-the model by either route — attached to a turn, or returned by a tool — because
-`read_image` answers with text and the image itself. Responses and Messages send
-it inside the tool result (the `function_call_output` item's `output` parts, or
-the `tool_result` block's `content`); Chat Completions sends the result as a
-string and the picture in the turn right after it. This is measured against the
-live service and can be re-checked with the probes in
-[Development](development.md#re-measuring-the-live-facts).
+All three protocols carry images once declared: Chat Completions and Responses receive a `data:` URL part, Messages receives a base64 `source`. An image reaches the model by either route — attached to a turn, or returned by a tool — because `read_image` answers with text and the image itself. Responses and Messages send it inside the tool result (the `function_call_output` item's `output` parts, or the `tool_result` block's `content`); Chat Completions sends the result as a string and the picture in the turn right after it. This is measured against the live service and can be re-checked with the probes in [Development](development.md#re-measuring-the-live-facts).

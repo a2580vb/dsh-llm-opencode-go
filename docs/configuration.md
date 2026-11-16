@@ -2,8 +2,7 @@
 
 > Back to [README](../README.md).
 
-Every key is optional. Run `dsh --profile <name> --dump-config` for the composed
-view, or read `Config` from the plugin for the authoritative list.
+Every key is optional. Run `dsh --profile <name> --dump-config` for the composed view, or read `Config` from the plugin for the authoritative list.
 
 | Field | Default | Meaning |
 |---|---|---|
@@ -46,8 +45,7 @@ view, or read `Config` from the plugin for the authoritative list.
 
 ## Fast entries
 
-Usage has three entries, all reading the same facts, plus the configuration page
-itself:
+Usage has three entries, all reading the same facts, plus the configuration page itself:
 
 | Entry | Where | What it offers |
 |---|---|---|
@@ -56,94 +54,30 @@ itself:
 | **A tab under Settings → Built-in plugins** | `settings.plugins.tab`, id `opencode-go-usage` | The same two blocks as the panel. |
 | **A row in Settings' navigation** | `settings.section`, id `opencode-go` | The [configuration page](#graphical-configuration) itself, after the pages the shell ships. |
 
-All four are optional. The panel body, the capsule's click, the shortcut, and the
-panel's own way out all come from `layout` and `shortcuts`; the configuration entry
-opens the shell's Settings dialog on this plugin's own row, and falls back to the
-Plugins page's `pluginNavigation` where the dialog is not there to reach. Where
-neither route exists the entry is *not rendered* rather than rendered inert: a
-deployment with no Settings dialog and no Plugins page shows neither the gear nor
-the *Plugin settings* button, and one without the `shortcuts` service or a
-selectable panel simply has no such command — and, having no panel to leave, no ×
-to leave it with. The Settings page is the exception: it needs nothing but the web
-client's own Settings panel, which is also what renders it.
+All four are optional. The panel body, the capsule's click, the shortcut, and the panel's own way out all come from `layout` and `shortcuts`; the configuration entry opens the shell's Settings dialog on this plugin's own row, and falls back to the Plugins page's `pluginNavigation` where the dialog is not there to reach. Where neither route exists the entry is *not rendered* rather than rendered inert: a deployment with no Settings dialog and no Plugins page shows neither the gear nor the *Plugin settings* button, and one without the `shortcuts` service or a selectable panel simply has no such command — and, having no panel to leave, no × to leave it with. The Settings page is the exception: it needs nothing but the web client's own Settings panel, which is also what renders it.
 
 The capsule itself:
 
-- Each metered window gets **one ring of its own**, and the row reads
-  `◉ 5H 92% │ ◉ Wk 58% │ ◉ Mo 9%`: the tag comes before the figure, the figures are
-  "% left", and they are set in tabular figures. The tags are short — `5H`, `Wk`,
-  `Mo`, and `5H`, `周`, `月` in the Chinese client — because the spelled-out
-  names do not fit the sidebar's 264px minimum, so they travel in the tooltip and
-  the accessible name.
-- A window the service did not report keeps its group, loses its arc, and prints a
-  dash: "not measured" is not "nothing left".
-- The row is drawn to the host's own foot measurements (42px tall, 12px radius)
-  and spread across its width with `space-between`. Collapsed to the rail it
-  becomes the 36px round button the host's rail uses, showing the rolling window
-  alone.
-- It can be turned off. `showQuotaCapsule` (on by default) hides the row and
-  nothing else: the panel keeps its shortcut, and the Settings page and the
-  configuration page stay reachable without the capsule's gear. The switch lives
-  under the configuration page's *Sidebar capsule* heading, so the way back on
-  does not depend on the row it hides.
+- Each metered window gets **one ring of its own**, and the row reads `◉ 5H 92% │ ◉ Wk 58% │ ◉ Mo 9%`: the tag comes before the figure, the figures are "% left", and they are set in tabular figures. The tags are short — `5H`, `Wk`, `Mo`, and `5H`, `周`, `月` in the Chinese client — because the spelled-out names do not fit the sidebar's 264px minimum, so they travel in the tooltip and the accessible name.
+- A window the service did not report keeps its group, loses its arc, and prints a dash: "not measured" is not "nothing left".
+- The row is drawn to the host's own foot measurements (42px tall, 12px radius) and spread across its width with `space-between`. Collapsed to the rail it becomes the 36px round button the host's rail uses, showing the rolling window alone.
+- It can be turned off. `showQuotaCapsule` (on by default) hides the row and nothing else: the panel keeps its shortcut, and the Settings page and the configuration page stay reachable without the capsule's gear. The switch lives under the configuration page's *Sidebar capsule* heading, so the way back on does not depend on the row it hides.
 
-The shortcut is rebindable in Settings → Shortcuts. It is `Ctrl/Cmd+U` on the
-desktop; the browser shell refuses a bare `primary+U`, so there it defaults to
-`Ctrl/Cmd+Alt+U` (Linux browsers can set their own).
+The shortcut is rebindable in Settings → Shortcuts. It is `Ctrl/Cmd+U` on the desktop; the browser shell refuses a bare `primary+U`, so there it defaults to `Ctrl/Cmd+Alt+U` (Linux browsers can set their own).
 
-Opening a surface reads the service's quota once, through the Host's
-`subscriptionCacheSeconds` cache; only *re-read quota* forces a fresh request.
-Every surface draws the same answer — the capsule, the panel, the settings tab,
-and the configuration page — so a re-read on one of them moves the numbers on all
-of them.
+Opening a surface reads the service's quota once, through the Host's `subscriptionCacheSeconds` cache; only *re-read quota* forces a fresh request. Every surface draws the same answer — the capsule, the panel, the settings tab, and the configuration page — so a re-read on one of them moves the numbers on all of them.
 
-The capsule keeps those numbers current without polling the service. The quota
-moves only when a call is made, so the page's schedule is driven by whether one
-was: every `subscriptionMinIntervalSeconds` (30 by default, and only while a
-surface is mounted) it asks `GET /opencode-go/activity` — a question the Host
-answers from memory, never from the service — and reads the quota only when that
-says something was spent, or when the answer on file has reached
-`subscriptionMaxIntervalSeconds` (1800 by default). What that last bound covers is
-the spending this process cannot see: another machine, another session.
+The capsule keeps those numbers current without polling the service. The quota moves only when a call is made, so the page's schedule is driven by whether one was: every `subscriptionMinIntervalSeconds` (30 by default, and only while a surface is mounted) it asks `GET /opencode-go/activity` — a question the Host answers from memory, never from the service — and reads the quota only when that says something was spent, or when the answer on file has reached `subscriptionMaxIntervalSeconds` (1800 by default). What that last bound covers is the spending this process cannot see: another machine, another session.
 
-So a session that is working reads the quota at most once per floor, an idle one
-at most once per ceiling, and a closed panel costs nothing at all. Both fields
-must be positive — an interval of zero would be the poll this replaces — and a
-ceiling below the floor is lifted to it, since no interval could satisfy both.
+So a session that is working reads the quota at most once per floor, an idle one at most once per ceiling, and a closed panel costs nothing at all. Both fields must be positive — an interval of zero would be the poll this replaces — and a ceiling below the floor is lifted to it, since no interval could satisfy both.
 
-Those last two rules are why the page edits the pair together and refuses a floor
-above its ceiling: the lift above is correct for a config file, where the reader
-has no feedback, but it would answer a real request with a number the reader did
-not ask for. See **Quota refresh rhythm** under [Graphical
-configuration](#graphical-configuration).
+Those last two rules are why the page edits the pair together and refuses a floor above its ceiling: the lift above is correct for a config file, where the reader has no feedback, but it would answer a real request with a number the reader did not ask for. See **Quota refresh rhythm** under [Graphical configuration](#graphical-configuration).
 
-This route's own counters are shared the same way, with one difference worth
-knowing: what the surfaces share is **the table for a window**, not the window.
-Three surfaces draw those tables — the configuration page's usage section, the
-panel, and the settings tab — and a read publishes to all of them at once, but
-**each surface keeps its own window**: opening 30 days on the panel asks a
-different question from the one the settings tab is showing, and neither moves the
-other. A surface reads its window when it mounts, when the reader switches the
-window, and when the reader presses *refresh usage*; two surfaces asking for the
-same window at the same moment spend one request between them.
+This route's own counters are shared the same way, with one difference worth knowing: what the surfaces share is **the table for a window**, not the window. Three surfaces draw those tables — the configuration page's usage section, the panel, and the settings tab — and a read publishes to all of them at once, but **each surface keeps its own window**: opening 30 days on the panel asks a different question from the one the settings tab is showing, and neither moves the other. A surface reads its window when it mounts, when the reader switches the window, and when the reader presses *refresh usage*; two surfaces asking for the same window at the same moment spend one request between them.
 
 ## Graphical configuration
 
-The plugin ships a page in the Harness web client. It opens from two places, both
-registering the *same component* — so the two cannot drift — but hosting it in
-different chrome: a row of Settings' own navigation (**OpenCode Go**,
-beside the pages the shell ships), or the sidebar's **Plugins** page, where the
-`dsh-llm-opencode-go` bundle's `opencode-go` row has a **Configure** control. The
-capsule's gear and the usage panel's *Plugin settings* button open that first
-place directly: they press the shell's own way into Settings — its own trigger,
-or the *Settings* row of the account launcher where a package has taken that seat
-— and then this plugin's nav row, so the reader lands in the dialog rather than
-on the Plugins page with a row to find and a Configure control to press. That
-dialog belongs to the shell — its state is a slot store, not a service, and its
-command is reachable only through the keyboard layer — so those two controls
-read the panel's DOM, identify controls by the shortcut the shell publishes, and
-fall back to the Plugins page when the shell answers neither press. The page
-covers the facts that are per-deployment and change often:
+The plugin ships a page in the Harness web client. It opens from two places, both registering the *same component* — so the two cannot drift — but hosting it in different chrome: a row of Settings' own navigation (**OpenCode Go**, beside the pages the shell ships), or the sidebar's **Plugins** page, where the `dsh-llm-opencode-go` bundle's `opencode-go` row has a **Configure** control. The capsule's gear and the usage panel's *Plugin settings* button open that first place directly: they press the shell's own way into Settings — its own trigger, or the *Settings* row of the account launcher where a package has taken that seat — and then this plugin's nav row, so the reader lands in the dialog rather than on the Plugins page with a row to find and a Configure control to press. That dialog belongs to the shell — its state is a slot store, not a service, and its command is reachable only through the keyboard layer — so those two controls read the panel's DOM, identify controls by the shortcut the shell publishes, and fall back to the Plugins page when the shell answers neither press. The page covers the facts that are per-deployment and change often:
 
 | | |
 |---|---|
@@ -157,20 +91,9 @@ covers the facts that are per-deployment and change often:
 | **Fetch available models** | Re-reads `GET /models` on demand and reports what appeared and what went away. |
 | **Usage and history** | Two things side by side: the service's own metered quota for the subscription, and the calls and tokens this plugin counted itself, per model and per day. This is the same block the panel under [fast entries](#fast-entries) carries. |
 
-Writing an ordinary config field reloads that plugin row — the Loader reconciles
-it through the profile patch — after which the page re-reads what the Host
-reports, and says so when the read back fails. The page stages edits in one of
-two ways: a scalar field saves when it loses focus (or on Enter), while the key
-and the Models card keep a draft and commit it with their single **Save** (the
-Models save sends `hiddenModels` and `modelVariants` in one change). The key is
-the exception: it goes to the credential store and applies to the next request.
+Writing an ordinary config field reloads that plugin row — the Loader reconciles it through the profile patch — after which the page re-reads what the Host reports, and says so when the read back fails. The page stages edits in one of two ways: a scalar field saves when it loses focus (or on Enter), while the key and the Models card keep a draft and commit it with their single **Save** (the Models save sends `hiddenModels` and `modelVariants` in one change). The key is the exception: it goes to the credential store and applies to the next request.
 
-The card this bundle gets in that list, and the header of the `opencode-go` row's
-own page, carry the one-line description the package declares in
-`locale/en.json` and `locale/zh.json`. The Harness reads those files without
-activating the plugin, and the client resolves the one matching the interface
-language; with neither file, both fall back to the manifest's `description` — the
-sentence npm and the plugin registry show.
+The card this bundle gets in that list, and the header of the `opencode-go` row's own page, carry the one-line description the package declares in `locale/en.json` and `locale/zh.json`. The Harness reads those files without activating the plugin, and the client resolves the one matching the interface language; with neither file, both fall back to the manifest's `description` — the sentence npm and the plugin registry show.
 
 ### Where the key comes from, and when "Clear" is unavailable
 
@@ -182,18 +105,11 @@ The credential seam layers a reference, most trusted first:
 | the managed store (`~/.dsh/.credentials.yaml`) | this is the value the route reads | **Clear key** removes it |
 | a `.env` file (project first, then home) | stores, and is immediately shadowed back by the file | **Clear key** is not rendered, and the message names the file |
 
-The page can remove only the middle layer, and reports which layer it found in the
-other two cases. When a value is supplied from outside, the way out is the
-**Credential reference** field: point the route at a name nothing shadows
-(`OPENCODE_GO_HOME_KEY`, say), leave the field — it saves when it loses focus —
-and store the key under that name. It is an ordinary config field, so the Loader applies it on reload — no
-restart and no editing of your shell profile.
+The page can remove only the middle layer, and reports which layer it found in the other two cases. When a value is supplied from outside, the way out is the **Credential reference** field: point the route at a name nothing shadows (`OPENCODE_GO_HOME_KEY`, say), leave the field — it saves when it loses focus — and store the key under that name. It is an ordinary config field, so the Loader applies it on reload — no restart and no editing of your shell profile.
 
 ### The page's own endpoints
 
-The page is a separate artifact from the Host half, and the two agree on one flat
-namespace. Nothing else serves these paths, so they are safe to read with `curl`
-while the client is open:
+The page is a separate artifact from the Host half, and the two agree on one flat namespace. Nothing else serves these paths, so they are safe to read with `curl` while the client is open:
 
 | Endpoint | Method | Answers |
 |---|---|---|
@@ -208,68 +124,27 @@ while the client is open:
 
 How the surface is guarded:
 
-- **The fence comes first.** Every request goes through the harness's connection
-  service, which owns the host/origin policy and the browser session. Without
-  that service the fallback is a loopback authority, a `sec-fetch-site` that is
-  not `cross-site`, and an `Origin` matching the authority — so a page on another
-  host cannot read these endpoints, and a cross-site form post cannot write them.
-  A refused request gets a status and no body.
-- **No secret ever travels back.** The key is written and reported as
-  configured-or-not; nothing here returns its value, and `state` never carries it.
-- **A wrong method answers `405` with `Allow`**, an unknown path under the prefix
-  answers `404`, and a body over 64 KiB answers `413` — the page can always tell
-  a refusal it caused from a fault.
+- **The fence comes first.** Every request goes through the harness's connection service, which owns the host/origin policy and the browser session. Without that service the fallback is a loopback authority, a `sec-fetch-site` that is not `cross-site`, and an `Origin` matching the authority — so a page on another host cannot read these endpoints, and a cross-site form post cannot write them. A refused request gets a status and no body.
+- **No secret ever travels back.** The key is written and reported as configured-or-not; nothing here returns its value, and `state` never carries it.
+- **A wrong method answers `405` with `Allow`**, an unknown path under the prefix answers `404`, and a body over 64 KiB answers `413` — the page can always tell a refusal it caused from a fault.
 
-The page is served only by a deployment that mounts a `webServer`; without one the
-plugin is complete and this whole surface is absent.
+The page is served only by a deployment that mounts a `webServer`; without one the plugin is complete and this whole surface is absent.
 
 ## Fetching the model list
 
-A deployment in `modelSource: discover` reads `GET /models` once and keeps the
-answer for `modelsCacheSeconds`. Each row carries the model's display name, a
-description, its `limit`, `modalities`, reasoning ladder, and the catalogue's
-preferred `api` entry; discovery keeps those facts and the catalog reads them, so
-a model released after the fallback snapshot was taken still reports its own
-capacity and modalities. A gateway that still answers with ids only, or a cache
-file written before rows carried these facts, is still usable: those models fall
-back to the built-in table and the `models.dev` snapshot in
-`lib/model/limits.js`. The cache file names the endpoint it was written for and
-is served for that one only: changing `baseURL` makes the next read ask the new
-gateway instead of advertising the old one's models. The configuration page can
-also re-read the model list on demand; that explicit refresh reaches the
-provider's model endpoint:
+A deployment in `modelSource: discover` reads `GET /models` once and keeps the answer for `modelsCacheSeconds`. Each row carries the model's display name, a description, its `limit`, `modalities`, reasoning ladder, and the catalogue's preferred `api` entry; discovery keeps those facts and the catalog reads them, so a model released after the fallback snapshot was taken still reports its own capacity and modalities. A gateway that still answers with ids only, or a cache file written before rows carried these facts, is still usable: those models fall back to the built-in table and the `models.dev` snapshot in `lib/model/limits.js`. The cache file names the endpoint it was written for and is served for that one only: changing `baseURL` makes the next read ask the new gateway instead of advertising the old one's models. The configuration page can also re-read the model list on demand; that explicit refresh reaches the provider's model endpoint:
 
-- **What it reports** is what changed, counted over the *listing* rather than
-  over the raw answer. A model the service stops listing but the built-in
-  catalog also knows stays offered, so it is not reported as a change.
-- **A failed read never costs the catalog.** The previous answer stays in place,
-  the page says why the read failed, and the models stay callable.
-- **The first read is the only awaited one.** Everything else — startup, the
-  listing, the page's own load — is answered from memory or the cache file, so
-  opening the page is not a request.
+- **What it reports** is what changed, counted over the *listing* rather than over the raw answer. A model the service stops listing but the built-in catalog also knows stays offered, so it is not reported as a change.
+- **A failed read never costs the catalog.** The previous answer stays in place, the page says why the read failed, and the models stay callable.
+- **The first read is the only awaited one.** Everything else — startup, the listing, the page's own load — is answered from memory or the cache file, so opening the page is not a request.
 
-`healthCheck: startup` writes one report with three steps: the credential
-resolves, the catalog resolves, and every listed model resolves a context
-window.
-The models step names where the catalog came from — `service` for a live
-`GET /models` in this process, `cache` for a file restored from disk, `config`
-for the explicit list, and `builtin` for the fallback — and states
-`serviceReached` separately, so a warm cache or a configured list is never
-reported as proof that the service answered. A credential that does not resolve
-fails the report even when the catalog came from a warm cache. The report is
-logged once at activation and never blocks a call.
+`healthCheck: startup` writes one report with three steps: the credential resolves, the catalog resolves, and every listed model resolves a context window. The models step names where the catalog came from — `service` for a live `GET /models` in this process, `cache` for a file restored from disk, `config` for the explicit list, and `builtin` for the fallback — and states `serviceReached` separately, so a warm cache or a configured list is never reported as proof that the service answered. A credential that does not resolve fails the report even when the catalog came from a warm cache. The report is logged once at activation and never blocks a call.
 
-`modelSource: config` has nothing to fetch: the catalog is exactly the entries
-the deployment wrote, and the control says so.
+`modelSource: config` has nothing to fetch: the catalog is exactly the entries the deployment wrote, and the control says so.
 
 ## Hiding models from the listing
 
-`hiddenModels` is this deployment's own menu choice: the named ids disappear from
-the model picker while staying resolvable and callable, so a session already
-pinned to one keeps working. It is the per-model counterpart of
-`hideTrainingModels`, which is a data-policy stance rather than a preference —
-that field keeps every model whose provider trains on request data out of the
-listing, whatever the individual switches say.
+`hiddenModels` is this deployment's own menu choice: the named ids disappear from the model picker while staying resolvable and callable, so a session already pinned to one keeps working. It is the per-model counterpart of `hideTrainingModels`, which is a data-policy stance rather than a preference — that field keeps every model whose provider trains on request data out of the listing, whatever the individual switches say.
 
 ```yaml
 config:
@@ -278,52 +153,24 @@ config:
     - glm-5.2
 ```
 
-An id the catalog does not list is kept rather than dropped, so hiding a model
-OpenCode has not published yet starts working the moment it appears; a startup
-warning names ids nothing in the catalog matches, which is usually a typo. The
-configuration page writes this field, and both sides read the same listing
-decision.
+An id the catalog does not list is kept rather than dropped, so hiding a model OpenCode has not published yet starts working the moment it appears; a startup warning names ids nothing in the catalog matches, which is usually a typo. The configuration page writes this field, and both sides read the same listing decision.
 
-A model the service has retired is kept out of the picker whatever this field
-says, and the card renders its row — with a `retired` tag and a disabled
-checkbox — so the record stays visible (see [Retired
-models](models.md#retired-models)). The card's **Hide retired models** control
-can leave those rows out of the rendered list; the choice is the display
-preference `showRetiredModels`, so the catalog and the route are unaffected. The
-two histories also compose: if an id was
-hidden here before its model retired, the page reports it as `configured` rather
-than as retired, and **Show all** keeps that hidden id instead of dropping it,
-because a retired row can never be re-listed. **Hide all** adds every model the
-service still serves and leaves a retired id out of the list either way.
+A model the service has retired is kept out of the picker whatever this field says, and the card renders its row — with a `retired` tag and a disabled checkbox — so the record stays visible (see [Retired models](models.md#retired-models)). The card's **Hide retired models** control can leave those rows out of the rendered list; the choice is the display preference `showRetiredModels`, so the catalog and the route are unaffected. The two histories also compose: if an id was hidden here before its model retired, the page reports it as `configured` rather than as retired, and **Show all** keeps that hidden id instead of dropping it, because a retired row can never be re-listed. **Hide all** adds every model the service still serves and leaves a retired id out of the list either way.
 
 ## Usage
 
-The usage section answers two different questions, kept apart because they come
-from different places:
+The usage section answers two different questions, kept apart because they come from different places:
 
 | | |
 |---|---|
 | **Subscription quota** | The service's own metering, read from `GET {baseURL}/usage`: one bar per metered window — rolling, weekly, monthly — with the spent share in grey and the remaining share in pale green, both percentages as figures, and when the window resets. |
 | **This route's counters** | What the plugin counted itself, below: totals, per model, per day. |
 
-The bars keep the service's own window names rather than mapping them onto "day,
-week, month": the shortest one is a rolling window that resets within hours rather
-than at midnight. Each bar says when its window resets. Past 80% the figure takes
-the warning colour and at 100% the error colour, and the same numbers travel in
-`aria-valuetext`.
+The bars keep the service's own window names rather than mapping them onto "day, week, month": the shortest one is a rolling window that resets within hours rather than at midnight. Each bar says when its window resets. Past 80% the figure takes the warning colour and at 100% the error colour, and the same numbers travel in `aria-valuetext`.
 
-The *shape* of that answer is the service's own and may move without notice.
-Every way it can be missing is a sentence rather than a failure: a gateway that
-mirrors only the model surface answers `404`, a key the service rejects answers
-`401`, and an unreachable host answers nothing at all. In all three cases the
-local counters stay on screen and the quota panel says which one happened.
-Opening the page reuses an answer for `subscriptionCacheSeconds`; only
-**Re-read quota** forces a fresh call.
+The *shape* of that answer is the service's own and may move without notice. Every way it can be missing is a sentence rather than a failure: a gateway that mirrors only the model surface answers `404`, a key the service rejects answers `401`, and an unreachable host answers nothing at all. In all three cases the local counters stay on screen and the quota panel says which one happened. Opening the page reuses an answer for `subscriptionCacheSeconds`; only **Re-read quota** forces a fresh call.
 
-The counters below are the plugin's own. The harness reports tokens to whoever
-made the call, and only the adapter knows which model a token went to and which
-deployment paid for it. The page shows the result as totals, a per-model table,
-and a per-day series.
+The counters below are the plugin's own. The harness reports tokens to whoever made the call, and only the adapter knows which model a token went to and which deployment paid for it. The page shows the result as totals, a per-model table, and a per-day series.
 
 ```
 ~/.dsh/cache/opencode-go-usage.json
@@ -349,66 +196,37 @@ and a per-day series.
 | **Cache read / write** | What the service said it read from, and wrote to, its prompt cache. |
 | **Hit rate** | Cache read ÷ (uncached input + cache read) — the share of the prompt that came from cache. Shown as `—` when no call reported a cache figure at all. |
 
-The range and number format use DSH-style rounded menus in the same label-left,
-control-right preference layout as the Harness settings pages.
+The range and number format use DSH-style rounded menus in the same label-left, control-right preference layout as the Harness settings pages.
 
-A call whose stream the caller abandoned is not counted: this table is about what
-the route spent, not about an outcome nobody observed. Counting starts before the
-file is read, and the file is folded into what has been counted rather than
-replacing it, so the first call after a restart is not thrown away by the write
-that follows it. Every counter row is read through a default, so a field a newer
-build added is zero in a file an older one wrote instead of becoming `NaN` and
-poisoning everything written after it.
+A call whose stream the caller abandoned is not counted: this table is about what the route spent, not about an outcome nobody observed. Counting starts before the file is read, and the file is folded into what has been counted rather than replacing it, so the first call after a restart is not thrown away by the write that follows it. Every counter row is read through a default, so a field a newer build added is zero in a file an older one wrote instead of becoming `NaN` and poisoning everything written after it.
 
 ### What the input column means
 
-The two service families disagree about what their prompt count contains, and the
-figures above are only checkable if that disagreement is resolved the same way
-every time. It is resolved the way the Harness resolves it: `inputTokens` is the
-**uncached** input — the Harness's own token meter reads exactly this field under
-the name `uncachedInputTokens`.
+The two service families disagree about what their prompt count contains, and the figures above are only checkable if that disagreement is resolved the same way every time. It is resolved the way the Harness resolves it: `inputTokens` is the **uncached** input — the Harness's own token meter reads exactly this field under the name `uncachedInputTokens`.
 
 | Service family | What it sends | What this plugin records |
 |---|---|---|
 | OpenAI-shaped (`prompt_tokens_details`, `input_tokens_details`) | `prompt_tokens: 3689` with `cached_tokens: 3584` inside it | uncached input `105`, cache read `3584` |
 | Anthropic-shaped (`cache_read_input_tokens`, `cache_creation_input_tokens`) | `input_tokens: 4`, cache reported beside it | uncached input `4`, cache read `2048` |
 
-Both then add up the same way — uncached + output + read + write — so one total
-formula is correct for both families.
+Both then add up the same way — uncached + output + read + write — so one total formula is correct for both families.
 
-Two further consequences show up as **wrong data** rather than as an error, so
-they are worth knowing when the columns are used:
+Two further consequences show up as **wrong data** rather than as an error, so they are worth knowing when the columns are used:
 
-- **`0%` and `—` are different claims.** A service that reports "nothing was
-  cached" supports a hit rate of 0%; a service that reports no cache figure at
-  all does not, and gets `—`. The counters keep how many calls reported one, so
-  the page can tell the two apart.
-- **The Messages protocol announces its cache figures once.** They arrive in
-  `message_start`, and every later `message_delta` talks about output alone. The
-  two halves are merged field by field, so the cache figures survive.
+- **`0%` and `—` are different claims.** A service that reports "nothing was cached" supports a hit rate of 0%; a service that reports no cache figure at all does not, and gets `—`. The counters keep how many calls reported one, so the page can tell the two apart.
+- **The Messages protocol announces its cache figures once.** They arrive in `message_start`, and every later `message_delta` talks about output alone. The two halves are merged field by field, so the cache figures survive.
 
 Three further properties of this data:
 
-- **It is a report, not a bill.** These are the figures the service reported to
-  this client. The provider's own accounting of what a workspace spent is the
-  authority.
-- **Losing it is never a failure.** An unreadable file means no history yet, an
-  unwritable one is one warning, and a call is never failed because its token
-  count could not be saved.
-- **It is per deployment.** Two profiles, or two machines, keep their own
-  counters. Nothing here is shared, and nothing is sent anywhere.
+- **It is a report, not a bill.** These are the figures the service reported to this client. The provider's own accounting of what a workspace spent is the authority.
+- **Losing it is never a failure.** An unreadable file means no history yet, an unwritable one is one warning, and a call is never failed because its token count could not be saved.
+- **It is per deployment.** Two profiles, or two machines, keep their own counters. Nothing here is shared, and nothing is sent anywhere.
 
 ## Diagnostics log
 
-A failed call reaches the harness as a code and a sentence, and the harness keeps
-both. What it cannot keep is the layer under them: `fetch` rejects with
-`TypeError: fetch failed` and carries the real reason — `ECONNRESET`,
-`UND_ERR_CONNECT_TIMEOUT`, a socket closed by the far end — only in its `cause`.
-Two failures a week apart then look identical, and neither can be explained after
-the fact.
+A failed call reaches the harness as a code and a sentence, and the harness keeps both. What it cannot keep is the layer under them: `fetch` rejects with `TypeError: fetch failed` and carries the real reason — `ECONNRESET`, `UND_ERR_CONNECT_TIMEOUT`, a socket closed by the far end — only in its `cause`. Two failures a week apart then look identical, and neither can be explained after the fact.
 
-So every attempt that fails appends one JSON line to
-`~/.dsh/logs/opencode-go.jsonl`:
+So every attempt that fails appends one JSON line to `~/.dsh/logs/opencode-go.jsonl`:
 
 | What | Why it is there |
 |---|---|
@@ -422,29 +240,15 @@ So every attempt that fails appends one JSON line to
 
 Three consequences are intentional:
 
-- **No credential, no headers, no provider or HTTP message text, no response
-  body.** The file is an allowlist: what the harness was told, the provider's
-  stable identifiers, timing, and — only for a `connect` or `stream` failure —
-  the error chain the attempt ended with. Raw refusal bodies and anything a
-  conversation contained are not fields, so the file can be pasted into a bug
-  report. `diagnostics: all` adds the attempts that succeeded — for a latency
-  question, those are the measurement — and records no more than the same facts.
-- **A working installation writes nothing.** The default, `failures`, records
-  only failed attempts; `off` records none; `all` records every attempt.
-- **The file is bounded.** It rotates at 1 MB and keeps two predecessors
-  (`opencode-go.jsonl.1`, `.2`), so a route that fails in a loop cannot fill a
-  disk. Recording is queued and never awaited by the request, and a log that
-  cannot be written is one warning — never a failed call.
+- **No credential, no headers, no provider or HTTP message text, no response body.** The file is an allowlist: what the harness was told, the provider's stable identifiers, timing, and — only for a `connect` or `stream` failure — the error chain the attempt ended with. Raw refusal bodies and anything a conversation contained are not fields, so the file can be pasted into a bug report. `diagnostics: all` adds the attempts that succeeded — for a latency question, those are the measurement — and records no more than the same facts.
+- **A working installation writes nothing.** The default, `failures`, records only failed attempts; `off` records none; `all` records every attempt.
+- **The file is bounded.** It rotates at 1 MB and keeps two predecessors (`opencode-go.jsonl.1`, `.2`), so a route that fails in a loop cannot fill a disk. Recording is queued and never awaited by the request, and a log that cannot be written is one warning — never a failed call.
 
-This log answers "what happened to that request". The [usage
-counters](#usage) answer a different question — what the route spent — and they
-live at `usagePath`, deliberately a separate file.
+This log answers "what happened to that request". The [usage counters](#usage) answer a different question — what the route spent — and they live at `usagePath`, deliberately a separate file.
 
 ## Model variants
 
-A variant is one model's second set of settings under a name. It appears in the
-model list as its own entry — `<model>@<name>` — so choosing between presets is
-the same gesture as choosing between models, and a session can pin one.
+A variant is one model's second set of settings under a name. It appears in the model list as its own entry — `<model>@<name>` — so choosing between presets is the same gesture as choosing between models, and a session can pin one.
 
 ```yaml
 config:
@@ -469,56 +273,25 @@ config:
 
 The remaining rules:
 
-- **A variant is a local alias.** The harness selects and reports
-  `<model>@<name>`; the request on the wire still names `model`. Nothing about
-  the provider's view of the model changes.
-- **A variant inherits everything it does not restate**, including the base's
-  capacity, modalities, reasoning ladder, and remaining protocols.
-- **A variant whose `model` the catalog does not list is not offered**, and one
-  startup warning names the ids.
-- **A variant is a default, not a cage.** `effort` and `maxTokens` decide what a
-  call opens with; a request that names its own values wins.
-- **Two contradictions are refused at startup**, each by name: an effort on a
-  model that does not support reasoning, and an effort the model does not offer.
-- **An entry may carry only the keys above.** The page writes what it read plus
-  your edits, and a key the config does not declare — a typo, or a field the
-  snapshot happened to carry — is refused by name rather than written into
-  `cordis.patch.yml`.
+- **A variant is a local alias.** The harness selects and reports `<model>@<name>`; the request on the wire still names `model`. Nothing about the provider's view of the model changes.
+- **A variant inherits everything it does not restate**, including the base's capacity, modalities, reasoning ladder, and remaining protocols.
+- **A variant whose `model` the catalog does not list is not offered**, and one startup warning names the ids.
+- **A variant is a default, not a cage.** `effort` and `maxTokens` decide what a call opens with; a request that names its own values wins.
+- **Two contradictions are refused at startup**, each by name: an effort on a model that does not support reasoning, and an effort the model does not offer.
+- **An entry may carry only the keys above.** The page writes what it read plus your edits, and a key the config does not declare — a typo, or a field the snapshot happened to carry — is refused by name rather than written into `cordis.patch.yml`.
 
-Protocol shaping and cache paths stay in `cordis.patch.yml`; the transport
-settings the page offers are described under
-[Graphical configuration](#graphical-configuration).
+Protocol shaping and cache paths stay in `cordis.patch.yml`; the transport settings the page offers are described under [Graphical configuration](#graphical-configuration).
 
 Two further properties of the configuration page:
 
-- **The page is optional in both directions.** It is served only when the
-  deployment mounts a web server *and* registers a client half for this bundle.
-  A headless deployment has no route and no page, and the plugin behaves
-  identically without them.
-- **The route is not a second authentication path.** `/opencode-go/*` is
-  answered only for requests the connection service admits — the same Host and
-  `Origin` fence plus browser-session check the rest of the GUI uses. Without a
-  connection service only a loopback authority is answered.
+- **The page is optional in both directions.** It is served only when the deployment mounts a web server *and* registers a client half for this bundle. A headless deployment has no route and no page, and the plugin behaves identically without them.
+- **The route is not a second authentication path.** `/opencode-go/*` is answered only for requests the connection service admits — the same Host and `Origin` fence plus browser-session check the rest of the GUI uses. Without a connection service only a loopback authority is answered.
 
-A credential reference is a *name*, so it can be edited freely; the key behind it
-lives in the credential store. A key the launching environment supplies cannot be
-overwritten from the page, which reports it as read-only — clear the variable in
-the launching shell first.
+A credential reference is a *name*, so it can be edited freely; the key behind it lives in the credential store. A key the launching environment supplies cannot be overwritten from the page, which reports it as read-only — clear the variable in the launching shell first.
 
 ## Shaping the catalog
 
-In `discover` mode a `models` entry **refines** the record for the id it names: a
-field the entry states wins, and a field it omits keeps what the live row (or the
-built-in fallback) said. A `models` entry for `gpt-5.6-luna` that names only its
-`contextWindow` therefore changes the window and keeps the live three-protocol
-list, the service's other capacity figures, and its reasoning ladder. An entry
-that states no capacity keeps the measured table's figures for the id, or its
-family's, and only an id nothing describes falls back to the top-level defaults —
-which is how a compatible gateway names its own models. Refining a retired model
-changes fields but not its state: only discovery, seeing the service serve the id
-again, clears the mark (see [Retired models](models.md#retired-models)).
-`modelOverrides` applies the same refinement as a map, without listing the whole
-model:
+In `discover` mode a `models` entry **refines** the record for the id it names: a field the entry states wins, and a field it omits keeps what the live row (or the built-in fallback) said. A `models` entry for `gpt-5.6-luna` that names only its `contextWindow` therefore changes the window and keeps the live three-protocol list, the service's other capacity figures, and its reasoning ladder. An entry that states no capacity keeps the measured table's figures for the id, or its family's, and only an id nothing describes falls back to the top-level defaults — which is how a compatible gateway names its own models. Refining a retired model changes fields but not its state: only discovery, seeing the service serve the id again, clears the mark (see [Retired models](models.md#retired-models)). `modelOverrides` applies the same refinement as a map, without listing the whole model:
 
 ```yaml
 config:
@@ -531,29 +304,15 @@ config:
       efforts: [low, medium, high]
 ```
 
-An entry may also paste a catalogue record: `limit: { context, output }` is
-accepted as a synonym for `contextWindow` / `maxTokens`, and
-`modalities: { input: [...] }` (or a bare `modalities: [...]`) records the
-provider's own list in this package's vocabulary — `text`, `image`, `video`,
-`audio`, `pdf`. Only `text` and `image` are sendable, so a list naming more is
-kept whole while the sendable subset is what gets declared.
+An entry may also paste a catalogue record: `limit: { context, output }` is accepted as a synonym for `contextWindow` / `maxTokens`, and `modalities: { input: [...] }` (or a bare `modalities: [...]`) records the provider's own list in this package's vocabulary — `text`, `image`, `video`, `audio`, `pdf`. Only `text` and `image` are sendable, so a list naming more is kept whole while the sendable subset is what gets declared.
 
-With `modelSource: config`, `models` becomes the entire catalog and `GET /models`
-is never called — the right posture for a compatible gateway.
+With `modelSource: config`, `models` becomes the entire catalog and `GET /models` is never called — the right posture for a compatible gateway.
 
 ## Image input
 
-Image input follows the model. A vision model in the [models
-page](models.md#capacity-and-modalities) declares `image`, and the adapter resolves each
-occurrence through the mounted attachment seam into a request part: a `data:` URL
-for Chat Completions and Responses, a base64 source for Messages.
+Image input follows the model. A vision model in the [models page](models.md#capacity-and-modalities) declares `image`, and the adapter resolves each occurrence through the mounted attachment seam into a request part: a `data:` URL for Chat Completions and Responses, a base64 source for Messages.
 
-That declaration follows the deployment's condition — see `sendImages` above. A
-durable `ImageBlock` carries an attachment *reference*, and turning it into
-request bytes needs the `attachments` service, so a route that cannot resolve one
-reports text-only rather than declaring a capability it would fail to honour. The
-provider's own list is never lost: the resolved description names whatever the
-route cannot send.
+That declaration follows the deployment's condition — see `sendImages` above. A durable `ImageBlock` carries an attachment *reference*, and turning it into request bytes needs the `attachments` service, so a route that cannot resolve one reports text-only rather than declaring a capability it would fail to honour. The provider's own list is never lost: the resolved description names whatever the route cannot send.
 
 Override either half per model:
 

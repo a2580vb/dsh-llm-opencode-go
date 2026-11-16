@@ -14,13 +14,9 @@
 
 *The usage panel and the quota capsule, as they ship on the web client.*
 
-A [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness) (DSH)
-plugin that serves **OpenCode Go** (`https://opencode.ai/zen/go/v1`) as a native
-DSH model provider.
+A [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness) (DSH) plugin that serves **OpenCode Go** (`https://opencode.ai/zen/go/v1`) as a native DSH model provider.
 
-The plugin implements OpenCode Go's three wire formats itself: it translates
-harness messages, tools, and reasoning into each protocol's request, and
-translates the streamed response back into DSH `StreamChunk` values.
+The plugin implements OpenCode Go's three wire formats itself: it translates harness messages, tools, and reasoning into each protocol's request, and translates the streamed response back into DSH `StreamChunk` values.
 
 ```yaml
 - insert:
@@ -30,11 +26,7 @@ translates the streamed response back into DSH `StreamChunk` values.
         apiKeyEnv: OPENCODE_GO_API_KEY
 ```
 
-That is the whole required configuration. `apiKeyEnv` names a **credential
-reference**, not the key itself: the key value never enters the config file, and
-the plugin resolves the reference through the harness credential seam on every
-request, so a key written by the web Models page reaches the next call with no
-restart.
+That is the whole required configuration. `apiKeyEnv` names a **credential reference**, not the key itself: the key value never enters the config file, and the plugin resolves the reference through the harness credential seam on every request, so a key written by the web Models page reaches the next call with no restart.
 
 ## Features
 
@@ -60,8 +52,7 @@ restart.
 dsh plugin add dsh-llm-opencode-go
 ```
 
-Then **fully restart** the profile: bundle layers are read at startup. The startup
-log should carry:
+Then **fully restart** the profile: bundle layers are read at startup. The startup log should carry:
 
 ```
 dsh-llm-opencode-go: provider "opencode-go" ready at https://opencode.ai/zen/go/v1 (credential OPENCODE_GO_API_KEY, models discover)
@@ -69,9 +60,7 @@ dsh-llm-opencode-go: provider "opencode-go" ready at https://opencode.ai/zen/go/
 
 ### Give it a key
 
-Either export `OPENCODE_GO_API_KEY` in the environment that launches DSH, or
-store it through the credentials seam — the web Models page writes it. The plugin
-resolves the reference per request, so both work and neither requires a restart.
+Either export `OPENCODE_GO_API_KEY` in the environment that launches DSH, or store it through the credentials seam — the web Models page writes it. The plugin resolves the reference per request, so both work and neither requires a restart.
 
 ### See the usage
 
@@ -83,19 +72,13 @@ Usage has three entries, all reading the same facts:
 | **The usage panel** | From that row, or the keyboard (desktop `Ctrl/Cmd+U`): the subscription's three windows first, this route's counters under them, and a header that stays on screen as they scroll — the way to the plugin's configuration page, and an **×** back to the conversation. |
 | **Settings → Built-in plugins** | A tab carrying the same content as the panel. |
 
-All three need the web client; a deployment without one has none of them and is
-otherwise unchanged. The capsule can be switched off from the configuration page
-(`showQuotaCapsule`, on by default): hiding that row leaves the other two
-entries in place. See [Configuration](docs/configuration.md#fast-entries).
+All three need the web client; a deployment without one has none of them and is otherwise unchanged. The capsule can be switched off from the configuration page (`showQuotaCapsule`, on by default): hiding that row leaves the other two entries in place. See [Configuration](docs/configuration.md#fast-entries).
 
 ## Configuration
 
-The `config` block above is all that is required; every other key is optional.
-The full field table, catalog shaping, and image input live in
-[Configuration](docs/configuration.md).
+The `config` block above is all that is required; every other key is optional. The full field table, catalog shaping, and image input live in [Configuration](docs/configuration.md).
 
-**Point it at another credential reference**, if you would rather the plugin read
-a differently-named variable:
+**Point it at another credential reference**, if you would rather the plugin read a differently-named variable:
 
 ```yaml
 config:
@@ -104,17 +87,7 @@ config:
 
 The value is never read from the config file itself, only the variable *name*.
 
-**Or configure it from the web client.** Settings carries an **OpenCode Go
-settings** row of its own, beside the pages the shell ships, and the same page is
-behind the sidebar's **Plugins** page: the `dsh-llm-opencode-go` bundle's
-`opencode-go` row has a **Configure** control. Either door opens the plugin's own
-page: the API key, the credential reference it is stored under, one switch per
-catalog model for what the picker offers, the model variants, whether the sidebar
-capsule shows, a control that re-reads the service's model list, and what this
-route has spent. The key is
-written to the credential store, never to `cordis.patch.yml`, and the page is
-mounted only by a deployment that serves the web client. See
-[Configuration](docs/configuration.md#graphical-configuration).
+**Or configure it from the web client.** Settings carries an **OpenCode Go settings** row of its own, beside the pages the shell ships, and the same page is behind the sidebar's **Plugins** page: the `dsh-llm-opencode-go` bundle's `opencode-go` row has a **Configure** control. Either door opens the plugin's own page: the API key, the credential reference it is stored under, one switch per catalog model for what the picker offers, the model variants, whether the sidebar capsule shows, a control that re-reads the service's model list, and what this route has spent. The key is written to the credential store, never to `cordis.patch.yml`, and the page is mounted only by a deployment that serves the web client. See [Configuration](docs/configuration.md#graphical-configuration).
 
 ## Docs
 
