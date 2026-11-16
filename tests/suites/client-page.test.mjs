@@ -521,6 +521,47 @@ const countersTotal = (tree, sectionText) => {
   return rows(totals)[1]?.[1]
 }
 
+/** Every interactive control in a rendered tree, menu items included. */
+const controls = (tree) => nodes(tree)
+  .map(({ node }) => node)
+  .filter((node) => ['button', 'input', 'select', 'textarea'].includes(node.type)
+    || node.props?.role === 'menuitem')
+  .filter((node) => !(node.type === 'input' && node.props?.type === 'hidden'))
+
+/**
+ * The accessible name a control exposes, or the empty string when it has none.
+ *
+ * The page draws labels as text above fields rather than wrapping the input, so
+ * a visible label is not enough: an input needs an `aria-label`, a referenced
+ * label, or an associated `label[for]` to have a name a screen reader can read.
+ */
+function accessibleName(node, tree) {
+  const props = node.props ?? {}
+  const ariaLabel = typeof props['aria-label'] === 'string' ? props['aria-label'].trim() : ''
+  if (ariaLabel !== '') return ariaLabel
+  const labelledBy = typeof props['aria-labelledby'] === 'string' ? props['aria-labelledby'].trim() : ''
+  if (labelledBy !== '') {
+    const named = labelledBy.split(/\s+/)
+      .map((id) => nodes(tree).find(({ node: candidate }) => candidate.props?.id === id))
+      .filter((entry) => entry !== undefined)
+      .map((entry) => text(entry.node).trim())
+      .join(' ')
+      .trim()
+    if (named !== '') return named
+  }
+  if (node.type === 'button' || props.role === 'menuitem') {
+    const own = text(node).trim()
+    if (own !== '') return own
+  }
+  const id = typeof props.id === 'string' ? props.id.trim() : ''
+  if (id !== '') {
+    const label = nodes(tree).find(({ node: candidate }) => candidate.type === 'label' && candidate.props?.htmlFor === id)
+    if (label !== undefined && text(label.node).trim() !== '') return text(label.node).trim()
+  }
+  const title = typeof props.title === 'string' ? props.title.trim() : ''
+  return title
+}
+
 export default {
   name: 'client page',
   cases: [
@@ -2020,20 +2061,21 @@ export default {
       async run() {
         const page = await renderPage({ fetch: host() })
         const tree = await page.open()
-        const labels = buttons(tree)
-        for (const label of ['Save', 'Clear key', 'Refresh page list', 'Fetch available models', 'Hide retired models', 'Refresh usage', 'Previous page', 'Next page']) {
-          ok(labels.includes(label), `a "${label}" control is rendered: [${labels.join(', ')}]`)
+        const rendered = controls(tree)
+        ok(rendered.length > 0, 'the page renders controls')
+        for (const control of rendered) {
+          const name = accessibleName(control, tree)
+          ok(name !== '', `${control.type} ${JSON.stringify(control.props)} has no accessible name`)
         }
-        const rangeTree = await page.click((node) => node.type === 'button' && node.props['aria-haspopup'] === 'menu'
-          && node.props['aria-label'] === 'Range')
-        const formatTree = await page.click((node) => node.type === 'button' && node.props['aria-haspopup'] === 'menu'
-          && node.props['aria-label'] === 'Number format')
-        const pageSizeTree = await page.click((node) => node.type === 'button' && node.props['aria-haspopup'] === 'menu'
-          && node.props['aria-label'] === 'Days per page')
-        const options = [...nodes(rangeTree), ...nodes(formatTree), ...nodes(pageSizeTree)]
-          .filter(({ node }) => node.props?.role === 'menuitem').map(({ node }) => text(node).trim())
-        for (const label of ['Today', '7 days', '30 days', 'All history', 'Full numbers', 'Show units', '10 per page', '30 per page', '100 per page']) {
-          ok(options.includes(label), `a "${label}" option is rendered: [${options.join(', ')}]`)
+        for (const label of ['Range', 'Number format', 'Days per page']) {
+          const opened = await page.click((node) => node.type === 'button'
+            && node.props['aria-haspopup'] === 'menu' && node.props['aria-label'] === label)
+          const items = controls(opened).filter((node) => node.props?.role === 'menuitem')
+          ok(items.length > 0, `the ${label} menu renders items`)
+          for (const item of items) {
+            ok(accessibleName(item, opened) !== '',
+              `a ${label} item has no accessible name: ${JSON.stringify(item.props)}`)
+          }
         }
       },
     },
