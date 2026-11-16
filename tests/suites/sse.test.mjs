@@ -95,6 +95,30 @@ export default {
       },
     },
     {
+      name: 'a multi-byte character split across reads is decoded once',
+      async run() {
+        // A socket read can end anywhere, including in the middle of a UTF-8
+        // sequence. The decoder has to carry the partial bytes to the next read
+        // rather than replacing them; a replacement character here would reach
+        // the model as different text.
+        const text = 'data: {"text":"你好🙂"}\n\n'
+        const bytes = new TextEncoder().encode(text)
+        const emoji = new TextEncoder().encode('🙂')
+        const at = bytes.indexOf(emoji[0])
+        if (at <= 0) throw new Error('the fixture no longer contains the emoji bytes')
+        const body = new ReadableStream({
+          start(controller) {
+            controller.enqueue(bytes.slice(0, at + 1))
+            controller.enqueue(bytes.slice(at + 1))
+            controller.close()
+          },
+        })
+        const out = []
+        for await (const frame of parseSse(body)) out.push(frame)
+        equal(out, [{ data: '{"text":"你好🙂"}' }])
+      },
+    },
+    {
       name: 'a read that yields only bytes, never a frame, still ticks',
       async run() {
         // A provider that sends a keep-alive comment while it thinks must keep
