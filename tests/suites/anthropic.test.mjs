@@ -599,6 +599,15 @@ export default {
       },
     },
     {
+      name: 'a max_tokens stop reason is a truncated finish',
+      async run() {
+        const text = (await fixture('anthropic.text.sse')).replace('"stop_reason":"end_turn"', '"stop_reason":"max_tokens"')
+        const { finish, chunks } = await assemble(anthropic, text, 'minimax-m2.7')
+        equal(finish, { kind: 'max-tokens' })
+        finishChunk(chunks)
+      },
+    },
+    {
       name: 'an overloaded_error event is a retryable server failure',
       async run() {
         const text = [

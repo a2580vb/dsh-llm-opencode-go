@@ -361,6 +361,15 @@ export default {
       },
     },
     {
+      name: 'a length finish reason is a truncated finish',
+      async run() {
+        const text = (await fixture('chat-completions.text.sse')).replace('"finish_reason":"stop"', '"finish_reason":"length"')
+        const { finish, chunks } = await assemble(chat, text, 'deepseek-v4-flash')
+        equal(finish, { kind: 'max-tokens' })
+        finishChunk(chunks)
+      },
+    },
+    {
       name: 'usage that arrived before a mid-stream failure reaches onUsage, and no terminal usage chunk follows',
       async run() {
         // The provider bills a call as soon as it reports usage; the reader

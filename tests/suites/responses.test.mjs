@@ -434,6 +434,26 @@ export default {
       },
     },
     {
+      name: 'an incomplete response stopped by the output cap is a truncated finish',
+      async run() {
+        const text = [
+          'event: response.created',
+          'data: {"type":"response.created","response":{"id":"r1"}}',
+          '',
+          'event: response.output_text.delta',
+          'data: {"type":"response.output_text.delta","output_index":0,"delta":"partial"}',
+          '',
+          'event: response.incomplete',
+          'data: {"type":"response.incomplete","response":{"id":"r1","incomplete_details":{"reason":"max_output_tokens"},"usage":{"input_tokens":3,"output_tokens":2}}}',
+          '',
+          '',
+        ].join('\n')
+        const { blocks, finish } = await assemble(responses, text, 'm')
+        is(blocks[0].text, 'partial')
+        equal(finish, { kind: 'max-tokens' })
+      },
+    },
+    {
       name: 'a response.failed carrying a server error is retryable',
       async run() {
         const error = await failureOf(
