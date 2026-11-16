@@ -24,7 +24,7 @@ x-opencode-session: <每个会话一个稳定 id>
 x-opencode-client: dsh-opencode-go
 ```
 
-这两个产品标识是 `userAgentProduct` 的默认值，取值与包名 `dsh-llm-opencode-go` 不同；需要它们与包名一致时，设置 `userAgentProduct`。
+这两个产品标识都取自 `userAgentProduct` 的默认值，与包名 `dsh-llm-opencode-go` 不同；想换掉它们时，把 `userAgentProduct` 设成任意合法的产品标识即可。
 
 ## `x-opencode-session`
 
