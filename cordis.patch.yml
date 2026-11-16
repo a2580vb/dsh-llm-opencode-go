@@ -76,10 +76,11 @@
 # row in Settings' own navigation (`settings.section`, id `opencode-go`) and the
 # Configure control on this bundle's row in the sidebar's Plugins page. Both
 # register the same component, so the two entries cannot drift. It edits the API
-# key, the credential reference, which models the listing offers, the model
-# variants, whether the sidebar's quota capsule shows, and the quota refresh
-# rhythm and transport settings; it re-reads GET /models on demand, and shows
-# both the service's own subscription quota and what this route spent. See
+# key, the credential reference, which models the listing offers and which
+# retired rows the card shows, the model variants, whether the sidebar's quota
+# capsule shows, the token number format, and the quota refresh rhythm and
+# transport settings; it re-reads GET /models on demand, and shows both the
+# service's own subscription quota and what this route spent. See
 # docs/configuration.md#graphical-configuration. The page needs a web server and
 # is simply absent without one.
 #
