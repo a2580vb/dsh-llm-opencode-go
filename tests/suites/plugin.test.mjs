@@ -147,7 +147,7 @@ function recordingLogger() {
  *
  * The fetch reaches both layers: the model cache for discovery and the adapter
  * for generation. A case that counts requests therefore sees every request the
- * health check really made, which is the fact an injected-only seam hid before.
+ * health check really made — a fact an injected-only seam hides.
  *
  * @param {object} input - the collaborators.
  * @param {object} input.config - the resolved configuration.
@@ -423,8 +423,8 @@ export default {
       name: 'an unresolvable credential fails as MISSING_CREDENTIAL, not as a transport error',
       async run() {
         // The resolver runs before any network I/O, so this needs no fetch stub.
-        // Its code must exist in CODES: `LlmError` rejects an undefined one, and
-        // the failure used to resurface as TRANSPORT with a constructor message.
+        // `LlmError` rejects an undefined code; an unknown code would reach the
+        // harness as an opaque failure instead of the named MISSING_CREDENTIAL.
         const missing = `DSH_ABSENT_${Date.now()}`
         delete process.env[missing]
         const { ctx, state } = fakeContext()
