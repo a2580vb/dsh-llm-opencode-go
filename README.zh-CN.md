@@ -12,7 +12,7 @@
 
 ![DeepSeek Harness Web 客户端里的用量面板：订阅的三个窗口在上，本路由的计数在下；左下是侧边栏底部的额度胶囊](https://raw.githubusercontent.com/a2580vb/dsh-llm-opencode-go/main/assets/screenshot-1-app.png)
 
-*用量面板与侧边栏底部的额度胶囊，Web 客户端实拍。*
+*Web 客户端里的用量面板与额度胶囊。这张截图早于当前用量文案：现在整段历史都可以分页查看。*
 
 一个 [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness)（DSH）插件，把 **OpenCode Go**（`https://opencode.ai/zen/go/v1`）作为 DSH 的原生模型 provider 接入。
 
@@ -26,7 +26,7 @@
         apiKeyEnv: OPENCODE_GO_API_KEY
 ```
 
-这是全部必需配置。`apiKeyEnv` 是一个**凭据引用**，不是密钥值：密钥值不写进配置文件，插件每次请求通过 Harness 的凭据接缝解析它，因此在 Web 的「模型」页写入的 key 对下一次调用即生效，无需重启。
+上面这段是部署可能需要写的全部配置；其中每个键都可选，因为这些就是默认值。`apiKeyEnv` 是一个**凭据引用**，不是密钥值：密钥值不写进配置文件，插件每次请求通过 Harness 的凭据接缝解析它，因此在 Web 的「模型」页写入的 key 对下一次调用即生效，无需重启。
 
 ## 功能
 
@@ -76,7 +76,7 @@ dsh-llm-opencode-go: provider "opencode-go" ready at https://opencode.ai/zen/go/
 
 ## 配置方法
 
-上面那段 `config` 是必需的全部；其余每个键都是可选的。完整字段表、目录塑造与图片输入见 [配置](docs/configuration.zh-CN.md)。
+上面那段 `config` 里的每个键都可选：它们就是默认值。完整字段表、目录塑造与图片输入见 [配置](docs/configuration.zh-CN.md)。
 
 **换一个凭据引用**，让插件读取另一个名字的环境变量：
 
@@ -87,7 +87,7 @@ config:
 
 配置文件里读取的永远只是变量**名**，不是它的值。
 
-**用 Web 界面改。** 设置里有一行自己的 **OpenCode Go 设置**，排在 Harness 自带的那些页面之后；侧边栏的 **Plugins** 页也能到同一页——`dsh-llm-opencode-go` 组合包中 `opencode-go` 行上有 **配置**（Configure）控件。两扇门打开的都是插件自己的页面：API 密钥、密钥所在的凭据引用、目录里每个模型一个的「是否在选择器中出现」开关、模型变体、侧边栏胶囊是否显示、一个重新读取服务端模型列表的控件，以及这条路由花掉了多少。密钥写进凭据存储，不写进 `cordis.patch.yml`；这一页只有提供 Web 客户端的部署才会挂载。详见[配置](docs/configuration.zh-CN.md#图形化配置)。
+**用 Web 界面改。** 设置里有一行自己的 **OpenCode Go**，排在 Harness 自带的那些页面之后；侧边栏的 **Plugins** 页也能到同一页——`dsh-llm-opencode-go` 组合包中 `opencode-go` 行上有 **配置**（Configure）控件。两扇门打开的都是插件自己的页面：API 密钥、密钥所在的凭据引用、目录里每个模型一个的「是否在选择器中出现」开关、模型变体、侧边栏胶囊是否显示、一个重新读取服务端模型列表的控件，以及这条路由花掉了多少。密钥写进凭据存储，不写进 `cordis.patch.yml`；这一页只有提供 Web 客户端的部署才会挂载。详见[配置](docs/configuration.zh-CN.md#图形化配置)。
 
 ## 文档
 

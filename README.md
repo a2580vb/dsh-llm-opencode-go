@@ -12,7 +12,7 @@
 
 ![The usage panel in the DeepSeek Harness web client: the subscription's three windows above this route's counters, with the quota capsule at the sidebar's foot](https://raw.githubusercontent.com/a2580vb/dsh-llm-opencode-go/main/assets/screenshot-1-app.png)
 
-*The usage panel and the quota capsule, as they ship on the web client.*
+*The usage panel and the quota capsule in the web client. This screenshot predates the current usage copy: the page now pages through the whole history.*
 
 A [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness) (DSH) plugin that serves **OpenCode Go** (`https://opencode.ai/zen/go/v1`) as a native DSH model provider.
 
@@ -26,7 +26,7 @@ The plugin implements OpenCode Go's three wire formats itself: it translates har
         apiKeyEnv: OPENCODE_GO_API_KEY
 ```
 
-That is the whole required configuration. `apiKeyEnv` names a **credential reference**, not the key itself: the key value never enters the config file, and the plugin resolves the reference through the harness credential seam on every request, so a key written by the web Models page reaches the next call with no restart.
+That is the whole configuration a deployment may want to write; every key in it is optional because these are the defaults. `apiKeyEnv` names a **credential reference**, not the key itself: the key value never enters the config file, and the plugin resolves the reference through the harness credential seam on every request, so a key written by the web Models page reaches the next call with no restart.
 
 ## Features
 
@@ -76,7 +76,7 @@ All three need the web client; a deployment without one has none of them and is 
 
 ## Configuration
 
-The `config` block above is all that is required; every other key is optional. The full field table, catalog shaping, and image input live in [Configuration](docs/configuration.md).
+Every key in the `config` block above is optional: these are the defaults. The full field table, catalog shaping, and image input live in [Configuration](docs/configuration.md).
 
 **Point it at another credential reference**, if you would rather the plugin read a differently-named variable:
 
@@ -87,7 +87,7 @@ config:
 
 The value is never read from the config file itself, only the variable *name*.
 
-**Or configure it from the web client.** Settings carries an **OpenCode Go settings** row of its own, beside the pages the shell ships, and the same page is behind the sidebar's **Plugins** page: the `dsh-llm-opencode-go` bundle's `opencode-go` row has a **Configure** control. Either door opens the plugin's own page: the API key, the credential reference it is stored under, one switch per catalog model for what the picker offers, the model variants, whether the sidebar capsule shows, a control that re-reads the service's model list, and what this route has spent. The key is written to the credential store, never to `cordis.patch.yml`, and the page is mounted only by a deployment that serves the web client. See [Configuration](docs/configuration.md#graphical-configuration).
+**Or configure it from the web client.** Settings carries an **OpenCode Go** row of its own, beside the pages the shell ships, and the same page is behind the sidebar's **Plugins** page: the `dsh-llm-opencode-go` bundle's `opencode-go` row has a **Configure** control. Either door opens the plugin's own page: the API key, the credential reference it is stored under, one switch per catalog model for what the picker offers, the model variants, whether the sidebar capsule shows, a control that re-reads the service's model list, and what this route has spent. The key is written to the credential store, never to `cordis.patch.yml`, and the page is mounted only by a deployment that serves the web client. See [Configuration](docs/configuration.md#graphical-configuration).
 
 ## Docs
 
