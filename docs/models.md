@@ -87,7 +87,7 @@ config:
   hideTrainingModels: true
 ```
 
-Hiding is a listing decision, not a routing one: the ids still resolve and still stream, so a session already using one keeps working and enabling the setting later needs no plugin change.
+Hiding is a listing decision, not a routing one: the ids still resolve and remain callable, and the relay's consent gate still decides each call, so a session already using one keeps working once the workspace allows it and enabling the setting later needs no plugin change.
 
 ## Capacity and modalities
 
