@@ -11,6 +11,8 @@
  *
  *   node scripts/check-cached-models.mjs
  *
+ * Candidates: `OC_MODELS_CACHE`, then `~/.cache/opencode/models.json`.
+ *
  * Exit status is zero when there is no cache (nothing to compare) or when the
  * measured context windows agree, and one when one disagrees.
  */
@@ -36,8 +38,8 @@ for (const path of paths) {
       break
     }
   } catch {
-    // Try the next candidate; a missing catalogue just means there is nothing
-    // to compare on this machine.
+    // Any unreadable or malformed candidate is skipped; the next candidate may
+    // still answer.
   }
 }
 
