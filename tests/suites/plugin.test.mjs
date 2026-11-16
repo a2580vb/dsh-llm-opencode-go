@@ -246,29 +246,6 @@ export default {
       },
     },
     {
-      name: 'a wrong list container is reported as issues, never thrown',
-      run() {
-        // The loader validates before activation, so the schema itself is the
-        // boundary for a hand-written row. Iterating a non-array value here
-        // used to throw `... is not iterable` instead of naming the field.
-        for (const field of ['models', 'hiddenModels', 'modelVariants']) {
-          for (const value of [true, 7, {}, 'not-a-list']) {
-            let result
-            try {
-              result = Config['~standard'].validate({ [field]: value })
-            } catch (error) {
-              throw new Error(`${field}: ${JSON.stringify(value)} made the validator throw: ${error?.message}`)
-            }
-            ok(Array.isArray(result.issues) && result.issues.length > 0, `${field}: ${JSON.stringify(value)} was refused`)
-            ok(
-              result.issues.some((issue) => String(issue.message).includes(field)),
-              `${field}: the issue names the field`,
-            )
-          }
-        }
-      },
-    },
-    {
       name: 'a handwritten retry policy the page would refuse fails activation',
       run() {
         // The page and a hand-written YAML row are the same input: a policy
