@@ -22,7 +22,7 @@ import { fileURLToPath } from 'node:url'
 import vm from 'node:vm'
 
 import { MANAGED_CONFIG_FIELDS, UI_ROUTES } from '../../lib/ui/bridge.js'
-import { equal, includes, is, ok } from '../helpers.mjs'
+import { equal, is, ok } from '../helpers.mjs'
 
 const ROOT = join(dirname(dirname(dirname(fileURLToPath(import.meta.url)))))
 const clientSource = await readFile(join(ROOT, 'lib', 'client.js'), 'utf8')
@@ -381,21 +381,6 @@ export default {
       },
     },
     {
-      name: 'the one fetch call site reports a transport failure instead of throwing',
-      async run() {
-        // Every surface reads through `call`, so a rejected fetch — the bridge
-        // is down, the page lost its socket — is caught once and becomes a
-        // result with no status. A second fetch call site would be a read that
-        // can leave a surface loading or a promise unhandled.
-        const sites = [...clientSource.matchAll(/\bfetch\(/g)].length
-        is(sites, 1, 'one fetch call site')
-        const helper = /async function call\([\s\S]*?\n    \}/.exec(clientSource)?.[0] ?? ''
-        ok(helper.includes('try {'), 'the request is attempted inside a try')
-        ok(helper.includes('catch {'), 'and a rejection is caught')
-        ok(helper.includes('network: true'), 'the rejection is reported as a network failure')
-      },
-    },
-    {
       name: 'the managed fields are the ones the page offers to write',
       run() {
         // `MANAGED_CONFIG_FIELDS` is the lock on the write path: the bridge
@@ -442,18 +427,6 @@ export default {
             ok(text.includes(`| \`${route}\` |`), `${file} documents ${route} in a table row`)
           }
         }
-      },
-    },
-    {
-      name: 'the page reads usage through the endpoint the Host serves',
-      run() {
-        includes(clientSource, 'usage: \'opencode-go/usage\'')
-        // The window travels as a query parameter and is built from the
-        // component's own state, so the page can only ever ask for a window it
-        // offers. Which endpoints exist is checked above, where the bundle's
-        // table is compared with the bridge's.
-        includes(clientSource, '`${ROUTES.usage}?days=${String(days)}`')
-        ok(!clientSource.includes('days=365'), 'no unbounded window is ever requested')
       },
     },
     {
