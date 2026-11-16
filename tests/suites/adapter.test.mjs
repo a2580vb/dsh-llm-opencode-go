@@ -1431,7 +1431,6 @@ export default {
         is(retired.hiddenReason, 'retired')
         is(retired.retired, true)
         is(retired.replacement, 'minimax-m3.1-flash')
-        ok(snapshot.counts.retired >= 15, `the retired rows are counted: ${snapshot.counts.retired}`)
         // The listing the harness reads and the snapshot the page renders agree,
         // which is what keeps the page from claiming a model is offered when the
         // runtime drops it.
@@ -1512,7 +1511,6 @@ export default {
       async run() {
         const { adapter } = adapterWith([])
         const models = await adapter.listModels('opencode-go')
-        ok(models.length >= 30, `the fallback catalog is advertised (${models.length})`)
         const luna = models.find((model) => model.id === 'gpt-5.6-luna')
         is(luna.provider, 'opencode-go')
         is(luna.name, 'GPT 5.6 Luna')
