@@ -5,17 +5,12 @@
  * what discovery fetched have to know that the file they open is the one this
  * run wrote. Two things make that true, and both are needed:
  *
- *   - **The name is minted per run.** The process id was the only thing keeping
- *     two runs apart, and pids are recycled: a later run that drew a used id
- *     opened the earlier run's file at the same path, found a cache entry still
- *     inside its lifetime, and answered discovery from it — so a case that
- *     counted requests measured nothing, and failed three assertions away from
- *     the cause. The token built here carries the id, the start time, and four
- *     random bytes, so a leftover can never be the file this run opens, even
- *     when a run dies before its own cleanup.
- *   - **The files go away when the case ends.** One dead cache file per case per
- *     run is how the scratch tree reached thousands of them, and every one was a
- *     loaded gun for the next run that reused a pid.
+ *   - **The name is minted per run.** Pids are recycled, so a pid-only name can
+ *     open an earlier run's file and answer discovery from it; the token here
+ *     carries the pid, start time, and four random bytes, so a leftover can never
+ *     be the file this run opens.
+ *   - **The files go away when the case ends**, so a dead file cannot be read by
+ *     a later run.
  *
  * So each case gets a directory of its own under `.test-cache/`, deleted when
  * that case ends — passed or failed — and the token in the name makes anything a
