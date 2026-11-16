@@ -596,8 +596,9 @@ export default {
           messages: [userMessage('hi')],
           sessionId: 'header-session',
         })
-        // `prepare()` declares the stream's Accept; it used to be dropped on the
-        // floor between the protocol module and `fetch`.
+        // `prepare()` declares the stream's Accept; dropping it between the
+        // protocol module and `fetch` sends a request the provider may answer as
+        // non-streaming.
         const chatHeaders = new Headers(fetch.requests[0].init.headers)
         is(chatHeaders.get('accept'), 'text/event-stream')
         is(chatHeaders.get('authorization'), 'Bearer sk-test-value')
@@ -1538,7 +1539,6 @@ export default {
         is(flash.maxTokens, 384_000)
         const luna = models.find((model) => model.id === 'gpt-5.6-luna')
         is(luna.contextWindow, 1_050_000)
-        // Two models the old assumed default reported identically now differ.
         ok(
           flash.contextWindow !== luna.contextWindow,
           'a listing distinguishes two models with different windows',
@@ -1716,8 +1716,8 @@ export default {
           } catch (thrown) {
             error = thrown
           }
-          // The key really rode in the request. Without this the old case passed
-          // because the secret it looked for was never sent at all.
+          // The key really rode in the request: without this, the secrecy
+          // assertions below would pass on a secret that was never sent.
           is(fetch.requests.length, 1, 'a terminal refusal makes one attempt')
           is(fetch.requests[0].init.headers.authorization, `Bearer ${canary}`, 'the request carried the canary')
           is(error?.code, status === 401 ? 'AUTH' : 'INVALID_REQUEST')
@@ -1736,10 +1736,9 @@ export default {
     {
       name: 'a stream that keeps arriving outlives the connect deadline',
       async run() {
-        // Regression: the deadline timer was never cleared, so it capped the
-        // whole attempt and a generation that kept producing died at timeoutMs.
         // The deadline covers connection and response headers only; from there
-        // the idle watchdog guards the stream, and this body keeps arriving.
+        // the idle watchdog guards the stream, so a body that keeps arriving must
+        // outlive timeoutMs.
         const pieces = Array.from({ length: 16 }, (_, index) => sse([
           {
             data: {
