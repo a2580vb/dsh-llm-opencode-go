@@ -12,8 +12,8 @@
  * Three answers, one per subcommand:
  *
  *   node scripts/release.mjs version          the version in package.json
- *   node scripts/release.mjs check-tag v0.2.1 the version a tag names, or a refusal
- *   node scripts/release.mjs notes 0.2.1      the changelog section, as a release body
+ *   node scripts/release.mjs check-tag vX.Y.Z the version a tag names, or a refusal
+ *   node scripts/release.mjs notes X.Y.Z      the changelog section, as a release body
  *
  * The exit status is the answer's truth: zero when it could be answered, non-zero
  * with a reason on stderr when it could not.
@@ -51,7 +51,7 @@ export function versionFromTag(tag) {
  *
  * A tag is the release here, but it is only a release of this package when the
  * manifest says the same version: a tag on the wrong commit would publish a
- * tarball whose version is not the one the tag, and its release notes, name.
+ * tarball whose version is not the one the tag and its release notes name.
  * Both refusals state the two values, because this runs on a tag where the log
  * is the only thing a person sees.
  *
