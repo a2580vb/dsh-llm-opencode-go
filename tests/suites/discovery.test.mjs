@@ -12,6 +12,7 @@
  */
 
 import { readFile, writeFile } from 'node:fs/promises'
+import { join } from 'node:path'
 
 import { PROTOCOLS, resolveConfig } from '../../lib/config.js'
 import { ModelCache, parseModelList } from '../../lib/model/cache.js'
@@ -258,6 +259,34 @@ export default {
           return rest
         }), rows)
         ok(reloadedRows.every((row) => row.fromDisk === true), 'every restored row says so')
+      },
+    },
+    {
+      name: 'a cache write that fails is a warning, not a discovery failure',
+      async run() {
+        // A read-only or full cache directory must not take discovery down:
+        // the rows were fetched and are usable, and the file is only what the
+        // next process would have started from.
+        const blocker = scratch.path('blocker')
+        await writeFile(blocker, 'not a directory', 'utf8')
+        const path = join(blocker, 'models.json')
+        const warnings = []
+        const logger = {
+          info() {},
+          debug() {},
+          error() {},
+          warn: (...args) => warnings.push(args.map(String).join(' ')),
+        }
+        const fetch = modelsFetch({ data: [{ id: 'still-served' }] })
+        const cache = new ModelCache(
+          resolveConfig({ baseURL: 'https://relay.test/v1', modelsCachePath: path }),
+          { authHeaders: async () => ({}), logger, fetch },
+        )
+        const rows = await cache.discover()
+        equal(rows.map((row) => row.id), ['still-served'])
+        is(fetch.requests.length, 1, 'the service was read once')
+        is(warnings.length, 1, 'the write failure is reported once')
+        ok(warnings[0].includes('could not write the model cache'), warnings[0])
       },
     },
     {
