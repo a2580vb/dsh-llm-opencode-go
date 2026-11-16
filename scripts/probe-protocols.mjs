@@ -3,10 +3,15 @@
  *
  * `GET /models` names the models and the catalogue's preferred entry, but not
  * which other protocols a model serves. This posts a short request over each
- * protocol for every id the service lists and reports the result, which is what
- * `FALLBACK_MODELS` is written from. The request carries 32 output tokens on
- * purpose: the relay validates a minimum output length for some model families,
- * and a smaller probe reads as a refusal that is not about the protocol.
+ * protocol for every id the service lists and reports the result: the
+ * catalogue's `api` map names each model's preferred entry, and this probe
+ * verifies that every served model accepts all three, which is what the
+ * remaining protocols behind the preferred entry rest on. Re-run it when a
+ * model is added.
+ *
+ * Requests use 32 output tokens so a minimum-length refusal is not mistaken for
+ * a protocol refusal. Failures are printed per model; the exit status stays zero
+ * unless the `/models` request itself fails.
  *
  *   OC_KEY=oc_sk_... node scripts/probe-protocols.mjs [model ...]
  */
