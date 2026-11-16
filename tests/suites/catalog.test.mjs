@@ -413,10 +413,9 @@ export default {
           is(record.contextWindow, contextWindow, `${id} context window`)
           is(record.maxTokens, maxTokens, `${id} output cap`)
         }
-        // The old behaviour: one assumed window for every model.
         ok(
           new Set(cases.map(([id]) => records.get(id).contextWindow)).size > 1,
-          'two models no longer report the same window',
+          'the table gives these models different context windows',
         )
       },
     },
