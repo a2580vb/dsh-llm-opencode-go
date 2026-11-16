@@ -2,7 +2,7 @@
 
 import { PROTOCOLS, normalizeProtocol, resolveConfig } from '../../lib/config.js'
 import { catalogModelInfo, resolvedInputModalities, resolvedModelInfo, supportsImages, trainingConsentNote } from '../../lib/model/capabilities.js'
-import { FALLBACK_MODELS, buildCatalog, discoveryRecord, displayName, hiddenReason, preferredProtocol, requiresTrainingConsent, splitVariantId, unmatchedVariantModels, wireModelId } from '../../lib/model/catalog.js'
+import { FALLBACK_MODELS, buildCatalog, discoveryRecord, displayName, hiddenReason, preferredProtocol, requiresTrainingConsent, unmatchedVariantModels, wireModelId } from '../../lib/model/catalog.js'
 import { parseModelList } from '../../lib/model/cache.js'
 import { capabilityFor, isMeasured } from '../../lib/model/limits.js'
 import { orderAttempts } from '../../lib/index.js'
@@ -286,10 +286,6 @@ export default {
         const records = buildCatalog(config, [])
         is(wireModelId(records.get('glm-5.3@fast')), 'glm-5.3')
         is(wireModelId(records.get('glm-5.3')), 'glm-5.3')
-        equal(splitVariantId('glm-5.3@fast'), { model: 'glm-5.3', name: 'fast' })
-        is(splitVariantId('glm-5.3'), undefined)
-        is(splitVariantId('@fast'), undefined)
-        is(splitVariantId('glm-5.3@'), undefined)
       },
     },
     {
