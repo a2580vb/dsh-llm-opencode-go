@@ -3,24 +3,29 @@
  *
  * The table is a snapshot of `https://models.dev/api.json`'s `opencode-go`
  * entry, which is where OpenCode publishes context windows, output caps, and
- * input modalities. The adapter prefers the live `GET /models` rows — they now
- * carry the same facts — and falls back to this table when discovery states
- * nothing: a `modelSource: config` deployment, an empty catalog, a cache file
- * written before the service published the facts, or a model the catalogue has
- * never described. Taking that snapshot from models.dev keeps the fallback
+ * input modalities. The adapter prefers the live `GET /models` rows, which carry
+ * the same facts, and falls back to this table when discovery states nothing: a
+ * `modelSource: config` deployment, an empty catalog, a cache file written
+ * before the service published the facts, or a model the catalogue has never
+ * described. Taking that snapshot from models.dev keeps the fallback
  * reproducible without a credential.
  *
  *   node scripts/snapshot-models.mjs            # report the diff, write nothing
- *   node scripts/snapshot-models.mjs --write     # rewrite the two tables
+ *   node scripts/snapshot-models.mjs --write     # rewrite the two tables and
+ *                                                # restamp CAPABILITY_SOURCE
+ *
+ * `MODELS_DEV_URL` overrides the catalogue URL.
  *
  * A row is reported as:
  *   `new`       the catalogue names an id neither table holds
  *   `changed`   an id both know, with different figures
- *   `gone`      the MODEL table holds an id the catalogue no longer lists under
- *               `opencode-go`; it moves to the `DELISTED` table, because an
- *               existing conversation may still name it. Rows already in that
- *               table stay there and are not reported again — otherwise every
- *               run after a rewrite would list them as fresh news.
+ *   `gone`      the MODEL table holds an id the catalogue no longer provides a
+ *               usable row for: delisted, or listed with an incomplete
+ *               `limit`/`modalities` entry (the latter prints `ignoring …`); it
+ *               moves to the `DELISTED` table, because an existing conversation
+ *               may still name it. Rows already in that table stay there and are
+ *               not reported again — otherwise every run after a rewrite would
+ *               list them as fresh news.
  *
  * Ids the service actually serves but the catalogue never described are not
  * visible here: `/models` lists them and no source publishes their figures. They
