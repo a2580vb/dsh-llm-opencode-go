@@ -6,8 +6,7 @@
  * and a workflow that is wrong runs on GitHub and nowhere else — where a typo is
  * a job that quietly never does the thing it was added for.
  *
- * The specific failures these cases exist for, in the order they have actually
- * happened to people:
+ * The specific failures these cases exist for:
  *
  *   - a workflow that does not run at all, because the trigger lists the wrong
  *     branch or the YAML has a tab in it (tabs are illegal in YAML, and the file
@@ -103,9 +102,7 @@ function scriptsRun(text) {
  * A workflow's executable content, with comments removed.
  *
  * Checks about what a workflow *does* have to read the same thing GitHub runs,
- * or a comment promising the opposite of the code would satisfy them. This one
- * caught itself doing that: the release workflow's comment says no `NPM_TOKEN`
- * is stored, and a scan of the raw text read that sentence as a stored token.
+ * or a comment promising the opposite of the code would satisfy them.
  */
 const effective = (text) => lines(text).map(({ text: line }) => line).join('\n')
 
@@ -354,8 +351,8 @@ export default {
         // nothing: `package/.livecache/` would sit in the list for ever without
         // ever being able to match. What counts as "knows about" is the trap
         // here — half of these directories are gitignored scratch, so they exist
-        // on a working machine and in no clone at all, which is exactly the
-        // difference that made this case fail in CI and pass locally.
+        // on a working machine and in no clone at all, which is the difference
+        // that would let it pass locally and fail in a clean clone.
         const ignored = new Set(
           textLines(await read('.gitignore'))
             .map((line) => line.trim().replace(/\/$/, ''))
@@ -376,8 +373,8 @@ export default {
         // because the regex has no `m` flag, `$` then means end-of-string, and a
         // trailing `\r` is a character neither `$` nor `.` will accept. The
         // failure reads as "the workflow does not run the tests", on one platform,
-        // with nothing about line endings in it. This case is why the helpers
-        // split on `/\r?\n/`.
+        // with nothing about line endings in it. The helpers split on `/\r?\n/`
+        // for this reason.
         for (const name of WORKFLOWS) {
           const raw = await read(`.github/workflows/${name}`)
           // Whatever this checkout wrote, both variants are built from the same
