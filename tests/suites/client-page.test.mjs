@@ -863,6 +863,28 @@ export default {
       },
     },
     {
+      name: 'every other quota failure reason is named in the reader\'s words',
+      async run() {
+        // The unsupported and unreachable reasons have cases of their own; the
+        // three left are the ones a working gateway can still answer with.
+        const reasons = [
+          ['unauthorized', 'the service refused this key'],
+          ['no-credential', 'no key was available'],
+          ['failed', 'the service answered with an error'],
+        ]
+        for (const [reason, sentence] of reasons) {
+          const page = await renderPage({
+            fetch: host({ subscription: { body: { ok: false, reason } } }),
+          })
+          const tree = await page.open()
+          const section = find(tree, (node) => node.type === 'section' && text(node).includes('Usage'))
+          ok(section !== undefined, `${reason}: the usage section rendered`)
+          ok(text(section).includes(sentence), `${reason}: ${text(section).slice(0, 300)}`)
+          ok(text(section).includes('2026-01-15'), `${reason}: the local counters stay`)
+        }
+      },
+    },
+    {
       name: 'choosing a window reads that window and keeps it showing',
       async run() {
         const page = await renderPage({ fetch: host() })
