@@ -339,13 +339,16 @@ export default {
     },
     {
       name: 'the day key is the local calendar day, not a UTC one',
-      run() {
-        // 23:30 local on the 5th is the 5th, whatever the offset is from UTC:
-        // the day a person spent the tokens is the day they will look under.
-        const late = new Date(2026, 0, 5, 23, 30, 0)
-        is(dayKey(late.getTime()), '2026-01-05')
-        const early = new Date(2026, 0, 6, 0, 30, 0)
-        is(dayKey(early.getTime()), '2026-01-06')
+      async run() {
+        await withTimezone('America/New_York', async () => {
+          // 23:30 local on the 5th is already the 6th in UTC, so a UTC
+          // implementation would file this call under the wrong day. Pinning
+          // the zone keeps the distinction visible in the default UTC CI job.
+          const late = new Date(2026, 0, 5, 23, 30, 0)
+          is(dayKey(late.getTime()), '2026-01-05')
+          const early = new Date(2026, 0, 6, 0, 30, 0)
+          is(dayKey(early.getTime()), '2026-01-06')
+        })
       },
     },
     {
