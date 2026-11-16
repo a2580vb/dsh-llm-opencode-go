@@ -712,7 +712,7 @@ export default {
         store.record(call('glm-5.3', { inputTokens: 1 }))
         is(await store.flush(), false)
         is(await store.flush(), false)
-        ok(logs.length >= 1, 'the failure is reported')
+        is(logs.length, 1, 'the failure is reported once')
         ok(logs.every((line) => line.includes('usage file')), logs.join(' | '))
         // The counters are still in memory: a report that could not be written
         // is still a report the page can show.
