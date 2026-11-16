@@ -5,7 +5,7 @@
  * them to OpenCode Go. This is what decides whether a model's declared `image`
  * modality is a capability this plugin can honour or a claim it cannot.
  *
- * Two histories are probed per protocol, because an image reaches a model by two
+ * Two routes are probed per protocol, because an image reaches a model by two
  * different routes and the second one is not the first one's shape:
  *
  *   - **in the user turn** — what a pasted or attached image produces;
@@ -17,6 +17,10 @@
  *
  *   OC_KEY=oc_sk_... node scripts/probe-image.mjs
  *   OC_IMAGE=.live-cache/probe-image.png OC_MODEL=deepseek-v4.1-flash ...
+ *
+ * Each shape prints `OK` or `FAIL`, and a failed shape does not change the exit
+ * status, so read the output. A 200 is not enough: this probe judges only the
+ * HTTP status, so `(no text found)` means the shape did not produce an answer.
  *
  * The image defaults to `.live-cache/probe-image.png`; any PNG works, and the
  * answer is printed so it can be compared with what the picture holds.
