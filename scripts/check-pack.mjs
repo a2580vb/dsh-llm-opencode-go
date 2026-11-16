@@ -28,8 +28,9 @@ const ROOT = dirname(dirname(fileURLToPath(import.meta.url)))
  *
  * The list is deliberately short and about *kinds* of file rather than about
  * every file: the pair of READMEs, the pair of changelogs, the patch the Loader
- * reads, the two halves of the client, the locale files the Harness loads
- * without activating the plugin, and the license npm adds on its own.
+ * reads, the adapter entry point, the browser bundle, the Host bridge, the usage
+ * ledger, the locale files the Harness loads without activating the plugin, and
+ * the license npm adds on its own.
  */
 export const ANCHORS = Object.freeze([
   'package/package.json',
