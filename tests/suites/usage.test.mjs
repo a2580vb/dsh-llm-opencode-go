@@ -183,10 +183,9 @@ export default {
     {
       name: 'a field a newer build added is zero, not NaN, in an older file',
       async run() {
-        // The counters gained `cacheReported`, and a file written before it
-        // existed has no such member. `undefined + 0` is NaN, which would then
-        // be written back and poison every later read, so an absent field has to
-        // mean zero here exactly as it does when merging.
+        // An older file has no `cacheReported` member. `undefined + 0` is NaN,
+        // which would then be written back and poison every later read, so an
+        // absent field has to mean zero here exactly as it does when merging.
         const dir = await scratch()
         try {
           const path = join(dir, 'usage.json')
@@ -221,10 +220,10 @@ export default {
       name: 'the first call after a restart is added to the history, not dropped for it',
       async run() {
         // `flush` reads the file through `load`, and recording never waits for
-        // that read. A load that assigned the file's map over the in-memory one
-        // therefore discarded everything this activation had counted before its
-        // first write -- always the first call after a restart, and often the
-        // one that primes the cache, so the cache figures went with it.
+        // that read. Assigning the file's map over the in-memory one would
+        // discard every call this activation counted before its first write —
+        // always the first call after a restart, and often the one that primes
+        // the cache.
         const dir = await scratch()
         try {
           const path = join(dir, 'usage.json')
