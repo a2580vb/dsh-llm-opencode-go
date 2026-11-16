@@ -23,9 +23,9 @@ export default {
       async run() {
         // This API announces its input side once, in `message_start`, and the
         // cache figures only ever appear there. Every later `message_delta`
-        // speaks about output alone, so a merge that rebuilt the usage object
-        // instead of merging into it threw the cache away -- and the page then
-        // reported a cache hit of zero for every Messages-protocol call.
+        // speaks about output alone, so a merge that rebuilds the usage object
+        // instead of merging into it discards the cache figures, and the page
+        // reports a 0% hit rate for every Messages-protocol call.
         const text = [
           'event: message_start',
           'data: {"type":"message_start","message":{"id":"m1","type":"message","role":"assistant","model":"glm-5.3","content":[],"usage":{"input_tokens":46,"output_tokens":0,"cache_read_input_tokens":2048,"cache_creation_input_tokens":1024}}}',
@@ -398,8 +398,8 @@ export default {
     {
       name: 'two turns whose reasoning text is identical replay their own signatures',
       async run() {
-        // A signature belongs to one thinking block, not to a sentence. Making
-        // the text an index is what gave both turns the same signature.
+        // A signature belongs to one thinking block, not to a sentence: indexing
+        // by text would give two identical-looking turns the same signature.
         const messages = [
           { role: 'user', content: [{ type: 'text', text: 'first' }] },
           {
@@ -475,8 +475,8 @@ export default {
           replayReasoning: true,
           signatures: signaturesFromHistory(messages),
         })
-        // One thinking block per reasoning block: the old converter joined them
-        // into one block, which could not carry two signatures.
+        // One thinking block per reasoning block: joining them would leave room
+        // for only one signature.
         equal(wire.body.messages[1].content, [
           { type: 'thinking', thinking: 'first thought', signature: 'sig-one' },
           { type: 'thinking', thinking: 'second thought', signature: 'sig-two' },
