@@ -414,6 +414,12 @@ const CHAT_BODY = sse([
   { data: '[DONE]' },
 ])
 
+/** The one image block a user turn carries, occurrence included. */
+const IMAGE_BLOCK = Object.freeze({
+  type: 'image',
+  attachment: Object.freeze({ attachmentId: 'att-1', mediaType: 'image/png', name: 'shot.png' }),
+})
+
 const RESPONSES_BODY = sse([
   { event: 'response.created', data: { type: 'response.created', response: { id: 'resp_1' } } },
   { event: 'response.output_item.added', data: { type: 'response.output_item.added', output_index: 0, item: { type: 'message' } } },
@@ -1552,6 +1558,53 @@ export default {
         const withSeam = adapterWith([], { ...config, attachments: { readImageRequest: async () => undefined } })
         const withInfo = await withSeam.adapter.resolveModel('opencode-go', 'sees', undefined)
         equal(withInfo.inputModalities, ['text', 'image'])
+      },
+    },
+    {
+      name: 'an image route resolves the attachment bytes into the wire body',
+      async run() {
+        const config = { config: { modelSource: 'config', models: [{ id: 'sees', input: ['text', 'image'] }] } }
+        const attachments = {
+          readImageRequest: async () => ({
+            data: new Uint8Array([1, 2, 3, 4]),
+            mediaType: 'image/png',
+            width: 2,
+            height: 2,
+          }),
+        }
+        const { adapter, fetch } = adapterWith([{ body: CHAT_BODY }], { ...config, attachments })
+        await collect(adapter, {
+          provider: 'opencode-go',
+          model: 'sees',
+          messages: [{ role: 'user', content: [{ type: 'text', text: 'look' }, IMAGE_BLOCK] }],
+        })
+        const sent = JSON.stringify(JSON.parse(fetch.requests[0].init.body))
+        ok(sent.includes('data:image/png;base64,AQIDBA=='), sent.slice(0, 300))
+      },
+    },
+    {
+      name: 'sendImages always without an attachment seam is a content refusal',
+      async run() {
+        const config = {
+          config: {
+            modelSource: 'config',
+            sendImages: 'always',
+            models: [{ id: 'sees', input: ['text', 'image'] }],
+          },
+        }
+        const { adapter, fetch } = adapterWith([], config)
+        let error
+        try {
+          await collect(adapter, {
+            provider: 'opencode-go',
+            model: 'sees',
+            messages: [{ role: 'user', content: [{ type: 'text', text: 'look' }, IMAGE_BLOCK] }],
+          })
+        } catch (caught) {
+          error = caught
+        }
+        is(error?.code, 'UNSUPPORTED_CONTENT')
+        is(fetch.requests.length, 0, 'nothing was sent')
       },
     },
     {
