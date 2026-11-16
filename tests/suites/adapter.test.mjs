@@ -1591,6 +1591,38 @@ export default {
       },
     },
     {
+      name: 'a tool call that never names a function is a malformed response',
+      async run() {
+        const body = sse([
+          {
+            data: {
+              id: 'r',
+              choices: [{
+                index: 0,
+                delta: { tool_calls: [{ index: 0, id: 'c1', type: 'function', function: { arguments: '{}' } }] },
+                finish_reason: null,
+              }],
+            },
+          },
+          { data: { id: 'r', choices: [{ index: 0, delta: {}, finish_reason: 'tool_calls' }] } },
+          { data: '[DONE]' },
+        ])
+        const { adapter } = adapterWith([{ body }])
+        let error
+        try {
+          await collect(adapter, {
+            provider: 'opencode-go',
+            model: 'glm-5.3',
+            messages: [userMessage('hi')],
+          })
+        } catch (caught) {
+          error = caught
+        }
+        is(error?.code, 'MALFORMED_RESPONSE')
+        ok(String(error?.message).includes('never named'), String(error?.message))
+      },
+    },
+    {
       name: 'an empty completion is an EMPTY_RESPONSE failure rather than a silent success',
       async run() {
         const { adapter } = adapterWith([
