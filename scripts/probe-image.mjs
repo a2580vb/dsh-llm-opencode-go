@@ -16,7 +16,7 @@
  *     message has to be a plain string.
  *
  *   OC_KEY=oc_sk_... node scripts/probe-image.mjs
- *   OC_IMAGE=.live-cache/probe-image.png OC_MODEL=deepseek-v4-flash-vision-exp ...
+ *   OC_IMAGE=.live-cache/probe-image.png OC_MODEL=deepseek-v4.1-flash ...
  *
  * The image defaults to `.live-cache/probe-image.png`; any PNG works, and the
  * answer is printed so it can be compared with what the picture holds.
@@ -36,7 +36,7 @@ if (KEY === undefined || KEY === '') {
 }
 
 const BASE = process.env.OC_BASE ?? 'https://opencode.ai/zen/go/v1'
-const MODEL = process.env.OC_MODEL ?? 'deepseek-v4-flash-vision-exp'
+const MODEL = process.env.OC_MODEL ?? 'deepseek-v4.1-flash'
 const ROOT = dirname(dirname(fileURLToPath(import.meta.url)))
 const IMAGE = process.env.OC_IMAGE ?? join(ROOT, '.live-cache', 'probe-image.png')
 const imagePath = isAbsolute(IMAGE) ? IMAGE : join(ROOT, IMAGE)

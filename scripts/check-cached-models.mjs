@@ -1,16 +1,18 @@
 /**
- * Compare the fallback capability table with the OpenCode catalogue this
- * machine has cached.
+ * Compare the measured context windows with the OpenCode catalogue this machine
+ * has cached.
  *
- * The offline suite runs on fresh clones, where no OpenCode cache exists. The
- * comparison used to live there as a case that called `ok(true)` when the cache
- * was absent, so it counted as a check without checking anything. It is a
- * maintainer's check instead: run it after OpenCode has cached a catalogue.
+ * Only `limit.context` is compared: output caps and input modalities belong to
+ * `snapshot-models.mjs`, which compares all three against the catalogue it
+ * reads. The comparison here needs a file only this machine has, so it is a
+ * maintainer's check rather than an offline case — the suite runs on fresh
+ * clones, where no cache exists, and a case there would count as a check while
+ * comparing nothing.
  *
  *   node scripts/check-cached-models.mjs
  *
  * Exit status is zero when there is no cache (nothing to compare) or when the
- * measured rows agree, and one when a context window disagrees.
+ * measured context windows agree, and one when one disagrees.
  */
 
 import { readFile } from 'node:fs/promises'
