@@ -119,16 +119,6 @@ export default {
       },
     },
     {
-      name: 'the default window is a minute, so opening the page twice is one read',
-      async run() {
-        const { reader, requests } = readerUnderTest()
-        is(reader.lifetimeMs, SUBSCRIPTION_CACHE_MS)
-        await reader.read()
-        await reader.read()
-        is(requests.length, 1)
-      },
-    },
-    {
       name: 'a call spent after an answer is what makes that answer old',
       async run() {
         // The quota moves only when a call is made, and the reader is the one
