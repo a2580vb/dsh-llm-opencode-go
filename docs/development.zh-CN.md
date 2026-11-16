@@ -24,7 +24,7 @@ npm run check:pack  # `npm publish` 会真正上传的那个 tarball
 
 上面这个数字在两个 README 的徽章里各写了一次，本页与它的中文版各写了一次——这四处由 `tests/run.mjs` 在套件跑完后核对，数字对不上就会让这次运行失败。发布时最新那一版的更新日志段会再写一次；旧段里的数字是历史。`release` 是那个让版本升级保持诚实的套件：它读 manifest，任何还写着旧版本号的地方都会失败。
 
-`npm test` 离线运行，不需要凭据。协议套件回放的是**从线上服务抓取**的响应体（`tests/golden/`），所以一旦某个翻译器不再与 OpenCode Go 实际发送的内容一致，它们就会失败。每个用例都用 Harness 自己的 block assembler 组装分片——agent loop 跑的正是同一份代码。其中一个用例会把容量快照与这台机器缓存的 OpenCode 目录做比对，所以过期的 `lib/model/limits.js` 会被报出来。
+`npm test` 离线运行，不需要凭据。协议套件回放的是**从线上服务抓取**的响应体（`tests/golden/`），所以一旦某个翻译器不再与 OpenCode Go 实际发送的内容一致，它们就会失败。每个用例都用 Harness 自己的 block assembler 组装分片——agent loop 跑的正是同一份代码。容量快照与这台机器缓存的 OpenCode 目录的比对由 `scripts/check-cached-models.mjs` 负责（见下文），不在离线套件里：全新的克隆没有可比的缓存。
 
 这些套件写下的磁盘文件落在 `.test-cache/`（未纳入版本控制的草稿区），路径由 `tests/suites/_scratch.mjs` 发放：每个用例一个自己的目录，用例结束即删除，目录名里带着本次运行才生成的 token。因此即使某次运行在自己的清理之前就死掉，它留下的文件也不会是后来那次运行要打开的那个。
 
@@ -72,7 +72,7 @@ workflow 本身也在被检查，由 `ci` 套件负责。除此之外没有任�
 
 ## 发布
 
-一次发布就是一个标签。人手动要做的，仍然是版本升级本来就需要的三件事——把九个地方的版本号挪一遍、开一段更新日志、跑套件——其余交给标签。
+一次发布就是一个标签。人手动要做的，就是版本升级本来就要做的那几件事：把版本号挪到 `release` 套件读的每一处——manifest、lock 文件、`PLUGIN_VERSION`、`PLUGIN_IDENTITY`、两篇 development 的状态表，以及两篇 wire-protocol 的 `User-Agent` 示例；手动更新两篇 development 里的 `release.mjs` 示例命令（套件不读它们）；开一段更新日志；跑套件。其余交给标签。
 
 `scripts/release.mjs` 装着发布这件事自己的判断，因为 release workflow 是一个谁也没法在本地试跑的环境里的 shell 脚本：反馈会在打了标签之后、在公开场合、在已经尝试过发布之后才到。所以凡是「要做决定」的部分都放在套件每次 push 都会跑到的地方，workflow 只留下 shell 无法避免的那些步骤。
 

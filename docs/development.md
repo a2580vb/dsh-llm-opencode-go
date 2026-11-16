@@ -24,7 +24,7 @@ npm run check:pack  # what `npm publish` would upload
 
 The count above is restated in both README badges and in this page and its Chinese counterpart — the four places `tests/run.mjs` re-checks when the suite finishes, so a stale badge fails the run. A release states the same number in the newest changelog section; an older section's number is history, and `release` is the suite that keeps a version bump honest: it reads the manifest and fails on any place that still states the version a release left behind.
 
-`npm test` runs offline and needs no credential. The protocol suites replay response bodies **captured from the live service** (`tests/golden/`), so they fail if a translator stops agreeing with what OpenCode Go actually sends. Every case assembles its chunks with the harness's own block assembler, which is the same code the agent loop runs over them. One case compares the capacity snapshot against whatever OpenCode catalogue the machine has cached, so a stale `lib/model/limits.js` is reported.
+`npm test` runs offline and needs no credential. The protocol suites replay response bodies **captured from the live service** (`tests/golden/`), so they fail if a translator stops agreeing with what OpenCode Go actually sends. Every case assembles its chunks with the harness's own block assembler, which is the same code the agent loop runs over them. The capacity snapshot is compared with the machine's cached OpenCode catalogue by `scripts/check-cached-models.mjs` (below), not by the offline suite: a fresh clone has no cache to compare.
 
 The scratch files these suites write live in `.test-cache/`, a gitignored corner of the checkout, and their paths come from `tests/suites/_scratch.mjs`: one directory per case, removed when that case ends, under a name carrying a token minted for the run. A run that dies before its own cleanup therefore cannot leave behind the file a later run opens.
 
@@ -72,7 +72,7 @@ Two things that suite learned the hard way, both now cases of their own:
 
 ## Releasing
 
-A release is a tag. Everything a person does by hand is the same three things a version bump already needed — move the version in nine places, open a changelog section, run the suite — and the rest is done by tag.
+A release is a tag. Everything a person does by hand is what a version bump already needed: move the version everywhere the `release` suite reads it — the manifest, the lock file, `PLUGIN_VERSION`, `PLUGIN_IDENTITY`, both development status tables, and both wire-protocol `User-Agent` examples — update the `release.mjs` example commands in both development pages by hand, since the suite does not read them, open a changelog section, and run the suite. The rest is done by tag.
 
 `scripts/release.mjs` holds the release's own decisions, because a release workflow is a shell script running in an environment nobody can try locally: the feedback would arrive on a tag, in public, after a publish had been attempted. So the parts that decide something live where the `ci` and `release` suites exercise them on every push, and the workflow keeps only steps no shell can avoid.
 
