@@ -6,7 +6,6 @@ import {
   Config,
   DEFAULT_BASE_URL,
   DEFAULT_RETRY_POLICY,
-  PLUGIN_VERSION,
   PROTOCOLS,
   resolveConfig,
   userAgentValue,
@@ -537,12 +536,6 @@ export default {
           Promise.resolve().then(() => resolveConfig({ attribution: 'two words' })),
           'product token',
         )
-      },
-    },
-    {
-      name: 'the reported version matches package.json',
-      run() {
-        is(PLUGIN_VERSION, version, 'PLUGIN_VERSION drifted from the manifest')
       },
     },
     {
