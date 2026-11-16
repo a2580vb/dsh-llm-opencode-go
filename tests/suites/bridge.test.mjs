@@ -226,15 +226,6 @@ export default {
       },
     },
     {
-      name: 'the refresh endpoint answers only POST',
-      async run() {
-        const { instance } = bridgeUnderTest()
-        const res = await call(instance, local({ url: UI_ROUTES.refresh }))
-        is(res.captured.statusCode, 405)
-        is(res.captured.headers.allow, 'POST')
-      },
-    },
-    {
       name: 'a deployment without a refresh path says so instead of failing',
       async run() {
         const { instance } = bridgeUnderTest({ refresh: undefined })
@@ -359,19 +350,6 @@ export default {
         is(res.captured.statusCode, 500)
         is(res.json.error, 'usage-unavailable')
         includes(res.json.message, 'the file is gone')
-      },
-    },
-    {
-      name: 'the usage endpoint answers only GET',
-      async run() {
-        const { instance } = bridgeUnderTest()
-        const res = await call(instance, local({
-          method: 'POST',
-          url: UI_ROUTES.usage,
-          headers: { host: '127.0.0.1:1' },
-        }))
-        is(res.captured.statusCode, 405)
-        is(res.captured.headers.allow, 'GET')
       },
     },
     {
@@ -1536,6 +1514,12 @@ export default {
         const onActivity = await call(instance, local({ method: 'DELETE', url: UI_ROUTES.activity }))
         is(onActivity.captured.statusCode, 405)
         is(onActivity.captured.headers.allow, 'GET')
+        const onRefresh = await call(instance, local({ url: UI_ROUTES.refresh }))
+        is(onRefresh.captured.statusCode, 405)
+        is(onRefresh.captured.headers.allow, 'POST')
+        const onUsage = await call(instance, local({ method: 'POST', url: UI_ROUTES.usage }))
+        is(onUsage.captured.statusCode, 405)
+        is(onUsage.captured.headers.allow, 'GET')
       },
     },
     {
