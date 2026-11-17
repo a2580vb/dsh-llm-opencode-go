@@ -8,7 +8,7 @@ Every key is optional. Run `dsh --profile <name> --dump-config` for the composed
 |---|---|---|
 | `provider` | `opencode-go` | Route name requests select with `GenerateOptions.provider` |
 | `apiKeyEnv` | `OPENCODE_GO_API_KEY` | Credential **reference**, resolved per request |
-| `baseURL` | `https://opencode.ai/zen/go/v1` | API root; a compatible gateway needs only this |
+| `baseURL` | `https://opencode.ai/inference/go/v1` | API root; the inference endpoints are derived from it (see [Endpoint layout](#endpoint-layout)); a compatible gateway needs only this |
 | `userAgentProduct` | `dsh-opencode-go` | Product token leading the `User-Agent` |
 | `attribution` | absent | Extra product token appended to the `User-Agent`, e.g. `deepseek-harness/0.2.0` |
 | `timeoutMs` | `600000` | Deadline for connect + response headers |
@@ -42,6 +42,20 @@ Every key is optional. Run `dsh --profile <name> --dump-config` for the composed
 | `modelVariants` | `[]` | Named presets of one model, each offered as its own `<model>@<name>` entry |
 | `healthCheck` | `off` | `startup` logs a three-step report — credential, models, catalog — and the models step names the catalog's source (see [Fetching the model list](#fetching-the-model-list)) |
 | `retryPolicy` | normal, 5 retries | Provider-owned policy the retry executor applies |
+
+## Endpoint layout
+
+`baseURL` is the API root: `GET {baseURL}/models` and `GET {baseURL}/usage` always append to it. Where the three inference protocols post is derived from its shape, because the service documents one base per API while this adapter speaks three protocols over one configuration value.
+
+| `baseURL` | Layout | Where requests post |
+|---|---|---|
+| `https://opencode.ai/inference/go/v1` (default) | per-API | `…/inference/go/openai/v1/chat/completions`, `…/openai/v1/responses`, `…/anthropic/v1/messages` |
+| `https://opencode.ai/zen/go/v1` | unified (legacy) | `{baseURL}/chat/completions`, `{baseURL}/responses`, `{baseURL}/messages` |
+| any other host, a plain `http://` URL, or another path | unified | `{baseURL}` plus the protocol's own path |
+
+The per-API layout applies only to an `https` base on `opencode.ai` whose path is exactly `/inference/go` or `/inference/go/v1`. Everything else keeps the unified layout: a self-hosted gateway is addressed exactly as before, and so is an explicit `https://opencode.ai/zen/go/v1`, which is the one change that restores the pre-0.3.0 endpoint set. Setting that base logs a startup warning and keeps working — nothing silently rewrites a configured base.
+
+Both layouts are served by the service, and the model catalog, the credential, the session header, and `/usage` behave the same on either. The configuration page names the layout the configured base selects.
 
 ## Fast entries
 

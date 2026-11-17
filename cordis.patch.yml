@@ -1,8 +1,10 @@
 # dsh-llm-opencode-go layer.
 #
 # Registers one LLM provider route backed by the OpenCode Go relay at
-# https://opencode.ai/zen/go/v1, speaking whichever of its three wire protocols
-# each model actually serves.
+# https://opencode.ai/inference/go/v1, speaking whichever of its three wire
+# protocols each model actually serves. The protocol endpoints are derived from
+# `baseURL`: the documented per-API paths under that base, and the unified root
+# for any other host (see docs/configuration.md#endpoint-layout).
 #
 # Every key is optional except that a credential must resolve at request time.
 # The exhaustive field list with JSDoc lives in the plugin's Config, and
@@ -12,7 +14,9 @@
 #   apiKeyEnv          credential REFERENCE resolved per request through the
 #                      harness credential seam (default: OPENCODE_GO_API_KEY).
 #                      The key value itself never belongs in this file.
-#   baseURL            API root (default: https://opencode.ai/zen/go/v1)
+#   baseURL            API root (default: https://opencode.ai/inference/go/v1);
+#                      the legacy https://opencode.ai/zen/go/v1 selects the
+#                      unified layout and logs a warning
 #   userAgentProduct   product token leading the User-Agent
 #   attribution        optional extra product token, e.g. deepseek-harness/0.2.0
 #   timeoutMs / streamIdleTimeoutMs
@@ -96,4 +100,4 @@
       config:
         provider: opencode-go
         apiKeyEnv: OPENCODE_GO_API_KEY
-        baseURL: https://opencode.ai/zen/go/v1
+        baseURL: https://opencode.ai/inference/go/v1

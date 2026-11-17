@@ -8,7 +8,7 @@
 |---|---|---|
 | `provider` | `opencode-go` | 请求通过 `GenerateOptions.provider` 选择的路由名 |
 | `apiKeyEnv` | `OPENCODE_GO_API_KEY` | 凭据**引用**，按请求解析 |
-| `baseURL` | `https://opencode.ai/zen/go/v1` | API 根地址；接兼容网关只需要改这里 |
+| `baseURL` | `https://opencode.ai/inference/go/v1` | API 根地址；推理端点由它推导（见[端点布局](#端点布局)）；接兼容网关只需要改这里 |
 | `userAgentProduct` | `dsh-opencode-go` | 放在 `User-Agent` 最前面的产品标识 |
 | `attribution` | 无 | 追加到 `User-Agent` 的额外产品标识，例如 `deepseek-harness/0.2.0` |
 | `timeoutMs` | `600000` | 连接 + 响应头的截止时间 |
@@ -42,6 +42,20 @@
 | `modelVariants` | `[]` | 某个模型的命名预设，各自以 `<模型>@<名字>` 作为独立条目出现 |
 | `healthCheck` | `off` | `startup` 会记录一份三步报告——凭据、模型、目录——其中模型一步会点名目录的来源（见[获取模型列表](#获取模型列表)） |
 | `retryPolicy` | normal，5 次重试 | 由重试执行器采用的 provider 自有策略 |
+
+## 端点布局
+
+`baseURL` 是 API 根地址：`GET {baseURL}/models` 与 `GET {baseURL}/usage` 永远直接拼在它后面。三种推理协议打到哪，则由它的形态推导——服务为每种 API 各给一个 base，而本适配器用同一个配置值说三种协议。
+
+| `baseURL` | 布局 | 请求打到哪 |
+|---|---|---|
+| `https://opencode.ai/inference/go/v1`（默认） | 按协议分路径 | `…/inference/go/openai/v1/chat/completions`、`…/openai/v1/responses`、`…/anthropic/v1/messages` |
+| `https://opencode.ai/zen/go/v1` | 统一根路径（旧版） | `{baseURL}/chat/completions`、`{baseURL}/responses`、`{baseURL}/messages` |
+| 其它 host、`http://` 地址，或别的路径 | 统一根路径 | `{baseURL}` 加上协议自己的路径 |
+
+按协议分路径只用于 `opencode.ai` 上、路径恰好是 `/inference/go` 或 `/inference/go/v1` 的 `https` base。其余一律保持统一根路径：自建网关的地址与以前逐字一致，显式写 `https://opencode.ai/zen/go/v1` 也一样——那是唯一能拿回 0.3.0 之前端点集合的改法。这样配置后启动会记一条警告，请求照常可用；插件不会悄悄改写用户配的地址。
+
+两种布局服务端都在提供，模型目录、凭据、会话头与 `/usage` 在两种布局下行为相同。配置页会显示当前 base 选中的是哪种布局。
 
 ## 快速入口
 

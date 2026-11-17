@@ -6,15 +6,25 @@ This page describes what crosses the wire: the three endpoints and their auth, t
 
 ## Endpoints and auth
 
+Each protocol posts to a base derived from `baseURL`; the rule is in [Configuration](configuration.md#endpoint-layout). Under the default per-API layout:
+
 | Protocol | Path | Auth |
 |---|---|---|
-| Chat Completions | `POST {baseURL}/chat/completions` | `Authorization: Bearer <key>` |
-| Responses | `POST {baseURL}/responses` | `Authorization: Bearer <key>` |
-| Messages | `POST {baseURL}/messages` | `x-api-key: <key>` + `anthropic-version: 2023-06-01` |
+| Chat Completions | `POST https://opencode.ai/inference/go/openai/v1/chat/completions` | `Authorization: Bearer <key>` |
+| Responses | `POST https://opencode.ai/inference/go/openai/v1/responses` | `Authorization: Bearer <key>` |
+| Messages | `POST https://opencode.ai/inference/go/anthropic/v1/messages` | `x-api-key: <key>` + `anthropic-version: 2023-06-01` |
+
+Under any other base — a self-hosted gateway, or an explicit legacy base — each protocol appends its own path to `baseURL`:
+
+| Protocol | Path |
+|---|---|
+| Chat Completions | `POST {baseURL}/chat/completions` |
+| Responses | `POST {baseURL}/responses` |
+| Messages | `POST {baseURL}/messages` |
 
 The Messages endpoint uses its own header set: it refuses a bearer token with `AuthError: Missing API key`.
 
-All three endpoints accept every model `GET /models` lists: the catalogue's `api` map names one preferred entry per model, not a whitelist, and a probe on 2026-11-08 accepted all three protocols for every served id. The map also names a per-protocol SDK base URL (`/inference/go/openai/…`, `/inference/go/anthropic/…`); the relay serves the same protocols at the unified `{baseURL}` as well, which is the one this plugin uses. Preference order and the fallback on `ModelProtocolUnsupported` are described in [Models](models.md#protocol-selection-is-per-model).
+All three endpoints accept every model `GET /models` lists: the catalogue's `api` map names one preferred entry per model, not a whitelist, and a probe on 2026-11-08 accepted all three protocols for every served id. A sweep on 2026-11-18 repeated that on the per-API layout for all 32 ids the service served that day, `gemini-4-argon` included. The map also names a per-protocol SDK base URL; this plugin derives those paths itself rather than reading the map's `api[*].base_url`, so a row cannot redirect a request to another host. Preference order and the fallback on `ModelProtocolUnsupported` are described in [Models](models.md#protocol-selection-is-per-model).
 
 Every request also carries:
 

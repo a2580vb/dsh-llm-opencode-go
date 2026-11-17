@@ -23,7 +23,7 @@ OpenCode Go 提供三种线格式协议。它的目录在每行的 `api` 映射�
 
 内置目录为 `GET /models` 在 2026-11-08 列出的每一个 id 都有一行**在服**记录，所以没有在服模型需要先失败一次才能发现自己的协议。这张表只增不删：服务不再提供某个模型时，它的行会保留下来并标上 `retired`，带着最后一次实测的协议列表——仍点名它的会话因此还能解析（见[已失效模型](#已失效模型)）。服务变更后用[开发](development.zh-CN.md#重新实测线上事实)里描述的探针重新实测即可。
 
-`api` 映射还会点名每种协议自己的 SDK base URL（`/inference/go/openai/…`、`/inference/go/anthropic/…`、`/inference/go/google/…`）。那些是目录给 SDK 的入口；中继在统一的 `baseURL` 下同样服务这些协议，本插件用的就是后者，因此不需要换 host。唯一一行点名 Google `generate-content` 的模型（`gemini-4-argon`）在这里同样走三种协议——本适配器没有 Google 传输层，所以它的行以 responses 开头。
+`api` 映射还会点名每种协议自己的 SDK base URL（`/inference/go/openai/…`、`/inference/go/anthropic/…`、`/inference/go/google/…`）。那些是目录给 SDK 的入口；本插件自己从 `baseURL` 推导同样的路径（见[配置](configuration.zh-CN.md#端点布局)），从不读 `api[*].base_url`，因此一行目录记录无法把请求指到别的主机。唯一一行只点名 Google `generate-content` 的模型（`gemini-4-argon`）在两种布局下都走三种协议（2026-11-18 实测）；本适配器没有 Google 传输层，所以它的行以 responses 开头。若将来出现这样的行而三种协议全部被拒，失败信息会点名缺少的传输层，而不只是罗列拒绝。
 
 用 `protocolOverrides` 可以改某个模型的开场协议，该模型的其它协议仍留在后面作为回退：
 
@@ -106,7 +106,7 @@ config:
 }
 ```
 
-live 行里的 `created` 是请求时刻，不是模型的发布时间；发布时间由 `release_date` 与 `last_updated` 表达。发现到的行是模型事实的第一来源：`limit` 给出上下文窗口与输出上限（少数模型还有 `limit.input` 这个单次输入上限，本适配器不为它单独建模），`modalities` 给出 provider 的输入列表，`capabilities.reasoning.effort` 给出思考阶梯，`api` 点名首选协议。发现路径把这些行保存进缓存，所以快照之后才发布的模型也能报告自己的数字。
+live 行里的 `created` 是请求时刻，不是模型的发布时间；发布时间由 `release_date` 与 `last_updated` 表达。发现到的行是模型事实的第一来源：`limit` 给出上下文窗口与输出上限（少数模型还有 `limit.input` 这个单次输入上限，本适配器不为它单独建模），`modalities` 给出 provider 的输入列表，`capabilities.reasoning.effort` 给出思考阶梯，`api` 点名首选协议——旁边的 `base_url` 是服务给 SDK 的指针，不是本插件的端点。发现路径把这些行保存进缓存，所以快照之后才发布的模型也能报告自己的数字。
 
 它背后还有一份快照。`lib/model/limits.js` 保存着在 `CAPABILITY_SOURCE` 所记日期（`models.dev/opencode-go@2026-11-08`）从 OpenCode 目录（`models.dev`）实测来的同一组事实。发现没有描述某个模型的时候由它作答——`modelSource: config` 模式下没有写容量的条目、没有网络的部署、只回 id 的网关、或在行里带上这些事实之前写下的缓存文件——因为需要上下文窗口的调用不能等一个第三方 endpoint，而没有外网的部署也得能显示真实上限。每个模型解析出的都是自己的数字：
 

@@ -6,15 +6,25 @@
 
 ## Endpoint 与鉴权
 
+每种协议打到由 `baseURL` 推导出的 base，规则见[配置](configuration.zh-CN.md#端点布局)。默认的按协议分路径布局下：
+
 | 协议 | 路径 | 鉴权 |
 |---|---|---|
-| Chat Completions | `POST {baseURL}/chat/completions` | `Authorization: Bearer <key>` |
-| Responses | `POST {baseURL}/responses` | `Authorization: Bearer <key>` |
-| Messages | `POST {baseURL}/messages` | `x-api-key: <key>` + `anthropic-version: 2023-06-01` |
+| Chat Completions | `POST https://opencode.ai/inference/go/openai/v1/chat/completions` | `Authorization: Bearer <key>` |
+| Responses | `POST https://opencode.ai/inference/go/openai/v1/responses` | `Authorization: Bearer <key>` |
+| Messages | `POST https://opencode.ai/inference/go/anthropic/v1/messages` | `x-api-key: <key>` + `anthropic-version: 2023-06-01` |
+
+换成别的 base——自建网关，或显式写的旧版地址——每种协议就把自己的路径拼在 `baseURL` 后面：
+
+| 协议 | 路径 |
+|---|---|
+| Chat Completions | `POST {baseURL}/chat/completions` |
+| Responses | `POST {baseURL}/responses` |
+| Messages | `POST {baseURL}/messages` |
 
 Messages 端点使用自己的一套请求头：它会以 `AuthError: Missing API key` 拒绝 bearer token。
 
-三个端点都接受 `GET /models` 列出的每一个模型：目录的 `api` 映射点名的只是每个模型的首选入口，不是白名单，2026-11-08 的探测中每个在服 id 的三种协议全部被接受。该映射还会点名每种协议自己的 SDK base URL（`/inference/go/openai/…`、`/inference/go/anthropic/…`）；中继在统一的 `{baseURL}` 下同样服务这三种协议，本插件用的就是后者。优先级顺序与 `ModelProtocolUnsupported` 时的回退见 [模型](models.zh-CN.md#按模型选择协议)。
+三个端点都接受 `GET /models` 列出的每一个模型：目录的 `api` 映射点名的只是每个模型的首选入口，不是白名单，2026-11-08 的探测中每个在服 id 的三种协议全部被接受。2026-11-18 又在按协议分路径的布局上对当天在服的全部 32 个 id 复测了一遍，其中包括 `gemini-4-argon`。该映射还会点名每种协议自己的 SDK base URL；本插件自己推导这些路径，不读映射里的 `api[*].base_url`，因此一行目录记录无法把请求指到别的主机。优先级顺序与 `ModelProtocolUnsupported` 时的回退见[模型](models.zh-CN.md#按模型选择协议)。
 
 每个请求还会带上：
 
