@@ -42,7 +42,7 @@ Neither case needs a plugin release before the model can be used.
 
 ## Retired models
 
-The built-in catalog is append-only. When the service stops serving a model, its row is not deleted: it is marked `retired`, keeping the protocols it last answered on and its capacity in `lib/model/limits.js`. A retired row is the opposite of an unknown id — it is fully described, and only the service can refuse it:
+The built-in catalog is append-only in both directions: a model that appears gets a new row, and when the service stops serving one its row is not deleted but marked `retired`, keeping the protocols it last answered on and its capacity in `lib/model/limits.js`. No row is ever removed, so a session pinned to an id can always resolve what it was using. A retired row is the opposite of an unknown id — it is fully described, and only the service can refuse it:
 
 - **Not listed.** The model picker leaves a retired id out. The configuration page shows its row — with a warning-coloured `retired` tag (or `retired → <successor>` when the service names one) and a disabled checkbox — though the card's Hide retired models control can keep those rows out of the list it renders. When the deployment's own `hiddenModels` also names it, the snapshot's `hiddenReason` says `configured` rather than `retired`, because that choice was made first.
 - **Resolvable.** A session that still names the id resolves to its last measured capacity — its row in `lib/model/limits.js`, current or delisted, or its family's figures when neither has a row. Resolving a retired model is not an error; only the wire call is.
@@ -61,8 +61,6 @@ Six retired ids name the successor to move to:
 | `qwen3.7-max` | `qwen3.8-max` |
 
 The other nine have none: `deepseek-v4-flash`, `deepseek-v4-flash-vision-exp`, `deepseek-flash`, `grok-4.6`, `minimax-m2.5`, `qwen3.6-plus`, `space-bunny-free`, `longcat-2.5-preview-free`, `omen-alpha`.
-
-The maintenance rule is the same in both directions: a model that appears gets a new row, and a model the service retires gets marked — no row is ever removed, so a session pinned to an id can always resolve what it was using.
 
 ## Models that train on request data
 

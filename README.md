@@ -8,15 +8,63 @@
 [![ci](https://github.com/a2580vb/dsh-llm-opencode-go/actions/workflows/ci.yml/badge.svg)](https://github.com/a2580vb/dsh-llm-opencode-go/actions/workflows/ci.yml)
 [![license](https://img.shields.io/badge/license-MIT-blue)](LICENSE)
 
-## Introduction
+A DeepSeek Harness (DSH) plugin that serves **OpenCode Go** (`https://opencode.ai/zen/go/v1`) as a native model provider. The plugin implements the service's three wire protocols itself: requests translate harness messages, tools and reasoning into the protocol's shape, and responses stream back as DSH `StreamChunk` values. Node.js ≥ 20; no runtime dependencies.
 
-![The usage panel in the DeepSeek Harness web client: the subscription's three windows above this route's counters, with the quota capsule at the sidebar's foot](https://raw.githubusercontent.com/a2580vb/dsh-llm-opencode-go/main/assets/screenshot-1-app.png)
+![The usage panel in the DSH web client: the subscription's three windows above this route's counters, with the quota capsule at the sidebar's foot](https://raw.githubusercontent.com/a2580vb/dsh-llm-opencode-go/main/assets/screenshot-1-app.png)
 
 *The usage panel and the quota capsule in the web client. The quota and the counters in the image are sample data.*
 
-A [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness) (DSH) plugin that serves **OpenCode Go** (`https://opencode.ai/zen/go/v1`) as a native DSH model provider.
+## At a glance
 
-The plugin implements OpenCode Go's three wire formats itself: it translates harness messages, tools, and reasoning into each protocol's request, and translates the streamed response back into DSH `StreamChunk` values.
+| | |
+|---|---|
+| **Provider route** | `opencode-go`, or the name `provider` sets |
+| **Protocols** | OpenAI Responses, OpenAI-compatible Chat Completions, Anthropic Messages |
+| **Model facts** | Live `GET /models` rows, with a dated `models.dev` snapshot as the fallback |
+| **Runtime** | Node.js ≥ 20 |
+| **Runtime dependencies** | None |
+
+## Features
+
+- **Model discovery.** `GET /models` supplies each model's display name, description, context window, output cap, input modalities, reasoning ladder and preferred protocol. The answer is cached in memory and on disk; a `models.dev` snapshot covers deployments that cannot reach the service.
+- **Protocol selection per model.** The catalog carries an ordered protocol list per model, opening with the service's preferred `api` entry. A call the service refuses with `ModelProtocolUnsupported` is retried on the next protocol; any other failure is reported as it is.
+- **Session affinity.** Every request carries `x-opencode-session`, one stable id per conversation, which keeps a conversation's turns on the same upstream backend and prompt cache.
+- **Tool calls.** Definitions, fragmented arguments, tool results and the follow-up turn are translated per protocol. A call and its result are sent together or left out, because every protocol rejects one half alone.
+- **Reasoning.** Per-model effort ladders come from the service and are translated per protocol, including Anthropic thinking budgets. Reasoning history is replayed only where the upstream requires it.
+- **Streaming.** Byte-level SSE framing becomes `StreamChunk` values, with usage, finish reason, an idle watchdog and a retry when a stream is cut off before its terminal event.
+- **Failures.** HTTP status and transport failures map to stable, provider-neutral codes (`AUTH`, `RATE_LIMIT`, `QUOTA`, `CONTEXT_WINDOW_EXCEEDED`, `MODEL_DEPRECATED`, `MODEL_UNAVAILABLE`, …).
+- **Configuration page.** One page in the web client, registered both in Settings' own navigation and on the sidebar Plugins page's row. It edits the API key, the credential reference, model visibility (retired rows included), model variants, the quota-refresh intervals and the transport/retry settings; it can re-read `GET /models` and shows what this route spent.
+- **Usage surfaces.** A quota capsule at the sidebar's foot, a usage panel opened from it or with `Ctrl/Cmd+U`, and a tab under Settings → Built-in plugins.
+
+## Quick start
+
+### 1. Install
+
+```sh
+dsh plugin add dsh-llm-opencode-go
+```
+
+Bundle layers are read at startup, so fully restart the profile after installing. The startup log should carry:
+
+```
+dsh-llm-opencode-go: provider "opencode-go" ready at https://opencode.ai/zen/go/v1 (credential OPENCODE_GO_API_KEY, models discover)
+```
+
+### 2. Provide a key
+
+Either export `OPENCODE_GO_API_KEY` in the environment that launches DSH, or store the key through the credential seam — the web client's Models page writes it there. The config holds the reference (`apiKeyEnv`), never the value; the plugin resolves the reference on every request, so a stored key applies to the next call without a restart.
+
+### 3. Pick a model
+
+Open the model picker and choose a model under the **OpenCode Go** route. The first catalog read fetches `GET /models`; later reads are answered from memory or the cache file.
+
+![The model picker, with the OpenCode Go group expanded](https://raw.githubusercontent.com/a2580vb/dsh-llm-opencode-go/main/assets/screenshot-4-models.png)
+
+*The model picker under the OpenCode Go group.*
+
+## Configuration
+
+Every key is optional. The shortest useful block restates the defaults:
 
 ```yaml
 - insert:
@@ -26,74 +74,75 @@ The plugin implements OpenCode Go's three wire formats itself: it translates har
         apiKeyEnv: OPENCODE_GO_API_KEY
 ```
 
-That is the whole configuration a deployment may want to write; every key in it is optional because these are the defaults. `apiKeyEnv` names a **credential reference**, not the key itself: the key value never enters the config file, and the plugin resolves the reference through the harness credential seam on every request, so a key written by the web Models page reaches the next call with no restart.
-
-## Features
-
-| | |
-|---|---|
-| **Provider route** | `opencode-go` (configurable) |
-| **Protocols** | OpenAI Responses, OpenAI-compatible Chat Completions, Anthropic Messages |
-| **Model discovery** | `GET /models`: each model's name, description, limits, modalities, reasoning ladder and preferred protocol, cached in memory and on disk |
-| **Session affinity** | `x-opencode-session`, one stable id per conversation |
-| **Tool calling** | Full round trip for every dispatched call: definitions, fragmented arguments, tool results, follow-up turn |
-| **Reasoning** | Per-model effort ladders from the service, per-protocol translation, including Anthropic thinking budgets |
-| **Streaming** | SSE → `StreamChunk`, with usage, finish reason, and an idle watchdog |
-| **Failures** | Stable provider-neutral codes (`AUTH`, `RATE_LIMIT`, `QUOTA`, `CONTEXT_WINDOW_EXCEEDED`, `MODEL_DEPRECATED`, `MODEL_UNAVAILABLE`, …) |
-| **Configuration UI** | One page in the web client, with a row in Settings' own navigation and a Configure control on the plugin's row: API key, credential reference, model visibility and variants, fetching the model list, usage |
-| **Fast entries** | A quota capsule at the sidebar's foot (one ring per window — `5H / Wk / Mo` — with what is left of each), a usage panel of its own (from that row, or the keyboard), and a usage page under Settings; the capsule has an on/off switch in the configuration page |
-| **Runtime** | Node.js ≥ 20; no runtime dependencies |
-
-## Install and use
-
-### Install
-
-```sh
-dsh plugin add dsh-llm-opencode-go
-```
-
-Then **fully restart** the profile: bundle layers are read at startup. The startup log should carry:
-
-```
-dsh-llm-opencode-go: provider "opencode-go" ready at https://opencode.ai/zen/go/v1 (credential OPENCODE_GO_API_KEY, models discover)
-```
-
-### Give it a key
-
-Either export `OPENCODE_GO_API_KEY` in the environment that launches DSH, or store it through the credentials seam — the web Models page writes it. The plugin resolves the reference per request, so both work and neither requires a restart.
-
-### See the usage
-
-Usage has three entries, all reading the same facts:
-
-| Entry | Where |
-|---|---|
-| **The quota capsule at the sidebar's foot** | Beside Settings. One row, three groups — `◉ 5H 92% │ ◉ Wk 58% │ ◉ Mo 9%` — visible without a click; that row opens the usage panel, and the gear beside it opens the plugin's configuration page. |
-| **The usage panel** | From that row, or the keyboard (desktop `Ctrl/Cmd+U`): the subscription's three windows first, this route's counters under them, and a header that stays on screen as they scroll — the way to the plugin's configuration page, and an **×** back to the conversation. |
-| **Settings → Built-in plugins** | A tab carrying the same content as the panel. |
-
-All three need the web client; a deployment without one has none of them and is otherwise unchanged. The capsule can be switched off from the configuration page (`showQuotaCapsule`, on by default): hiding that row leaves the other two entries in place. See [Configuration](docs/configuration.md#fast-entries).
-
-## Configuration
-
-Every key in the `config` block above is optional: these are the defaults. The full field table, catalog shaping, and image input live in [Configuration](docs/configuration.md).
-
-**Point it at another credential reference**, if you would rather the plugin read a differently-named variable:
+`apiKeyEnv` is a credential **reference**, not the key itself. To point it at another variable:
 
 ```yaml
 config:
   apiKeyEnv: OC_KEY
 ```
 
-The value is never read from the config file itself, only the variable *name*.
+The full field table, catalog shaping and image-input settings live in [Configuration](docs/configuration.md).
 
-**Or configure it from the web client.** Settings carries an **OpenCode Go** row of its own, beside the pages the shell ships, and the same page is behind the sidebar's **Plugins** page: the `dsh-llm-opencode-go` bundle's `opencode-go` row has a **Configure** control. Either door opens the plugin's own page: the API key, the credential reference it is stored under, one switch per catalog model for what the picker offers, the model variants, whether the sidebar capsule shows, a control that re-reads the service's model list, and what this route has spent. The key is written to the credential store, never to `cordis.patch.yml`, and the page is mounted only by a deployment that serves the web client. See [Configuration](docs/configuration.md#graphical-configuration).
+### Graphical configuration
 
-## Docs
+The plugin's page is also reachable from the web client: a row of Settings' own navigation (**OpenCode Go**), and the sidebar's **Plugins** page, where the bundle's row has a **Configure** control. Both register the same component. The page writes ordinary config fields through the profile patch, and the API key through the credential store; the key value never enters `cordis.patch.yml`. A deployment without a web client has no page and behaves the same otherwise. See [Configuration](docs/configuration.md#graphical-configuration).
 
-Details live under [`docs/`](docs/models.md); start with what you need:
+![The plugin's configuration page, opened from Settings → OpenCode Go](https://raw.githubusercontent.com/a2580vb/dsh-llm-opencode-go/main/assets/screenshot-3-config.png)
 
-- [Models](docs/models.md) — the live model facts, protocol preference and fallbacks, training-data gate, capacity snapshot, text/image split
+*The configuration page. The API key is reported as configured; its value is never displayed.*
+
+## Usage
+
+Three entries read the same facts:
+
+| Entry | Where |
+|---|---|
+| **The quota capsule** | At the sidebar's foot, beside Settings: one ring per metered window (`5H / Wk / Mo`), with what is left of each. The row opens the usage panel; the gear beside it opens the configuration page. |
+| **The usage panel** | From that row, or the keyboard (`Ctrl/Cmd+U`): the subscription's windows first, this route's counters by model and by day under them. |
+| **A tab under Settings → Built-in plugins** | The same content as the panel, on the settings surface. |
+
+The panel keeps two sources apart. The subscription bars come from `GET {baseURL}/usage` and describe the plan's metered windows. The counters below them are what this plugin recorded locally at `~/.dsh/cache/opencode-go-usage.json`, aggregated by local calendar day. They answer different questions and can disagree. The capsule can be switched off (`showQuotaCapsule`, on by default); the panel and the tab stay.
+
+![The usage panel: the subscription's three windows above this route's counters and per-model table](https://raw.githubusercontent.com/a2580vb/dsh-llm-opencode-go/main/assets/screenshot-2-usage.png)
+
+*The usage panel: subscription windows above, this route's counters below. Sample data.*
+
+## Verification
+
+```sh
+npm test             # the offline suite; no credential, no quota spent
+npm run test:cordis  # mount the plugin on the harness's own cordis
+npm run test:live    # live suite; needs OC_KEY
+npm run check:pack   # read back what `npm publish` would upload
+```
+
+`npm test` replays response bodies captured from the live service (`tests/golden/`), so a translator that drifts from what the service sends fails offline. The offline count is restated in both README badges and in both development pages — the four places the runner checks when the suite finishes. Details in [Development](docs/development.md#verification).
+
+## FAQ
+
+### Do configuration changes need a restart?
+
+No. The adapter reads the resolved config on each request, so a saved field applies to the next call. Installing or upgrading the plugin is the exception: bundle layers are read at startup.
+
+### Does it work without the web client?
+
+Yes. The configuration page, the capsule and the panel are web-client surfaces; a headless deployment has none of them, and the provider route is unchanged.
+
+### Where is the API key stored?
+
+In the harness credential store, under the name `apiKeyEnv` points at. The config file holds only that name, and no page endpoint returns the value.
+
+### A model I use is gone from the picker. Can I still call it?
+
+Yes, if the service still serves it or the catalog still carries its row. Retired models stay in the catalog with their last measured protocol order and capacity; the picker leaves them out, but a session that still names one resolves it and sends the call, and the service answers `MODEL_DEPRECATED` or `MODEL_UNAVAILABLE`. Hiding a model (`hiddenModels`) has the same listing-only effect.
+
+### Why does an image not reach the model?
+
+A route declares `image` only when the model takes images and the deployment can resolve their bytes through the attachment seam. Without the seam, `sendImages: auto` reports text-only and the model's description names what was left out; `always` attempts the bytes anyway and fails on the missing seam.
+
+## Documentation
+
+- [Models](docs/models.md) — live model facts, protocol preference and fallbacks, the training-data gate, the capacity snapshot, text/image split
 - [Configuration](docs/configuration.md) — full field table, shaping the catalog, image input, the graphical and fast entries
 - [Wire protocol](docs/wire-protocol.md) — endpoints and auth, `x-opencode-session`, reasoning and tool-calling translations
 - [Reliability](docs/reliability.md) — stable failure codes and limits
