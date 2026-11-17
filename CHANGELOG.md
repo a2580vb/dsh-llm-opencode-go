@@ -4,6 +4,32 @@
 
 Every released version has a section here, and that section is what its GitHub release page carries. The newest release comes first.
 
+## 0.2.6 — 2026-11-18
+
+### Added
+
+- **The model card can put retired models aside.** *Hide retired models* / *Show retired models* writes `showRetiredModels`, on by default, and decides only whether rows the service no longer serves are drawn: the catalog, the picker and the route are unchanged by it. A Host older than the page reports no value, so the switch still changes the card and says that a restart is what saves it.
+
+### Changed
+
+- **The model card's controls read as one row.** *Fetch available models* stood a size taller than the other three, and *Reload list* did not say what it re-read; all four now come from the settings page's small-button primitive, and the ambiguous one is *Refresh page list*, because what it refreshes is the Host's copy of the catalog rather than the service.
+- **Every configuration write is judged by one rule.** A malformed container is refused as a schema issue, hand-written rows and page writes share the same retry-policy rule, and a request fence that cannot be evaluated fails closed with a deterministic answer.
+- **The release gate compares whole version tokens and mounts the plugin first.** `0.2.1` no longer matches `0.2.1-rc.1` or `0.2.1+build.7`, and a tag runs the activation suite before anything can be published.
+
+### Fixed
+
+- **A stream cut off before its terminal event is retried.** A clean EOF settled as `STREAM_CLOSED` and failed, while the same network fault raised `TRANSPORT` on a reset and was retried, so one fault cost one attempt or five depending on how the connection ended; both are retryable now, and a failed attempt's content never enters the history, so a re-run cannot duplicate what the reader saw.
+- **A provider error delivered mid-stream is classified by its cause.** An envelope that names rate limiting, overload, a server fault, unavailability or a timeout keeps `RATE_LIMIT` or `SERVER`; one that names nothing recognisable stays `MALFORMED_RESPONSE`.
+- **An answer that has already started survives a stop word the adapter does not know.** `refusal` and `pause_turn` settle as stop, an unknown word settles as stop once content exists, and a Responses answer truncated by a content filter is a stop rather than max tokens.
+- **A tool call that never names a function is malformed, not a transport fault.** It was a bare `Error`, which the adapter classified as transport and retried; it is now a `MALFORMED_RESPONSE` carrying the protocol and the block index.
+- **Chat Completions drops a tool result whose call is no longer in the history.** The relay refused that half pair as a 400 and failed the whole turn; the result and the pictures it carried are dropped, as the other two wires already did.
+- **A cached model capability stays with the endpoint that reported it.** The disk cache is bound to its endpoint, so a changed `baseURL` no longer inherits another endpoint's limits, and a `retired` row is kept until a live listing revives it.
+- **A thinking block's signature stays with the block, not with its text.** The same words in another block are a different thought carrying a different signature, so indexing by text replayed the wrong one; the signature now travels with the block that carried it.
+- **The usage counters and their file survive hostile input.** A model id that names an `Object` member is its own day's record, local calendar windows stay right across a daylight-saving change, snapshot writes are serialised by revision, a failed write is reported once and never fails a call, a call that dies before its terminal event still counts the usage the provider already reported, and a subscription percentage that is not a finite number drops its window instead of drawing an untouched allowance.
+- **The page can retry a catalog read that failed.** Network, Host and malformed-payload failures become retryable states that keep the rows already read, and history stays visible when only the selected range is empty.
+- **Known credentials and refused response bodies stay out of the diagnostics log.** The adapter redacts known credentials, and a discovery failure no longer carries the provider's error body.
+- 554 offline checks, up from 464.
+
 ## 0.2.5 — 2026-11-10
 
 ### Added

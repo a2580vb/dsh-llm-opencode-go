@@ -8,7 +8,7 @@ This page is for contributors: the project's current status, how to verify the p
 
 | | |
 |---|---|
-| **Version** | 0.2.5 (package `dsh-llm-opencode-go`) |
+| **Version** | 0.2.6 (package `dsh-llm-opencode-go`) |
 | **Protocol map** | One preferred entry per model, taken from the live `api` map and measured against the service; kept in `lib/model/catalog.js` |
 | **Capacity, modalities, and reasoning ladders** | Read from the live `GET /models` rows; the `models.dev` snapshot in `lib/model/limits.js` is the fallback, dated in `CAPABILITY_SOURCE` (currently `models.dev/opencode-go@2026-11-08`) |
 | **Known limits** | See [Reliability](reliability.md#limits) and [Models](models.md) |
@@ -78,8 +78,8 @@ A release is a tag. Everything a person does by hand is what a version bump alre
 
 ```sh
 node scripts/release.mjs version          # the version in package.json
-node scripts/release.mjs check-tag v0.2.5 # the version a tag names, or a refusal
-node scripts/release.mjs notes 0.2.5      # the changelog section, as a release body
+node scripts/release.mjs check-tag v0.2.6 # the version a tag names, or a refusal
+node scripts/release.mjs notes 0.2.6      # the changelog section, as a release body
 ```
 
 `check-tag` is the one that matters: a tag is the only version a person types rather than a manifest states, so it is the one that can be wrong in a way nothing else catches. It refuses anything that is not a `v<version>` tag — a dispatch from a branch has a ref name like `main` — and refuses a tag whose version is not what `package.json` says, which is a tag on the wrong commit.

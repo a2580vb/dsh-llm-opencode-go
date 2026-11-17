@@ -19,7 +19,7 @@ All three endpoints accept every model `GET /models` lists: the catalogue's `api
 Every request also carries:
 
 ```http
-User-Agent: dsh-opencode-go/0.2.5
+User-Agent: dsh-opencode-go/0.2.6
 x-opencode-session: <stable per-conversation id>
 x-opencode-client: dsh-opencode-go
 ```
