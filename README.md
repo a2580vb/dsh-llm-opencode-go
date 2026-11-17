@@ -12,7 +12,7 @@
 
 ![The usage panel in the DeepSeek Harness web client: the subscription's three windows above this route's counters, with the quota capsule at the sidebar's foot](https://raw.githubusercontent.com/a2580vb/dsh-llm-opencode-go/main/assets/screenshot-1-app.png)
 
-*The usage panel and the quota capsule in the web client. This screenshot predates the current usage copy: the page now pages through the whole history.*
+*The usage panel and the quota capsule in the web client. The quota and the counters in the image are sample data.*
 
 A [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness) (DSH) plugin that serves **OpenCode Go** (`https://opencode.ai/zen/go/v1`) as a native DSH model provider.
 

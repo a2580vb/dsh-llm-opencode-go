@@ -12,7 +12,7 @@
 
 ![DeepSeek Harness Web 客户端里的用量面板：订阅的三个窗口在上，本路由的计数在下；左下是侧边栏底部的额度胶囊](https://raw.githubusercontent.com/a2580vb/dsh-llm-opencode-go/main/assets/screenshot-1-app.png)
 
-*Web 客户端里的用量面板与额度胶囊。这张截图早于当前用量文案：现在整段历史都可以分页查看。*
+*Web 客户端里的用量面板与额度胶囊。图中的额度与计数是示例数据。*
 
 一个 [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness)（DSH）插件，把 **OpenCode Go**（`https://opencode.ai/zen/go/v1`）作为 DSH 的原生模型 provider 接入。
 
