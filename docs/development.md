@@ -16,7 +16,7 @@ This page is for contributors: the project's current status, how to verify the p
 ## Verification
 
 ```sh
-npm test            # 567 offline checks, including config, SSE framing, catalog and discovery, all three protocols, adapter, usage counters, subscription, plugin body, the settings bridge and page, display metadata, diagnostics, release coherence and CI
+npm test            # 578 offline checks, including config, SSE framing, catalog and discovery, all three protocols, adapter, usage counters, subscription, plugin body, the settings bridge and page, display metadata, diagnostics, release coherence and CI
 npm run test:cordis # 44 checks mounting the plugin on the harness's own cordis
 npm run test:live   # the live suite; needs OC_KEY
 npm run check:pack  # what `npm publish` would upload
