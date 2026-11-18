@@ -32,6 +32,7 @@ const CATALOG = {
 }
 const STATE = {
   ok: true,
+  notice: { id: 'endpoints-per-api', show: false },
   route: {
     provider: 'opencode-go',
     baseURL: 'https://opencode.ai/inference/go/v1',
@@ -133,6 +134,9 @@ function host(overrides = {}) {
       return { body: { ok: true, config: { override: {} } }, ...overrides.config }
     }
     if (name === 'opencode-go/credential') return { body: { ok: true }, ...overrides.credential }
+    if (name === 'opencode-go/notice') {
+      return { body: { ok: true, notice: { id: 'endpoints-per-api', show: false } }, ...overrides.notice }
+    }
     if (name === 'opencode-go/refresh') return { body: { ok: true, discovered: 3, added: [], removed: [], catalog: CATALOG }, ...overrides.refresh }
     if (name === 'opencode-go/subscription') {
       return { body: { ...SUBSCRIPTION, minIntervalSeconds: 30, maxIntervalSeconds: 1_800, cached: query === 'refresh=1' ? false : true }, ...overrides.subscription }
@@ -651,6 +655,80 @@ export default {
           (node) => node.type === 'section' && text(node).includes('Connection'),
         )
         ok(text(older).includes('not reported'), `an older Host is described: ${text(older)}`)
+      },
+    },
+    {
+      name: 'the upgrade notice is drawn only when the Host reports it',
+      async run() {
+        const quiet = await renderPage({ fetch: host() })
+        const before = await quiet.open()
+        is(
+          text(before).includes('The default endpoints now use per-API paths'),
+          false,
+          'an install the Host says nothing about sees nothing',
+        )
+
+        const shown = await renderPage({
+          fetch: host({
+            state: {
+              body: {
+                ...structuredClone(STATE),
+                notice: { id: 'endpoints-per-api', show: true, from: '0.2.5' },
+              },
+            },
+          }),
+        })
+        const tree = await shown.open()
+        ok(text(tree).includes('The default endpoints now use per-API paths'), 'the sentence is drawn')
+        ok(buttons(tree).includes('Do not show again'), 'the way out is drawn')
+      },
+    },
+    {
+      name: 'closing the upgrade notice posts the dismissal and hides the row',
+      async run() {
+        const page = await renderPage({
+          fetch: host({
+            state: {
+              body: {
+                ...structuredClone(STATE),
+                notice: { id: 'endpoints-per-api', show: true },
+              },
+            },
+          }),
+        })
+        await page.open()
+        await page.click((node) => node.type === 'button' && text(node).trim() === 'Do not show again')
+        const after = page.tree()
+        is(text(after).includes('The default endpoints now use per-API paths'), false, 'the row is gone')
+
+        const posted = page.calls.find((entry) => entry.path.split('?')[0] === 'opencode-go/notice')
+        ok(posted !== undefined, 'the page told the Host')
+        is(JSON.parse(posted.init.body).id, 'endpoints-per-api')
+        is(JSON.parse(posted.init.body).dismiss, true)
+      },
+    },
+    {
+      name: 'a dismissal the Host could not store keeps the row and says so',
+      async run() {
+        const page = await renderPage({
+          fetch: host({
+            state: {
+              body: {
+                ...structuredClone(STATE),
+                notice: { id: 'endpoints-per-api', show: true },
+              },
+            },
+            notice: { status: 503, body: { ok: false, error: 'not-stored' } },
+          }),
+        })
+        await page.open()
+        await page.click((node) => node.type === 'button' && text(node).trim() === 'Do not show again')
+        const after = page.tree()
+        ok(
+          text(after).includes('The default endpoints now use per-API paths'),
+          'the row stays: the promise it would have made was not kept',
+        )
+        ok(text(after).includes('The dismissal was not saved'), 'the failure is named')
       },
     },
     {

@@ -239,6 +239,7 @@ export function bridgeUnderTest(overrides = {}) {
     subscriptionStatus: 'subscriptionStatus' in overrides
       ? overrides.subscriptionStatus
       : () => ({ activity: false, minIntervalSeconds: 30, maxIntervalSeconds: 1_800 }),
+    notice: 'notice' in overrides ? overrides.notice : undefined,
     logger: { info: (...args) => logs.push(args.join(' ')), warn: (...args) => logs.push(args.join(' ')) },
     // Optional collaborators the page reads when a deployment has them. Absent
     // means "this composition does not mount one", which is a shape the page

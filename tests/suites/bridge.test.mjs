@@ -24,6 +24,7 @@ import {
   validateFieldValue,
 } from '../../lib/ui/bridge.js'
 import { Config, DEFAULT_RETRY_POLICY, resolveConfig } from '../../lib/config.js'
+import { ENDPOINT_NOTICE_ID } from '../../lib/notice/install.js'
 import { UsageStore, dayKey } from '../../lib/usage/store.js'
 import { fenceRejection, isLoopbackHostname } from '../../lib/ui/http.js'
 import {
@@ -40,6 +41,29 @@ import { equal, includes, is, ok } from '../helpers.mjs'
 // The harness's timer ceiling (2^31 - 1 ms), which a retry delay may equal but
 // must not exceed: `setTimeout` overflows above it and fires immediately.
 const MAX_DELAY_MS = 2_147_483_647
+
+/**
+ * A notice stand-in: the bridge reads only `current` and `dismiss`.
+ *
+ * `stored: false` models the one failure the route has to report rather than
+ * hide — a home directory that cannot keep the record.
+ */
+function fakeNotice({ show = true, stored = true } = {}) {
+  const dismissed = []
+  let view = { id: ENDPOINT_NOTICE_ID, show }
+  return {
+    dismissed,
+    async current() {
+      return view
+    },
+    async dismiss(id) {
+      dismissed.push(id)
+      if (stored !== true) return false
+      view = { id: ENDPOINT_NOTICE_ID, show: false }
+      return true
+    },
+  }
+}
 
 export default {
   name: 'ui bridge',
@@ -86,6 +110,71 @@ export default {
         const legacyAnswer = await call(legacy.instance, local())
         is(legacyAnswer.json.route.endpointLayout, 'unified')
         is(legacyAnswer.json.route.legacyBase, true)
+      },
+    },
+    {
+      name: 'GET state carries the upgrade notice the Host decided',
+      async run() {
+        const notice = fakeNotice({ show: true })
+        const { instance } = bridgeUnderTest({ notice })
+        const res = await call(instance, local())
+        is(res.json.notice.show, true)
+        is(res.json.notice.id, ENDPOINT_NOTICE_ID)
+      },
+    },
+    {
+      name: 'POST notice records the dismissal and answers the closed notice',
+      async run() {
+        const notice = fakeNotice({ show: true })
+        const { instance } = bridgeUnderTest({ notice })
+        const res = await call(instance, local({
+          method: 'POST',
+          url: UI_ROUTES.notice,
+          body: { id: ENDPOINT_NOTICE_ID, dismiss: true },
+        }))
+        is(res.captured.statusCode, 200)
+        is(res.json.ok, true)
+        is(res.json.notice.show, false)
+        equal(notice.dismissed, [ENDPOINT_NOTICE_ID])
+      },
+    },
+    {
+      name: 'closing an unknown notice is refused, not recorded',
+      async run() {
+        const notice = fakeNotice({ show: true })
+        const { instance } = bridgeUnderTest({ notice })
+        const res = await call(instance, local({
+          method: 'POST',
+          url: UI_ROUTES.notice,
+          body: { id: 'some-other-notice', dismiss: true },
+        }))
+        is(res.captured.statusCode, 400)
+        is(res.json.error, 'unknown-notice')
+        equal(notice.dismissed, [])
+      },
+    },
+    {
+      name: 'a dismissal that was not stored is a failure, and the notice stays up',
+      async run() {
+        const notice = fakeNotice({ show: true, stored: false })
+        const { instance } = bridgeUnderTest({ notice })
+        const res = await call(instance, local({
+          method: 'POST',
+          url: UI_ROUTES.notice,
+          body: { id: ENDPOINT_NOTICE_ID, dismiss: true },
+        }))
+        is(res.captured.statusCode, 503)
+        is(res.json.error, 'not-stored')
+        is(res.json.notice.show, true, 'the page is told the row is still there')
+      },
+    },
+    {
+      name: 'the notice route answers only POST',
+      async run() {
+        const { instance } = bridgeUnderTest({ notice: fakeNotice() })
+        const res = await call(instance, local({ url: UI_ROUTES.notice }))
+        is(res.captured.statusCode, 405)
+        is(res.captured.headers.allow, 'POST')
       },
     },
     {

@@ -135,6 +135,7 @@ The page is a separate artifact from the Host half, and the two agree on one fla
 | `/opencode-go/usage` | `GET` | the usage table for `?days=1`, `7`, `30`, or `all` |
 | `/opencode-go/subscription` | `GET` | the subscription's own quota, read from the service; `?refresh=1` bypasses the cache |
 | `/opencode-go/activity` | `GET` | whether this route spent anything since that quota answer was read — answered from memory, never from the service |
+| `/opencode-go/notice` | `POST` | records that a reader closed an upgrade notice, so it stays closed for this install |
 
 How the surface is guarded:
 

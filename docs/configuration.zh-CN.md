@@ -135,6 +135,7 @@
 | `/opencode-go/usage` | `GET` | `?days=1`、`7`、`30`、`all` 对应的用量表 |
 | `/opencode-go/subscription` | `GET` | 从服务读取的订阅额度；`?refresh=1` 绕过缓存 |
 | `/opencode-go/activity` | `GET` | 读那份额度答案之后这条路由是否又花过钱——只在内存里判断，绝不访问服务 |
+| `/opencode-go/notice` | `POST` | 记下读者关掉了某条升级提示，之后这份安装不再显示它 |
 
 访问规则：
 
