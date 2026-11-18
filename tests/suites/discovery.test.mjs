@@ -142,6 +142,26 @@ export default {
       },
     },
     {
+      name: 'only a row that names just Google is marked, and it still gets protocols to try',
+      run() {
+        const google = discoveryRecord({ id: 'google-only', api: ['generate-content'] }, resolveConfig({}), undefined)
+        is(google.googleOnly, true, 'the row that names only Google is marked')
+        // The mark is a note about the row, not a verdict on the model: a
+        // request is still attempted, because the service translates it. See
+        // `orderAttempts` and the live probe in `docs/models*`.
+        ok(google.protocols.length > 0, 'the record still has a protocol ladder')
+
+        const translated = discoveryRecord(
+          { id: 'translated', api: ['generate-content', 'messages'] },
+          resolveConfig({}),
+          undefined,
+        )
+        is(translated.googleOnly, undefined, 'a row that names a protocol this adapter speaks is not marked')
+        const silent = discoveryRecord({ id: 'silent' }, resolveConfig({}), undefined)
+        is(silent.googleOnly, undefined, 'a row with no api map says nothing about Google')
+      },
+    },
+    {
       name: 'a row refines the built-in record instead of replacing it',
       run() {
         const config = resolveConfig({})

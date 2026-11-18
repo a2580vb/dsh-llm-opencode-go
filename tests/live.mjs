@@ -17,7 +17,7 @@ import { join } from 'node:path'
 
 import { BlockAssembler } from '@deepseek-ai/dsh-llm'
 
-import { PROTOCOLS, resolveConfig } from '../lib/config.js'
+import { DEFAULT_BASE_URL, PROTOCOLS, resolveConfig } from '../lib/config.js'
 import { OpenCodeGoAdapter } from '../lib/index.js'
 import { ModelCache } from '../lib/model/cache.js'
 
@@ -52,7 +52,7 @@ const NO_SEAM = undefined
 function buildAdapter(overrides = {}) {
   const { attachments = () => SEAM, ...configOverrides } = overrides
   const config = resolveConfig({
-    baseURL: process.env.OC_BASE ?? 'https://opencode.ai/zen/go/v1',
+    baseURL: process.env.OC_BASE ?? DEFAULT_BASE_URL,
     apiKeyEnv: 'OC_KEY',
     modelsCachePath: CACHE_PATH,
     ...configOverrides,
@@ -341,7 +341,7 @@ for (const testCase of [
 // ---------------------------------------------------------------------------
 {
   const config = resolveConfig({
-    baseURL: process.env.OC_BASE ?? 'https://opencode.ai/zen/go/v1',
+    baseURL: process.env.OC_BASE ?? DEFAULT_BASE_URL,
     apiKeyEnv: 'OC_KEY',
     modelsCachePath: CACHE_PATH,
   })

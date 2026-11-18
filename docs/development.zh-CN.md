@@ -16,7 +16,7 @@
 ## 验证
 
 ```sh
-npm test            # 554 项离线检查，覆盖配置、SSE 分帧、目录与发现、三种协议、适配器、用量计数、订阅、插件本体、配置桥接与页面、显示元数据、诊断日志、版本一致性，以及本仓库自己的 CI
+npm test            # 567 项离线检查，覆盖配置、SSE 分帧、目录与发现、三种协议、适配器、用量计数、订阅、插件本体、配置桥接与页面、显示元数据、诊断日志、版本一致性，以及本仓库自己的 CI
 npm run test:cordis # 44 项检查，把插件挂到 Harness 自己的 cordis 上
 npm run test:live   # 对线上服务的实测套件；需要 OC_KEY
 npm run check:pack  # `npm publish` 会真正上传的那个 tarball

@@ -99,6 +99,16 @@ export default {
       },
     },
     {
+      name: 'the quota read stays on the API root under the per-API layout',
+      async run() {
+        // `/usage` is a route of the root, not of one protocol's subtree: the
+        // split layout applies to inference paths only.
+        const { reader, requests } = readerUnderTest({ baseURL: 'https://opencode.ai/inference/go/v1' })
+        await reader.read()
+        is(requests[0].url, 'https://opencode.ai/inference/go/v1/usage')
+      },
+    },
+    {
       name: 'a forced read bypasses the cache, and the window is configurable',
       async run() {
         const { reader, requests, clock } = readerUnderTest({ subscriptionCacheSeconds: 600 })

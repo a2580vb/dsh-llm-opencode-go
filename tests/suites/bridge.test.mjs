@@ -71,6 +71,24 @@ export default {
       },
     },
     {
+      name: 'GET state names the endpoint layout, and the legacy base is named as legacy',
+      async run() {
+        const split = bridgeUnderTest({
+          config: { provider: 'opencode-go', apiKeyEnv: 'OC_KEY', baseURL: 'https://opencode.ai/inference/go/v1' },
+        })
+        const splitAnswer = await call(split.instance, local())
+        is(splitAnswer.json.route.endpointLayout, 'split')
+        is(splitAnswer.json.route.legacyBase, false)
+
+        const legacy = bridgeUnderTest({
+          config: { provider: 'opencode-go', apiKeyEnv: 'OC_KEY', baseURL: 'https://opencode.ai/zen/go/v1' },
+        })
+        const legacyAnswer = await call(legacy.instance, local())
+        is(legacyAnswer.json.route.endpointLayout, 'unified')
+        is(legacyAnswer.json.route.legacyBase, true)
+      },
+    },
+    {
       name: 'GET state reports the route, the credential, and the catalog',
       async run() {
         const { instance } = bridgeUnderTest({
@@ -90,6 +108,8 @@ export default {
         is(res.json.route.provider, 'opencode-go')
         is(res.json.route.apiKeyEnv, 'OC_KEY')
         is(res.json.route.baseURL, 'https://relay.test/v1')
+        is(res.json.route.endpointLayout, 'unified')
+        is(res.json.route.legacyBase, false, 'a gateway is not the legacy base')
         is(res.json.credential.configured, true)
         is(res.json.credential.writable, true)
         is(res.json.catalog.counts.total, 3)

@@ -4,11 +4,11 @@
 
 [![npm 版本](https://img.shields.io/npm/v/dsh-llm-opencode-go)](https://www.npmjs.com/package/dsh-llm-opencode-go)
 [![npm 下载量](https://img.shields.io/npm/dm/dsh-llm-opencode-go)](https://www.npmjs.com/package/dsh-llm-opencode-go)
-[![离线检查](https://img.shields.io/badge/offline_checks-554-brightgreen)](docs/development.zh-CN.md#验证)
+[![离线检查](https://img.shields.io/badge/offline_checks-567-brightgreen)](docs/development.zh-CN.md#验证)
 [![ci](https://github.com/a2580vb/dsh-llm-opencode-go/actions/workflows/ci.yml/badge.svg)](https://github.com/a2580vb/dsh-llm-opencode-go/actions/workflows/ci.yml)
 [![许可证](https://img.shields.io/badge/license-MIT-blue)](LICENSE)
 
-一个把 **OpenCode Go**（`https://opencode.ai/zen/go/v1`）作为 DSH 原生模型 provider 接入的 DeepSeek Harness（DSH）插件。插件自己实现该服务的三种线格式：请求把 Harness 的 messages、tools 与 reasoning 翻译成对应协议的形状，响应再以 DSH `StreamChunk` 流式返回。Node.js ≥ 20；无运行时依赖。
+一个把 **OpenCode Go**（`https://opencode.ai/inference/go/v1`）作为 DSH 原生模型 provider 接入的 DeepSeek Harness（DSH）插件。插件自己实现该服务的三种线格式：请求把 Harness 的 messages、tools 与 reasoning 翻译成对应协议的形状，响应再以 DSH `StreamChunk` 流式返回。Node.js ≥ 20；无运行时依赖。
 
 ![DSH Web 客户端里的用量面板：订阅的三个窗口在上，本路由的计数在下；左下是侧边栏底部的额度胶囊](https://raw.githubusercontent.com/a2580vb/dsh-llm-opencode-go/main/assets/screenshot-1-app.png)
 
@@ -47,7 +47,7 @@ dsh plugin add dsh-llm-opencode-go
 bundle 层只在启动时读取，所以安装后需要**完全重启**该 profile。启动日志里应出现：
 
 ```
-dsh-llm-opencode-go: provider "opencode-go" ready at https://opencode.ai/zen/go/v1 (credential OPENCODE_GO_API_KEY, models discover)
+dsh-llm-opencode-go: provider "opencode-go" ready at https://opencode.ai/inference/go/v1 (split endpoints, credential OPENCODE_GO_API_KEY, models discover)
 ```
 
 ### 2. 提供密钥

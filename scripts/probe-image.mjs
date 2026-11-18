@@ -30,6 +30,7 @@ import { readFile } from 'node:fs/promises'
 import { fileURLToPath } from 'node:url'
 import { dirname, isAbsolute, join } from 'node:path'
 
+import { DEFAULT_BASE_URL, inferenceBase } from '../lib/config.js'
 import { dataUrlFactory, anthropicSourceFactory, ImageResolver } from '../lib/model/images.js'
 import { toChatMessages, toResponsesInput, toAnthropicMessages } from '../lib/transform/messages.js'
 
@@ -39,7 +40,7 @@ if (KEY === undefined || KEY === '') {
   process.exit(1)
 }
 
-const BASE = process.env.OC_BASE ?? 'https://opencode.ai/zen/go/v1'
+const BASE = process.env.OC_BASE ?? DEFAULT_BASE_URL
 const MODEL = process.env.OC_MODEL ?? 'deepseek-v4.1-flash'
 const ROOT = dirname(dirname(fileURLToPath(import.meta.url)))
 const IMAGE = process.env.OC_IMAGE ?? join(ROOT, '.live-cache', 'probe-image.png')
@@ -91,8 +92,8 @@ const TOOL_BY_PROTOCOL = {
   anthropic: [{ name: 'read_image', description: 'Read an image file.', input_schema: READ_IMAGE_PARAMETERS }],
 }
 
-async function post(path, headers, body, label) {
-  const response = await fetch(`${BASE}${path}`, { method: 'POST', headers, body: JSON.stringify(body) })
+async function post(protocol, path, headers, body, label) {
+  const response = await fetch(`${inferenceBase(BASE, protocol)}${path}`, { method: 'POST', headers, body: JSON.stringify(body) })
   const text = await response.text()
   if (response.status !== 200) {
     console.log(`FAIL ${label} -> HTTP ${response.status} ${text.slice(0, 220)}`)
@@ -110,7 +111,7 @@ const session = { 'x-opencode-session': 'probe-image-session', accept: 'text/eve
 const json = { 'content-type': 'application/json', authorization: `Bearer ${KEY}` }
 
 for (const [where, messages, tools] of [['user turn', DIRECT, undefined], ['tool result', VIA_TOOL, TOOL_BY_PROTOCOL.chat]]) {
-  await post('/chat/completions', { ...session, ...json }, {
+  await post('chat-completions', '/chat/completions', { ...session, ...json }, {
     model: MODEL,
     stream: true,
     messages: await toChatMessages({ messages, images: true, imagePart: imageUrl, replayReasoning: false }),
@@ -120,7 +121,7 @@ for (const [where, messages, tools] of [['user turn', DIRECT, undefined], ['tool
 }
 
 for (const [where, messages, tools] of [['user turn', DIRECT, undefined], ['tool result', VIA_TOOL, TOOL_BY_PROTOCOL.responses]]) {
-  await post('/responses', { ...session, ...json }, {
+  await post('responses', '/responses', { ...session, ...json }, {
     model: MODEL,
     stream: true,
     input: await toResponsesInput({ messages, images: true, imagePart: imageUrl }),
@@ -131,7 +132,7 @@ for (const [where, messages, tools] of [['user turn', DIRECT, undefined], ['tool
 
 for (const [where, messages, tools] of [['user turn', DIRECT, undefined], ['tool result', VIA_TOOL, TOOL_BY_PROTOCOL.anthropic]]) {
   const wire = await toAnthropicMessages({ messages, images: true, imagePart: imageSource, replayReasoning: false, signatures: {} })
-  await post('/messages', { ...session, 'content-type': 'application/json', 'x-api-key': KEY, 'anthropic-version': '2023-06-01' }, {
+  await post('anthropic', '/messages', { ...session, 'content-type': 'application/json', 'x-api-key': KEY, 'anthropic-version': '2023-06-01' }, {
     model: MODEL,
     stream: true,
     max_tokens: 1024,

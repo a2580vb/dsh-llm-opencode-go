@@ -250,6 +250,19 @@ export default {
       },
     },
     {
+      name: 'the attempt record names the endpoint it posted to',
+      async run() {
+        const path = scratch.path('endpoint')
+        const { adapter, diagnostics } = adapterWith([{ error: fetchFailed('ECONNRESET') }], { path })
+        await drain(adapter)
+        await diagnostics.flush()
+        const [record] = await readRecords(path)
+        // The derived URL, not the bare base: a wrong path and a wrong host are
+        // answered differently, so the line has to say which one was sent.
+        is(record.endpoint, 'https://relay.test/v1/chat/completions')
+      },
+    },
+    {
       name: 'a stream that dies halfway is logged as a stream failure, with what it had read',
       async run() {
         const path = scratch.path('stream')

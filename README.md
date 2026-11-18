@@ -4,11 +4,11 @@
 
 [![npm version](https://img.shields.io/npm/v/dsh-llm-opencode-go)](https://www.npmjs.com/package/dsh-llm-opencode-go)
 [![npm downloads](https://img.shields.io/npm/dm/dsh-llm-opencode-go)](https://www.npmjs.com/package/dsh-llm-opencode-go)
-[![offline checks](https://img.shields.io/badge/offline_checks-554-brightgreen)](docs/development.md#verification)
+[![offline checks](https://img.shields.io/badge/offline_checks-567-brightgreen)](docs/development.md#verification)
 [![ci](https://github.com/a2580vb/dsh-llm-opencode-go/actions/workflows/ci.yml/badge.svg)](https://github.com/a2580vb/dsh-llm-opencode-go/actions/workflows/ci.yml)
 [![license](https://img.shields.io/badge/license-MIT-blue)](LICENSE)
 
-A DeepSeek Harness (DSH) plugin that serves **OpenCode Go** (`https://opencode.ai/zen/go/v1`) as a native model provider. The plugin implements the service's three wire protocols itself: requests translate harness messages, tools and reasoning into the protocol's shape, and responses stream back as DSH `StreamChunk` values. Node.js ≥ 20; no runtime dependencies.
+A DeepSeek Harness (DSH) plugin that serves **OpenCode Go** (`https://opencode.ai/inference/go/v1`) as a native model provider. The plugin implements the service's three wire protocols itself: requests translate harness messages, tools and reasoning into the protocol's shape, and responses stream back as DSH `StreamChunk` values. Node.js ≥ 20; no runtime dependencies.
 
 ![The usage panel in the DSH web client: the subscription's three windows above this route's counters, with the quota capsule at the sidebar's foot](https://raw.githubusercontent.com/a2580vb/dsh-llm-opencode-go/main/assets/screenshot-1-app.png)
 
@@ -47,7 +47,7 @@ dsh plugin add dsh-llm-opencode-go
 Bundle layers are read at startup, so fully restart the profile after installing. The startup log should carry:
 
 ```
-dsh-llm-opencode-go: provider "opencode-go" ready at https://opencode.ai/zen/go/v1 (credential OPENCODE_GO_API_KEY, models discover)
+dsh-llm-opencode-go: provider "opencode-go" ready at https://opencode.ai/inference/go/v1 (split endpoints, credential OPENCODE_GO_API_KEY, models discover)
 ```
 
 ### 2. Provide a key

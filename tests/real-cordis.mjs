@@ -21,6 +21,7 @@ import { mkdirSync, openSync, readFileSync, readSync, closeSync, writeFileSync, 
 import { tmpdir } from 'node:os'
 import { dirname, join } from 'node:path'
 import { fileURLToPath, pathToFileURL } from 'node:url'
+import { DEFAULT_BASE_URL } from '../lib/config.js'
 import { dayKey } from '../lib/usage/store.js'
 
 const PLUGIN = dirname(dirname(fileURLToPath(import.meta.url)))
@@ -474,7 +475,7 @@ const DIAGNOSTICS_PATH = join(CACHE, 'diagnostics', `${USAGE_RUN}.jsonl`)
   mkdirSync(dirname(modelsPath), { recursive: true })
   writeFileSync(modelsPath, JSON.stringify({
     version: 1,
-    baseURL: 'https://opencode.ai/zen/go/v1',
+    baseURL: DEFAULT_BASE_URL,
     fetchedAt: Date.now(),
     ids: [{ id: 'glm-5.3' }],
   }))
@@ -509,7 +510,7 @@ const DIAGNOSTICS_PATH = join(CACHE, 'diagnostics', `${USAGE_RUN}.jsonl`)
       'the page state names the route, the endpoint, and the credential reference',
       payload.route?.provider === 'opencode-go'
         && payload.route?.apiKeyEnv === 'OC_TEST_KEY'
-        && payload.route?.baseURL === 'https://opencode.ai/zen/go/v1',
+        && payload.route?.baseURL === DEFAULT_BASE_URL,
       JSON.stringify(payload.route),
     )
     check(

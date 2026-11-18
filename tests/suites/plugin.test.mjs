@@ -11,7 +11,7 @@
 import { mkdir, writeFile } from 'node:fs/promises'
 import { dirname } from 'node:path'
 
-import { Config, resolveConfig } from '../../lib/config.js'
+import { DEFAULT_BASE_URL, LEGACY_BASE_URL, Config, resolveConfig } from '../../lib/config.js'
 import { DiagnosticsLog } from '../../lib/diagnostics/log.js'
 import { LlmError } from '../../lib/error/errors.js'
 import { OpenCodeGoAdapter, apply, runHealthCheck } from '../../lib/index.js'
@@ -405,7 +405,69 @@ export default {
         const rendered = line.args.map((arg) => String(arg)).join(' ')
         ok(rendered.includes('my-route'), 'the route is named')
         ok(rendered.includes('MY_KEY'), 'the credential reference is named')
-        ok(rendered.includes('opencode.ai/zen/go/v1'), 'the endpoint is named')
+        ok(rendered.includes('opencode.ai/inference/go/v1'), 'the endpoint is named')
+      },
+    },
+    {
+      name: 'the startup log names the endpoint layout the base selects',
+      run() {
+        const { ctx, state } = fakeContext()
+        apply(ctx, {})
+        const line = state.logs.find((entry) => entry.level === 'info' && String(entry.args[0]).includes('ready'))
+        ok(line !== undefined, 'the readiness line was logged')
+        // The fake logger keeps the format string and its arguments apart, so
+        // the layout is asserted as the argument it is.
+        ok(line.args.includes('split'), `the layout is named: ${line.args.join(' ')}`)
+        ok(line.args.includes(DEFAULT_BASE_URL), 'the documented base is the default')
+      },
+    },
+    {
+      name: 'the legacy base is warned about, and the route still registers',
+      run() {
+        const { ctx, state } = fakeContext()
+        apply(ctx, { baseURL: LEGACY_BASE_URL })
+        const warnings = state.logs.filter((entry) => entry.level === 'warn')
+        ok(
+          warnings.some((entry) => entry.args.map(String).join(' ').includes('legacy unified base')),
+          'the legacy base is called out',
+        )
+        is(state.registered.length, 1, 'the route is registered anyway')
+      },
+    },
+    {
+      name: 'a self-hosted base is reported as non-default, not as legacy',
+      run() {
+        const { ctx, state } = fakeContext()
+        apply(ctx, { baseURL: 'https://gateway.example.test/v1' })
+        const rendered = state.logs.map((entry) => `${entry.level} ${entry.args.map(String).join(' ')}`).join('\n')
+        ok(rendered.includes('other than the OpenCode Go default'), 'the non-default base is reported')
+        ok(!rendered.includes('legacy'), 'it is not called legacy')
+      },
+    },
+    {
+      name: 'the health report names the layout and every protocol endpoint',
+      async run() {
+        // A stand-in adapter: the report is what this case is about, and it
+        // reads only these four methods off the adapter.
+        const adapter = {
+          checkCredential: async () => {},
+          listModels: async () => [],
+          catalogSource: () => 'config',
+          resolveModel: async () => ({ context: { contextWindow: 100_000 } }),
+        }
+        const report = await runHealthCheck(adapter, resolveConfig({}), {
+          info() {},
+          warn() {},
+          debug() {},
+          error() {},
+        })
+        is(report.endpointLayout, 'split')
+        equal(report.endpoints, {
+          responses: 'https://opencode.ai/inference/go/openai/v1/responses',
+          'chat-completions': 'https://opencode.ai/inference/go/openai/v1/chat/completions',
+          anthropic: 'https://opencode.ai/inference/go/anthropic/v1/messages',
+        })
+        is(report.ok, true, 'the stand-in answers every step')
       },
     },
     {

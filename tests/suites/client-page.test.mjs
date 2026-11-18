@@ -32,7 +32,13 @@ const CATALOG = {
 }
 const STATE = {
   ok: true,
-  route: { provider: 'opencode-go', baseURL: 'https://opencode.ai/zen/go/v1', apiKeyEnv: 'OPENCODE_GO_API_KEY' },
+  route: {
+    provider: 'opencode-go',
+    baseURL: 'https://opencode.ai/inference/go/v1',
+    endpointLayout: 'split',
+    legacyBase: false,
+    apiKeyEnv: 'OPENCODE_GO_API_KEY',
+  },
   credential: { configured: true, source: 'store', writable: true, removable: true },
   environment: { key: 'OPENCODE_GO_API_KEY', present: false },
   config: {
@@ -587,6 +593,64 @@ export default {
         // depends on the Host guessing what it meant.
         equal(windowsAsked(page.calls), [7])
         is(page.calls.some((call) => call.path.includes('refresh=1')), false)
+      },
+    },
+    {
+      name: 'the connection facts name the endpoint layout the base selects',
+      async run() {
+        const page = await renderPage({ fetch: host() })
+        const tree = await page.open()
+        const connection = find(tree, (node) => node.type === 'section' && text(node).includes('Connection'))
+        ok(text(connection).includes('per-API paths'), `the layout is printed: ${text(connection)}`)
+        is(text(connection).includes('legacy'), false, 'the default base is not labelled legacy')
+      },
+    },
+    {
+      name: 'a legacy base is labelled and explained, and a silent host is named as such',
+      async run() {
+        const legacyPage = await renderPage({
+          fetch: host({
+            state: {
+              body: {
+                ...structuredClone(STATE),
+                route: {
+                  ...STATE.route,
+                  baseURL: 'https://opencode.ai/zen/go/v1',
+                  endpointLayout: 'unified',
+                  legacyBase: true,
+                },
+              },
+            },
+          }),
+        })
+        const legacy = find(
+          await legacyPage.open(),
+          (node) => node.type === 'section' && text(node).includes('Connection'),
+        )
+        ok(text(legacy).includes('legacy'), `the legacy base is labelled: ${text(legacy)}`)
+        ok(text(legacy).includes('Set the configured baseURL'), 'the way back is named')
+
+        // An older Host does not report the layout at all. The page says so
+        // rather than leaving a value that never arrives looking like a load.
+        const oldPage = await renderPage({
+          fetch: host({
+            state: {
+              body: {
+                ...structuredClone(STATE),
+                route: {
+                  provider: 'opencode-go',
+                  baseURL: 'https://relay.test/v1',
+                  apiKeyEnv: 'OPENCODE_GO_API_KEY',
+                },
+              },
+            },
+          }),
+        })
+        const older = find(
+          await oldPage.open(),
+          (node) => node.type === 'section' && text(node).includes('Connection'),
+        )
+        ok(text(older).includes('not reported'), `an older Host is described: ${text(older)}`)
       },
     },
     {

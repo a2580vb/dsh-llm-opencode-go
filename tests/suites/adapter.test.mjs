@@ -12,7 +12,7 @@ import { setTimeout as sleep } from 'node:timers/promises'
 
 import { BlockAssembler } from '@deepseek-ai/dsh-llm'
 
-import { PROTOCOLS, resolveConfig } from '../../lib/config.js'
+import { DEFAULT_BASE_URL, LEGACY_BASE_URL, PROTOCOLS, resolveConfig } from '../../lib/config.js'
 import * as adapterModule from '../../lib/index.js'
 import { ModelCache } from '../../lib/model/cache.js'
 import { createSessionState } from '../../lib/session/headers.js'
@@ -431,6 +431,15 @@ const RESPONSES_BODY = sse([
   },
 ])
 
+const MESSAGES_BODY = sse([
+  { event: 'message_start', data: { type: 'message_start', message: { id: 'm1', usage: { input_tokens: 1 } } } },
+  { event: 'content_block_start', data: { type: 'content_block_start', index: 0, content_block: { type: 'text', text: '' } } },
+  { event: 'content_block_delta', data: { type: 'content_block_delta', index: 0, delta: { type: 'text_delta', text: 'hi' } } },
+  { event: 'content_block_stop', data: { type: 'content_block_stop', index: 0 } },
+  { event: 'message_delta', data: { type: 'message_delta', delta: { stop_reason: 'end_turn' }, usage: { output_tokens: 1 } } },
+  { event: 'message_stop', data: { type: 'message_stop' } },
+])
+
 export default {
   name: 'adapter',
   cases: scratch.withCleanup([
@@ -451,6 +460,69 @@ export default {
         const agent = headers.get('user-agent')
         ok(agent.startsWith('dsh-opencode-go/'), `the plugin leads the User-Agent: ${agent}`)
         is(fetch.requests[0].url, 'https://relay.test/v1/chat/completions')
+      },
+    },
+    {
+      name: 'each protocol posts to the endpoint the documented base derives',
+      async run() {
+        const { adapter, fetch } = adapterWith(
+          [{ body: CHAT_BODY }, { body: RESPONSES_BODY }, { body: MESSAGES_BODY }],
+          { config: { baseURL: DEFAULT_BASE_URL } },
+        )
+        // One model per preferred protocol, so the three derivations are
+        // observed as the adapter sends them rather than only as a pure
+        // function's answer.
+        for (const model of ['glm-5.3', 'gpt-5.6-luna', 'minimax-m3']) {
+          await collect(adapter, { provider: 'opencode-go', model, messages: [userMessage('hi')] })
+        }
+        equal(fetch.requests.map((request) => request.url), [
+          'https://opencode.ai/inference/go/openai/v1/chat/completions',
+          'https://opencode.ai/inference/go/openai/v1/responses',
+          'https://opencode.ai/inference/go/anthropic/v1/messages',
+        ])
+      },
+    },
+    {
+      name: 'an explicit legacy base keeps the unified URL the protocols had',
+      async run() {
+        const { adapter, fetch } = adapterWith(
+          [{ body: CHAT_BODY }, { body: RESPONSES_BODY }, { body: MESSAGES_BODY }],
+          { config: { baseURL: LEGACY_BASE_URL } },
+        )
+        for (const model of ['glm-5.3', 'gpt-5.6-luna', 'minimax-m3']) {
+          await collect(adapter, { provider: 'opencode-go', model, messages: [userMessage('hi')] })
+        }
+        equal(fetch.requests.map((request) => request.url), [
+          'https://opencode.ai/zen/go/v1/chat/completions',
+          'https://opencode.ai/zen/go/v1/responses',
+          'https://opencode.ai/zen/go/v1/messages',
+        ])
+      },
+    },
+    {
+      name: 'a model whose row declares only Google fails with the missing transport named',
+      async run() {
+        const googleOnly = JSON.stringify({
+          object: 'list',
+          data: [{
+            id: 'google-only-model',
+            object: 'model',
+            created: 0,
+            owned_by: 'opencode',
+            api: ['generate-content'],
+          }],
+        })
+        const refused = protocolUnsupported('google-only-model')
+        const { adapter, fetch } = adapterWith(
+          [refused, refused, refused],
+          { discovery: [{ body: googleOnly }] },
+        )
+        const error = await rejectsWithCode(
+          collect(adapter, { provider: 'opencode-go', model: 'google-only-model', messages: [userMessage('hi')] }),
+          'PROTOCOL_UNSUPPORTED',
+        )
+        ok(String(error.message).includes('generate-content'), `the missing transport is named: ${error.message}`)
+        is(fetch.requests.length, 3, 'all three protocols were tried before the answer')
       },
     },
     {

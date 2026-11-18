@@ -13,8 +13,14 @@
  * a protocol refusal. Failures are printed per model; the exit status stays zero
  * unless the `/models` request itself fails.
  *
+ * Each request's base is derived the way the adapter derives it, so a probe of
+ * the hosted service measures the same endpoints a call would use; `OC_BASE`
+ * still overrides the root, which is what makes the legacy layout probeable.
+ *
  *   OC_KEY=oc_sk_... node scripts/probe-protocols.mjs [model ...]
  */
+
+import { DEFAULT_BASE_URL, inferenceBase } from '../lib/config.js'
 
 const KEY = process.env.OC_KEY
 if (KEY === undefined || KEY === '') {
@@ -22,12 +28,12 @@ if (KEY === undefined || KEY === '') {
   process.exit(1)
 }
 
-const BASE = process.env.OC_BASE ?? 'https://opencode.ai/zen/go/v1'
+const BASE = process.env.OC_BASE ?? DEFAULT_BASE_URL
 const HEADERS = { 'content-type': 'application/json', 'x-opencode-session': 'probe-protocols', accept: 'text/event-stream' }
 
 const PROBES = {
   'chat-completions': async (model) => {
-    const response = await fetch(`${BASE}/chat/completions`, {
+    const response = await fetch(`${inferenceBase(BASE, 'chat-completions')}/chat/completions`, {
       method: 'POST',
       headers: { ...HEADERS, authorization: `Bearer ${KEY}` },
       // The relay validates minimum output lengths per model family; `8` is
@@ -37,7 +43,7 @@ const PROBES = {
     return describe(response, await response.text())
   },
   responses: async (model) => {
-    const response = await fetch(`${BASE}/responses`, {
+    const response = await fetch(`${inferenceBase(BASE, 'responses')}/responses`, {
       method: 'POST',
       headers: { ...HEADERS, authorization: `Bearer ${KEY}` },
       body: JSON.stringify({ model, stream: true, max_output_tokens: 32, input: [{ role: 'user', content: [{ type: 'input_text', text: 'Reply with: OK' }] }] }),
@@ -45,7 +51,7 @@ const PROBES = {
     return describe(response, await response.text())
   },
   anthropic: async (model) => {
-    const response = await fetch(`${BASE}/messages`, {
+    const response = await fetch(`${inferenceBase(BASE, 'anthropic')}/messages`, {
       method: 'POST',
       headers: { ...HEADERS, 'x-api-key': KEY, 'anthropic-version': '2023-06-01' },
       body: JSON.stringify({ model, stream: true, max_tokens: 32, messages: [{ role: 'user', content: [{ type: 'text', text: 'Reply with: OK' }] }] }),
