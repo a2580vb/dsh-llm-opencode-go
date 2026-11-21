@@ -4,6 +4,24 @@
 
 Every released version has a section here, and that section is what its GitHub release page carries. The newest release comes first.
 
+## 0.3.0 — 2026-11-21
+
+### Added
+
+- **The endpoint layout is reported.** The connection row names `per-API paths` or `unified root` and labels the legacy base; the startup line, the health report and the diagnostics log name the layout and the endpoint each attempt posted to.
+- **An upgrade notice explains the move.** It is shown once, only to an install that ran an earlier version and now posts to the per-API layout; a fresh install and a deployment on the legacy base see nothing, and closing it is final for the install.
+
+### Changed
+
+- **The default base is `https://opencode.ai/inference/go/v1`.** Chat Completions and Responses post under `/openai/v1`, Messages under `/anthropic/v1`, while `GET /models` and `GET /usage` still append to the base.
+- **Any other base keeps the unified layout.** A self-hosted gateway is addressed exactly as before, and setting `https://opencode.ai/zen/go/v1` restores the previous endpoint set byte for byte, with a startup warning naming it legacy.
+- **The probes and the live suite derive their URLs from the same rule.** They no longer carry a second copy of the paths, so a measurement describes the endpoints a call would use.
+
+### Fixed
+
+- **The capsule switch no longer draws a rule below itself.** The card holds one row, so the hairline that separates rows sat in the card's bottom padding, under the hint; the row keeps its spacing and the line is gone.
+- 597 offline checks, up from 554.
+
 ## 0.2.6 — 2026-11-18
 
 ### Added
