@@ -1653,6 +1653,68 @@ export default {
       },
     },
     {
+      name: 'an image request carries the target shape the attachment seam validates',
+      async run() {
+        const config = { config: { modelSource: 'config', models: [{ id: 'sees', input: ['text', 'image'] }] } }
+        const targets = []
+        /** The current seam's own target check: the byte fields must be positive integers. */
+        const readImageRequest = async (_reference, target) => {
+          targets.push(target)
+          for (const field of ['width', 'height', 'maxImageBytes', 'imageTargetBytes']) {
+            const value = target?.[field]
+            if (!Number.isSafeInteger(value) || value <= 0) {
+              throw Object.assign(
+                new Error(`Image request ${field} must be a positive integer.`),
+                { code: 'INVALID_ATTACHMENT_REF' },
+              )
+            }
+          }
+          if (target.imageTargetBytes > target.maxImageBytes) {
+            throw Object.assign(
+              new Error('Image request imageTargetBytes must not exceed maxImageBytes.'),
+              { code: 'INVALID_ATTACHMENT_REF' },
+            )
+          }
+          return { data: new Uint8Array([1, 2, 3, 4]), mediaType: 'image/png', width: 2, height: 2 }
+        }
+        const big = {
+          type: 'image',
+          attachment: { ...IMAGE_BLOCK.attachment, attachmentId: 'att-big', width: 4000, height: 3000 },
+        }
+        const small = {
+          type: 'image',
+          attachment: { ...IMAGE_BLOCK.attachment, attachmentId: 'att-small', width: 300, height: 200 },
+        }
+        const { adapter, fetch } = adapterWith([{ body: CHAT_BODY }], {
+          ...config,
+          attachments: { readImageRequest },
+        })
+        await collect(adapter, {
+          provider: 'opencode-go',
+          model: 'sees',
+          messages: [{ role: 'user', content: [{ type: 'text', text: 'look' }, big, small] }],
+        })
+        is(fetch.requests.length, 1, 'the request reached the wire')
+        is(targets.length, 2, 'the seam was asked once per image')
+        // The route's cap bounds a large source; a small one keeps its own size
+        // so a picture is never enlarged.
+        is(targets[0].width, 2048)
+        is(targets[0].height, 2048)
+        is(targets[1].width, 300)
+        is(targets[1].height, 200)
+        ok(
+          targets[0].imageTargetBytes <= targets[0].maxImageBytes,
+          'the preferred encoded size never exceeds the hard limit',
+        )
+        // Older seams read this pair; supplying both lets either generation serve images.
+        is(targets[0].maxBytes, targets[0].maxImageBytes)
+        ok(
+          targets[0].maxPixels >= targets[0].width * targets[0].height,
+          'the older pixel budget still covers the route dimensions',
+        )
+      },
+    },
+    {
       name: 'sendImages always without an attachment seam is a content refusal',
       async run() {
         const config = {
