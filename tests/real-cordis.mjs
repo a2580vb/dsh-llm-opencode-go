@@ -85,7 +85,10 @@ function extractBundledPackages() {
   const headerBuf = Buffer.alloc(headerSize)
   readSync(fd, headerBuf, 0, headerSize, 16)
   const header = JSON.parse(headerBuf.toString('utf8'))
-  const baseOffset = 16 + headerSize
+  // The header string is padded with NUL bytes to a 4-byte boundary, and the
+  // offsets the header records count from that aligned start; reading from the
+  // end of the JSON instead shifts every extracted file by the padding length.
+  const baseOffset = Math.ceil((16 + headerSize) / 4) * 4
 
   const SCOPED = 'dsh/node_modules/@deepseek-ai/'
   const files = []
