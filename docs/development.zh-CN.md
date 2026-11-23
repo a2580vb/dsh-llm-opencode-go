@@ -8,7 +8,7 @@
 
 | | |
 |---|---|
-| **版本** | 0.3.0（包名 `dsh-llm-opencode-go`） |
+| **版本** | 0.3.1（包名 `dsh-llm-opencode-go`） |
 | **协议映射** | 每个模型一个首选入口，取自 live 的 `api` 映射并经过实测，写在 `lib/model/catalog.js` |
 | **容量、模态与思考阶梯** | 读自 live 的 `GET /models` 行；`lib/model/limits.js` 里的 `models.dev` 快照是兜底，日期记在 `CAPABILITY_SOURCE`（当前为 `models.dev/opencode-go@2026-11-08`） |
 | **已知限制** | 见[可靠性](reliability.zh-CN.md#限制)与[模型](models.zh-CN.md) |
@@ -78,8 +78,8 @@ workflow 本身也在被检查，由 `ci` 套件负责。除此之外没有任�
 
 ```sh
 node scripts/release.mjs version          # package.json 里的版本
-node scripts/release.mjs check-tag v0.3.0 # 标签所指的版本，或一次拒绝
-node scripts/release.mjs notes 0.3.0      # 那段更新日志，作为发布说明正文
+node scripts/release.mjs check-tag v0.3.1 # 标签所指的版本，或一次拒绝
+node scripts/release.mjs notes 0.3.1      # 那段更新日志，作为发布说明正文
 ```
 
 其中要紧的是 `check-tag`：标签是唯一一个由人输入、而不是由 manifest 声明的版本，因此也是唯一一个可能错得没别的东西能发现的地方。它拒绝任何不是 `v<版本>` 的标签——从分支发起的 dispatch 拿到的 ref 名会是 `main` 这种——也拒绝版本与 `package.json` 不一致的标签，因为那意味着标签打在了错误的提交上。

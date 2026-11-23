@@ -4,6 +4,13 @@
 
 Every released version has a section here, and that section is what its GitHub release page carries. The newest release comes first.
 
+## 0.3.1 — 2026-11-24
+
+### Fixed
+
+- **Image input works again on a current harness.** A turn carrying an image no longer fails with `INVALID_ATTACHMENT_REF` before the request is sent; nothing needs configuring, and the same build also serves older harnesses.
+- 598 offline checks, up from 597.
+
 ## 0.3.0 — 2026-11-21
 
 ### Added
